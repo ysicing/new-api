@@ -102,12 +102,12 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 	username := c.GetString("username")
 	otherStr := common.MapToJsonStr(other)
 	// 判断是否需要记录 IP
-	needRecordIp := false
-	if settingMap, err := GetUserSetting(userId, false); err == nil {
-		if settingMap.RecordIpLog {
-			needRecordIp = true
-		}
-	}
+	needRecordIp := true
+	// if settingMap, err := GetUserSetting(userId, false); err == nil {
+	// 	if settingMap.RecordIpLog {
+	// 		needRecordIp = true
+	// 	}
+	// }
 	log := &Log{
 		UserId:           userId,
 		Username:         username,
@@ -161,12 +161,12 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	username := c.GetString("username")
 	otherStr := common.MapToJsonStr(params.Other)
 	// 判断是否需要记录 IP
-	needRecordIp := false
-	if settingMap, err := GetUserSetting(userId, false); err == nil {
-		if settingMap.RecordIpLog {
-			needRecordIp = true
-		}
-	}
+	needRecordIp := true
+	// if settingMap, err := GetUserSetting(userId, false); err == nil {
+	// 	if settingMap.RecordIpLog {
+	// 		needRecordIp = true
+	// 	}
+	// }
 	log := &Log{
 		UserId:           userId,
 		Username:         username,
@@ -385,6 +385,59 @@ func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	}
 	tx.Where("type = ?", LogTypeConsume).Scan(&token)
 	return token
+}
+
+type UserQuotaStat struct {
+	Username       string `json:"username"`
+	RemainingQuota int    `json:"remaining_quota"`
+	TotalQuota     int    `json:"total_quota"`
+	UsedQuota      int    `json:"used_quota"`
+}
+
+func GetTopUsers(startTimestamp int64, endTimestamp int64, modelName string, channel int, group string, limit int) ([]UserQuotaStat, error) {
+	// 限制limit范围
+	if limit <= 0 {
+		limit = 10
+	} else if limit > 30 {
+		limit = 30
+	}
+
+	// 限制查询时间范围最多30天
+	if startTimestamp > 0 && endTimestamp > 0 {
+		maxDuration := int64(30 * 24 * 60 * 60) // 30天
+		if endTimestamp-startTimestamp > maxDuration {
+			startTimestamp = endTimestamp - maxDuration
+		}
+	}
+
+	tx := LOG_DB.Table("logs").
+		Select("logs.username, MAX(users.quota) as total_quota, MAX(users.quota - users.used_quota) as remaining_quota, sum(logs.quota) as used_quota").
+		Joins("inner join users on users.username = logs.username").
+		Where("logs.type = ?", LogTypeConsume)
+
+	if startTimestamp != 0 {
+		tx = tx.Where("logs.created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("logs.created_at <= ?", endTimestamp)
+	}
+	if modelName != "" {
+		tx = tx.Where("logs.model_name like ?", modelName)
+	}
+	if channel != 0 {
+		tx = tx.Where("logs.channel_id = ?", channel)
+	}
+	if group != "" {
+		tx = tx.Where("logs."+logGroupCol+" = ?", group)
+	}
+
+	var results []UserQuotaStat
+	err := tx.Group("logs.username").
+		Order("used_quota desc").
+		Limit(limit).
+		Scan(&results).Error
+
+	return results, err
 }
 
 func DeleteOldLog(ctx context.Context, targetTimestamp int64, limit int) (int64, error) {
