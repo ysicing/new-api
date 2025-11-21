@@ -146,13 +146,6 @@ const Stats = () => {
       <Card>
         <Title heading={3}>{t('Top用户统计')}</Title>
 
-        <Banner
-          type='info'
-          description={t('统计时间范围最多30天，默认查询今天数据（00:00:00至当前时间）')}
-          closeIcon={null}
-          style={{ marginTop: 10, marginBottom: 20 }}
-        />
-
         <Form layout='horizontal' style={{ marginBottom: 20 }}>
           <Space>
             <DatePicker
