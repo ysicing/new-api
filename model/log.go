@@ -411,8 +411,8 @@ func GetTopUsers(startTimestamp int64, endTimestamp int64, modelName string, cha
 	}
 
 	tx := LOG_DB.Table("logs").
-		Select("logs.username, MAX(users.quota) as remaining_quota, MAX(users.quota + users.used_quota) as total_quota, sum(logs.quota) as used_quota").
-		Joins("inner join users on users.username = logs.username").
+		Select("users.username, MAX(users.quota) as remaining_quota, MAX(users.quota + users.used_quota) as total_quota, sum(logs.quota) as used_quota").
+		Joins("inner join users on users.id = logs.user_id").
 		Where("logs.type = ?", LogTypeConsume)
 
 	if startTimestamp != 0 {
@@ -432,7 +432,7 @@ func GetTopUsers(startTimestamp int64, endTimestamp int64, modelName string, cha
 	}
 
 	var results []UserQuotaStat
-	err := tx.Group("logs.username").
+	err := tx.Group("logs.user_id").
 		Order("used_quota desc").
 		Limit(limit).
 		Scan(&results).Error
