@@ -146,6 +146,30 @@ func GetLogsSelfStat(c *gin.Context) {
 	return
 }
 
+func GetTopUsers(c *gin.Context) {
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	modelName := c.Query("model_name")
+	channel, _ := strconv.Atoi(c.Query("channel"))
+	group := c.Query("group")
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit <= 0 {
+		limit = 10
+	}
+
+	topUsers, err := model.GetTopUsers(startTimestamp, endTimestamp, modelName, channel, group, limit)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    topUsers,
+	})
+}
+
 func DeleteHistoryLogs(c *gin.Context) {
 	targetTimestamp, _ := strconv.ParseInt(c.Query("target_timestamp"), 10, 64)
 	if targetTimestamp == 0 {
@@ -165,5 +189,4 @@ func DeleteHistoryLogs(c *gin.Context) {
 		"message": "",
 		"data":    count,
 	})
-	return
 }

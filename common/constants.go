@@ -105,6 +105,12 @@ var AutomaticEnableChannelEnabled = false
 var QuotaRemindThreshold = 1000
 var PreConsumedQuota = 500
 
+// Auto Recharge Settings
+var AutoRechargeEnabled = true // 是否启用自动充值（默认启用）
+var AutoRechargeInterval = 30    // 自动充值检查间隔（单位：分钟）
+var AutoRechargeThreshold = 50  // 触发自动充值的阈值（额度小于此值时触发）
+var AutoRechargeAmount = 200    // 自动充值的金额
+
 var RetryTimes = 0
 
 //var RootUserEmail = ""
