@@ -1,0 +1,167 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+import React, { useEffect, useState } from 'react';
+import { Card, Table, Button, DatePicker, Form, Typography, Space, Spin, Banner } from '@douyinfe/semi-ui';
+import { useTopUsersData } from '../../hooks/stats/useTopUsersData';
+import { useTranslation } from 'react-i18next';
+import { renderQuota } from '../../helpers/render';
+
+const { Title } = Typography;
+
+const Stats = () => {
+  const { t } = useTranslation();
+  const {
+    loading,
+    topUsers,
+    startTimestamp,
+    endTimestamp,
+    limit,
+    setStartTimestamp,
+    setEndTimestamp,
+    setLimit,
+    fetchTopUsers,
+  } = useTopUsersData();
+
+  const [dateRange, setDateRange] = useState([]);
+
+  useEffect(() => {
+    // 默认查询最近7天
+    const now = Math.floor(Date.now() / 1000);
+    const sevenDaysAgo = now - 7 * 24 * 60 * 60;
+    setStartTimestamp(sevenDaysAgo);
+    setEndTimestamp(now);
+    setDateRange([new Date(sevenDaysAgo * 1000), new Date(now * 1000)]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleDateChange = (dateRange) => {
+    if (dateRange && dateRange[0] && dateRange[1]) {
+      const start = Math.floor(dateRange[0].getTime() / 1000);
+      const end = Math.floor(dateRange[1].getTime() / 1000);
+
+      // 限制最多30天
+      const maxDuration = 30 * 24 * 60 * 60;
+      if (end - start > maxDuration) {
+        // 自动调整为最近30天
+        setStartTimestamp(end - maxDuration);
+        setEndTimestamp(end);
+        setDateRange([new Date((end - maxDuration) * 1000), new Date(end * 1000)]);
+      } else {
+        setStartTimestamp(start);
+        setEndTimestamp(end);
+        setDateRange(dateRange);
+      }
+    }
+  };
+
+  const columns = [
+    {
+      title: t('排名'),
+      dataIndex: 'rank',
+      key: 'rank',
+      width: 80,
+      render: (text, record, index) => index + 1,
+    },
+    {
+      title: t('用户名'),
+      dataIndex: 'username',
+      key: 'username',
+      width: 180,
+    },
+    {
+      title: t('剩余额度'),
+      dataIndex: 'remaining_quota',
+      key: 'remaining_quota',
+      width: 140,
+      render: (quota) => renderQuota(quota),
+    },
+    {
+      title: t('总额度'),
+      dataIndex: 'total_quota',
+      key: 'total_quota',
+      width: 140,
+      render: (quota) => renderQuota(quota),
+    },
+    {
+      title: t('时间范围内使用额度'),
+      dataIndex: 'used_quota',
+      key: 'used_quota',
+      width: 180,
+      render: (quota) => renderQuota(quota),
+    },
+  ];
+
+  return (
+    <div className='mt-[60px] px-2'>
+      <Card>
+        <Title heading={3}>{t('Top用户统计')}</Title>
+
+        <Banner
+          type='info'
+          description={t('统计时间范围最多30天，默认查询最近7天数据')}
+          closeIcon={null}
+          style={{ marginTop: 10, marginBottom: 20 }}
+        />
+
+        <Form layout='horizontal' style={{ marginBottom: 20 }}>
+          <Space>
+            <DatePicker
+              type='dateTimeRange'
+              density='compact'
+              placeholder={[t('开始时间'), t('结束时间')]}
+              value={dateRange}
+              onChange={handleDateChange}
+              style={{ width: 350 }}
+            />
+
+            <Form.Select
+              field='limit'
+              label={t('显示数量')}
+              initValue={10}
+              style={{ width: 150 }}
+              value={limit}
+              onChange={(value) => setLimit(value)}
+            >
+              <Form.Select.Option value={10}>Top 10</Form.Select.Option>
+              <Form.Select.Option value={20}>Top 20</Form.Select.Option>
+              <Form.Select.Option value={30}>Top 30</Form.Select.Option>
+            </Form.Select>
+
+            <Button type='primary' onClick={fetchTopUsers} loading={loading}>
+              {t('查询')}
+            </Button>
+          </Space>
+        </Form>
+
+        <Spin spinning={loading}>
+          <Table
+            columns={columns}
+            dataSource={topUsers}
+            pagination={false}
+            rowKey={(record) => record.username}
+            empty={t('暂无数据')}
+          />
+        </Spin>
+      </Card>
+    </div>
+  );
+};
+
+export default Stats;
