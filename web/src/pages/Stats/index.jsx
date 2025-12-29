@@ -42,12 +42,15 @@ const Stats = () => {
   const [dateRange, setDateRange] = useState([]);
 
   useEffect(() => {
-    // 默认查询最近7天
-    const now = Math.floor(Date.now() / 1000);
-    const sevenDaysAgo = now - 7 * 24 * 60 * 60;
-    setStartTimestamp(sevenDaysAgo);
-    setEndTimestamp(now);
-    setDateRange([new Date(sevenDaysAgo * 1000), new Date(now * 1000)]);
+    // 默认查询今天的数据（从00:00:00到当前时间）
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const startTimestampInSeconds = Math.floor(todayStart.getTime() / 1000);
+    const endTimestampInSeconds = Math.floor(now.getTime() / 1000);
+
+    setStartTimestamp(startTimestampInSeconds);
+    setEndTimestamp(endTimestampInSeconds);
+    setDateRange([todayStart, now]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -145,7 +148,7 @@ const Stats = () => {
 
         <Banner
           type='info'
-          description={t('统计时间范围最多30天，默认查询最近7天数据')}
+          description={t('统计时间范围最多30天，默认查询今天数据（00:00:00至当前时间）')}
           closeIcon={null}
           style={{ marginTop: 10, marginBottom: 20 }}
         />
