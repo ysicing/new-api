@@ -1400,6 +1400,7 @@
     "来源于 IO.NET 部署": "From IO.NET Deployment",
     "来自模型重定向，尚未加入模型列表": "From model redirect, not yet added to the model list",
     "某些配置更改可能需要几分钟才能生效。": "Some configuration changes may take a few minutes to take effect.",
+    "统计时间范围最多30天，默认查询今天数据": "Statistics time range is up to 30 days, default query today's data",
     "查看": "Check",
     "查看关联部署": "View Associated Deployment",
     "查看图片": "View pictures",
