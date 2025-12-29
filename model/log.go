@@ -411,7 +411,7 @@ func GetTopUsers(startTimestamp int64, endTimestamp int64, modelName string, cha
 	}
 
 	tx := LOG_DB.Table("logs").
-		Select("logs.username, MAX(users.quota) as total_quota, MAX(users.quota - users.used_quota) as remaining_quota, sum(logs.quota) as used_quota").
+		Select("logs.username, MAX(users.quota) as remaining_quota, MAX(users.quota + users.used_quota) as total_quota, sum(logs.quota) as used_quota").
 		Joins("inner join users on users.username = logs.username").
 		Where("logs.type = ?", LogTypeConsume)
 

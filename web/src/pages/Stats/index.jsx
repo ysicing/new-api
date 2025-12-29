@@ -18,12 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Button, DatePicker, Form, Typography, Space, Spin, Banner } from '@douyinfe/semi-ui';
+import { Card, Table, Button, DatePicker, Form, Typography, Space, Spin, Banner, Tag, Popover, Progress } from '@douyinfe/semi-ui';
 import { useTopUsersData } from '../../hooks/stats/useTopUsersData';
 import { useTranslation } from 'react-i18next';
 import { renderQuota } from '../../helpers/render';
 
-const { Title } = Typography;
+const { Title, Paragraph } = Typography;
 
 const Stats = () => {
   const { t } = useTranslation();
@@ -71,6 +71,44 @@ const Stats = () => {
     }
   };
 
+  // 渲染额度使用情况（类似用户管理页面）
+  const renderQuotaUsage = (text, record) => {
+    const remain = parseInt(record.remaining_quota) || 0;
+    const total = parseInt(record.total_quota) || 0;
+    const used = total - remain;
+    const percent = total > 0 ? (remain / total) * 100 : 0;
+
+    const popoverContent = (
+      <div className='text-xs p-2'>
+        <Paragraph copyable={{ content: renderQuota(used) }}>
+          {t('已用额度')}: {renderQuota(used)}
+        </Paragraph>
+        <Paragraph copyable={{ content: renderQuota(remain) }}>
+          {t('剩余额度')}: {renderQuota(remain)} ({percent.toFixed(0)}%)
+        </Paragraph>
+        <Paragraph copyable={{ content: renderQuota(total) }}>
+          {t('总额度')}: {renderQuota(total)}
+        </Paragraph>
+      </div>
+    );
+
+    return (
+      <Popover content={popoverContent} position='top'>
+        <Tag color='white' shape='circle'>
+          <div className='flex flex-col items-end'>
+            <span className='text-xs leading-none'>{`${renderQuota(remain)} / ${renderQuota(total)}`}</span>
+            <Progress
+              percent={percent}
+              aria-label='quota usage'
+              format={() => `${percent.toFixed(0)}%`}
+              style={{ width: '100%', marginTop: '1px', marginBottom: 0 }}
+            />
+          </div>
+        </Tag>
+      </Popover>
+    );
+  };
+
   const columns = [
     {
       title: t('排名'),
@@ -86,18 +124,10 @@ const Stats = () => {
       width: 180,
     },
     {
-      title: t('剩余额度'),
-      dataIndex: 'remaining_quota',
-      key: 'remaining_quota',
-      width: 140,
-      render: (quota) => renderQuota(quota),
-    },
-    {
-      title: t('总额度'),
-      dataIndex: 'total_quota',
-      key: 'total_quota',
-      width: 140,
-      render: (quota) => renderQuota(quota),
+      title: t('剩余额度/总额度'),
+      key: 'quota_usage',
+      width: 200,
+      render: (text, record) => renderQuotaUsage(text, record),
     },
     {
       title: t('时间范围内使用额度'),
