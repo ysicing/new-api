@@ -121,12 +121,6 @@ func InitEnv() {
 	CriticalRateLimitNum = GetEnvOrDefault("CRITICAL_RATE_LIMIT", 20)
 	CriticalRateLimitDuration = int64(GetEnvOrDefault("CRITICAL_RATE_LIMIT_DURATION", 20*60))
 
-	// Initialize auto recharge settings from environment variables
-	AutoRechargeEnabled = GetEnvOrDefaultBool("AUTO_RECHARGE_ENABLED", true)
-	AutoRechargeInterval = GetEnvOrDefault("AUTO_RECHARGE_INTERVAL", 30)
-	AutoRechargeThreshold = GetEnvOrDefault("AUTO_RECHARGE_THRESHOLD", 50)
-	AutoRechargeAmount = GetEnvOrDefault("AUTO_RECHARGE_AMOUNT", 200)
-
 	initConstantEnv()
 }
 

@@ -95,10 +95,8 @@ func main() {
 	// 数据看板
 	go model.UpdateQuotaData()
 
-	// 自动充值任务
-	if common.AutoRechargeEnabled {
-		go service.AutoRechargeTask()
-	}
+	// 自动充值任务（运行时通过配置控制启停）
+	go service.AutoRechargeTask()
 
 	if os.Getenv("CHANNEL_UPDATE_FREQUENCY") != "" {
 		frequency, err := strconv.Atoi(os.Getenv("CHANNEL_UPDATE_FREQUENCY"))

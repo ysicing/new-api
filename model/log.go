@@ -89,6 +89,16 @@ func RecordLog(userId int, logType int, content string) {
 	}
 }
 
+// CountAutoRechargeLogs 统计用户在指定时间范围内的自动充值次数
+func CountAutoRechargeLogs(userId int, sinceTimestamp int64) (int64, error) {
+	var count int64
+	err := LOG_DB.Model(&Log{}).
+		Where("user_id = ? AND type = ? AND content LIKE ? AND created_at >= ?",
+			userId, LogTypeSystem, "系统自动赠送%", sinceTimestamp).
+		Count(&count).Error
+	return count, err
+}
+
 func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeSeconds int,
 	isStream bool, group string, other map[string]interface{}) {
 	logger.LogInfo(c, fmt.Sprintf("record error log: userId=%d, channelId=%d, modelName=%s, tokenName=%s, content=%s", userId, channelId, modelName, tokenName, content))
