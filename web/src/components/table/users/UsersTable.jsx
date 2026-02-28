@@ -118,6 +118,10 @@ const UsersTable = (usersData) => {
     setShowEnableDisableModal(false);
   };
 
+  const handleRechargeConfirm = (user) => {
+    manageUser(user.id, 'recharge_auto', user);
+  };
+
   const handleResetPasskeyConfirm = async () => {
     await resetUserPasskey(modalUser);
     setShowResetPasskeyModal(false);
@@ -141,6 +145,7 @@ const UsersTable = (usersData) => {
       showResetPasskeyModal: showResetPasskeyUserModal,
       showResetTwoFAModal: showResetTwoFAUserModal,
       showUserSubscriptionsModal: showUserSubscriptionsUserModal,
+      rechargeUser: handleRechargeConfirm,
     });
   }, [
     t,
@@ -153,6 +158,7 @@ const UsersTable = (usersData) => {
     showResetPasskeyUserModal,
     showResetTwoFAUserModal,
     showUserSubscriptionsUserModal,
+    handleRechargeConfirm,
   ]);
 
   // Handle compact mode by removing fixed positioning

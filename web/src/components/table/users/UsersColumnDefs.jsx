@@ -209,6 +209,7 @@ const renderOperations = (
     showResetPasskeyModal,
     showResetTwoFAModal,
     showUserSubscriptionsModal,
+    rechargeUser,
     t,
   },
 ) => {
@@ -277,6 +278,13 @@ const renderOperations = (
       <Button
         type='warning'
         size='small'
+        onClick={() => rechargeUser(record)}
+      >
+        {t('充值')}
+      </Button>
+      <Button
+        type='warning'
+        size='small'
         onClick={() => showPromoteModal(record)}
       >
         {t('提升')}
@@ -309,6 +317,7 @@ export const getUsersColumns = ({
   showResetPasskeyModal,
   showResetTwoFAModal,
   showUserSubscriptionsModal,
+  rechargeUser,
 }) => {
   return [
     {
@@ -366,6 +375,7 @@ export const getUsersColumns = ({
           showResetPasskeyModal,
           showResetTwoFAModal,
           showUserSubscriptionsModal,
+          rechargeUser,
           t,
         }),
     },
