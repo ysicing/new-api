@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Button, DatePicker, Form, Typography, Space, Spin, Banner, Tag, Popover, Progress } from '@douyinfe/semi-ui';
+import { Card, Table, Button, DatePicker, Form, Typography, Space, Spin, Banner, Tag, Popover, Progress, Tabs, TabPane } from '@douyinfe/semi-ui';
 import { useTopUsersData } from '../../hooks/stats/useTopUsersData';
 import { useRechargeLeaderboardData } from '../../hooks/stats/useRechargeLeaderboardData';
 import { useTranslation } from 'react-i18next';
@@ -163,107 +163,120 @@ const Stats = () => {
       title: t('用户名'),
       dataIndex: 'username',
       key: 'username',
-      width: 180,
+      width: 150,
+    },
+    {
+      title: t('剩余额度/总额度'),
+      key: 'quota_usage',
+      width: 200,
+      render: (text, record) => renderQuotaUsage(text, record),
+    },
+    {
+      title: t('本周使用额度'),
+      dataIndex: 'used_quota',
+      key: 'used_quota',
+      width: 150,
+      render: (quota) => renderQuota(quota),
     },
     {
       title: t('总充值次数'),
       dataIndex: 'total_count',
       key: 'total_count',
-      width: 120,
+      width: 110,
     },
     {
       title: t('自动充值次数'),
       dataIndex: 'auto_recharge_count',
       key: 'auto_recharge_count',
-      width: 130,
+      width: 120,
     },
     {
       title: t('临时额度次数'),
       dataIndex: 'temp_quota_count',
       key: 'temp_quota_count',
-      width: 130,
+      width: 120,
     },
   ];
 
   return (
     <div className='mt-[60px] px-2'>
       <Card>
-        <Title heading={3}>{t('Top用户统计')}</Title>
+        <Tabs type='line' defaultActiveKey='top_users'>
+          <TabPane tab={t('Top用户统计')} itemKey='top_users'>
+            <Form layout='horizontal' style={{ marginBottom: 20, marginTop: 16 }}>
+              <Space>
+                <DatePicker
+                  type='dateTimeRange'
+                  density='compact'
+                  placeholder={[t('开始时间'), t('结束时间')]}
+                  value={dateRange}
+                  onChange={handleDateChange}
+                  style={{ width: 350 }}
+                />
 
-        <Form layout='horizontal' style={{ marginBottom: 20 }}>
-          <Space>
-            <DatePicker
-              type='dateTimeRange'
-              density='compact'
-              placeholder={[t('开始时间'), t('结束时间')]}
-              value={dateRange}
-              onChange={handleDateChange}
-              style={{ width: 350 }}
-            />
+                <Form.Select
+                  field='limit'
+                  label={t('显示数量')}
+                  initValue={10}
+                  style={{ width: 150 }}
+                  value={limit}
+                  onChange={(value) => setLimit(value)}
+                >
+                  <Form.Select.Option value={10}>Top 10</Form.Select.Option>
+                  <Form.Select.Option value={20}>Top 20</Form.Select.Option>
+                  <Form.Select.Option value={30}>Top 30</Form.Select.Option>
+                </Form.Select>
 
-            <Form.Select
-              field='limit'
-              label={t('显示数量')}
-              initValue={10}
-              style={{ width: 150 }}
-              value={limit}
-              onChange={(value) => setLimit(value)}
-            >
-              <Form.Select.Option value={10}>Top 10</Form.Select.Option>
-              <Form.Select.Option value={20}>Top 20</Form.Select.Option>
-              <Form.Select.Option value={30}>Top 30</Form.Select.Option>
-            </Form.Select>
+                <Button type='primary' onClick={fetchTopUsers} loading={loading}>
+                  {t('查询')}
+                </Button>
+              </Space>
+            </Form>
 
-            <Button type='primary' onClick={fetchTopUsers} loading={loading}>
-              {t('查询')}
-            </Button>
-          </Space>
-        </Form>
+            <Spin spinning={loading}>
+              <Table
+                columns={columns}
+                dataSource={topUsers}
+                pagination={false}
+                rowKey={(record) => record.username}
+                empty={t('暂无数据')}
+              />
+            </Spin>
+          </TabPane>
 
-        <Spin spinning={loading}>
-          <Table
-            columns={columns}
-            dataSource={topUsers}
-            pagination={false}
-            rowKey={(record) => record.username}
-            empty={t('暂无数据')}
-          />
-        </Spin>
-      </Card>
+          <TabPane tab={t('本周充值排行榜')} itemKey='recharge_leaderboard'>
+            <Form layout='horizontal' style={{ marginBottom: 20, marginTop: 16 }}>
+              <Space>
+                <Form.Select
+                  field='rechargeLimit'
+                  label={t('显示数量')}
+                  initValue={10}
+                  style={{ width: 150 }}
+                  value={rechargeLimit}
+                  onChange={(value) => setRechargeLimit(value)}
+                >
+                  <Form.Select.Option value={10}>Top 10</Form.Select.Option>
+                  <Form.Select.Option value={20}>Top 20</Form.Select.Option>
+                  <Form.Select.Option value={30}>Top 30</Form.Select.Option>
+                </Form.Select>
 
-      <Card style={{ marginTop: 20 }}>
-        <Title heading={3}>{t('本周充值排行榜')}</Title>
+                <Button type='primary' onClick={fetchLeaderboard} loading={rechargeLoading}>
+                  {t('查询')}
+                </Button>
+              </Space>
+            </Form>
 
-        <Form layout='horizontal' style={{ marginBottom: 20 }}>
-          <Space>
-            <Form.Select
-              field='rechargeLimit'
-              label={t('显示数量')}
-              initValue={10}
-              style={{ width: 150 }}
-              value={rechargeLimit}
-              onChange={(value) => setRechargeLimit(value)}
-            >
-              <Form.Select.Option value={10}>Top 10</Form.Select.Option>
-              <Form.Select.Option value={20}>Top 20</Form.Select.Option>
-              <Form.Select.Option value={30}>Top 30</Form.Select.Option>
-            </Form.Select>
-
-            <Button type='primary' onClick={fetchLeaderboard} loading={rechargeLoading}>
-              {t('查询')}
-            </Button>
-          </Space>
-        </Form>
-
-        <Spin spinning={rechargeLoading}>
-          <Table
-            columns={rechargeColumns}
-            dataSource={leaderboard}
-            pagination={false}
-            rowKey={(record) => record.username}
-            empty={t('暂无数据')}
-          />
-        </Spin>
+            <Spin spinning={rechargeLoading}>
+              <Table
+                columns={rechargeColumns}
+                dataSource={leaderboard}
+                pagination={false}
+                rowKey={(record) => record.username}
+                empty={t('暂无数据')}
+              />
+            </Spin>
+          </TabPane>
+        </Tabs>
       </Card>
     </div>
   );

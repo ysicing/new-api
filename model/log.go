@@ -486,6 +486,9 @@ func DeleteOldLog(ctx context.Context, targetTimestamp int64, limit int) (int64,
 // UserRechargeStat 用户充值排行统计
 type UserRechargeStat struct {
 	Username          string `json:"username"`
+	RemainingQuota    int    `json:"remaining_quota"`
+	TotalQuota        int    `json:"total_quota"`
+	UsedQuota         int    `json:"used_quota"`
 	TotalCount        int    `json:"total_count"`
 	AutoRechargeCount int    `json:"auto_recharge_count"`
 	TempQuotaCount    int    `json:"temp_quota_count"`
@@ -506,9 +509,13 @@ func GetRechargeLeaderboard(limit int) ([]UserRechargeStat, error) {
 	}
 	weekStart := time.Date(now.Year(), now.Month(), now.Day()-weekday+1, 0, 0, 0, 0, now.Location()).Unix()
 
+	// 先查充值次数排行
 	var results []UserRechargeStat
 	err := LOG_DB.Table("logs").
-		Select(`users.username,
+		Select(`logs.user_id,
+			users.username,
+			users.quota as remaining_quota,
+			(users.quota + users.used_quota) as total_quota,
 			COUNT(*) as total_count,
 			SUM(CASE WHEN logs.type = ? AND logs.content LIKE ? THEN 1 ELSE 0 END) as auto_recharge_count,
 			SUM(CASE WHEN logs.type = ? AND logs.content LIKE ? THEN 1 ELSE 0 END) as temp_quota_count`,
@@ -522,6 +529,38 @@ func GetRechargeLeaderboard(limit int) ([]UserRechargeStat, error) {
 		Order("total_count DESC").
 		Limit(limit).
 		Scan(&results).Error
+	if err != nil {
+		return nil, err
+	}
 
-	return results, err
+	// 查本周使用额度
+	if len(results) > 0 {
+		usernames := make([]string, len(results))
+		for i, r := range results {
+			usernames[i] = r.Username
+		}
+
+		type usedStat struct {
+			Username  string
+			UsedQuota int
+		}
+		var usedStats []usedStat
+		LOG_DB.Table("logs").
+			Select("users.username, COALESCE(SUM(logs.quota), 0) as used_quota").
+			Joins("INNER JOIN users ON users.id = logs.user_id").
+			Where("logs.type = ? AND logs.created_at >= ? AND users.username IN ?",
+				LogTypeConsume, weekStart, usernames).
+			Group("logs.user_id").
+			Scan(&usedStats)
+
+		usedMap := make(map[string]int)
+		for _, s := range usedStats {
+			usedMap[s.Username] = s.UsedQuota
+		}
+		for i := range results {
+			results[i].UsedQuota = usedMap[results[i].Username]
+		}
+	}
+
+	return results, nil
 }
