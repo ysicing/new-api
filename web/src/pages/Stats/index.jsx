@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React, { useEffect, useState } from 'react';
 import { Card, Table, Button, DatePicker, Form, Typography, Space, Spin, Banner, Tag, Popover, Progress } from '@douyinfe/semi-ui';
 import { useTopUsersData } from '../../hooks/stats/useTopUsersData';
+import { useRechargeLeaderboardData } from '../../hooks/stats/useRechargeLeaderboardData';
 import { useTranslation } from 'react-i18next';
 import { renderQuota } from '../../helpers/render';
 
@@ -39,6 +40,14 @@ const Stats = () => {
     fetchTopUsers,
   } = useTopUsersData();
 
+  const {
+    loading: rechargeLoading,
+    leaderboard,
+    limit: rechargeLimit,
+    setLimit: setRechargeLimit,
+    fetchLeaderboard,
+  } = useRechargeLeaderboardData();
+
   const [dateRange, setDateRange] = useState([]);
 
   useEffect(() => {
@@ -51,6 +60,7 @@ const Stats = () => {
     setStartTimestamp(startTimestampInSeconds);
     setEndTimestamp(endTimestampInSeconds);
     setDateRange([todayStart, now]);
+    fetchLeaderboard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -141,6 +151,40 @@ const Stats = () => {
     },
   ];
 
+  const rechargeColumns = [
+    {
+      title: t('排名'),
+      dataIndex: 'rank',
+      key: 'rank',
+      width: 80,
+      render: (text, record, index) => index + 1,
+    },
+    {
+      title: t('用户名'),
+      dataIndex: 'username',
+      key: 'username',
+      width: 180,
+    },
+    {
+      title: t('总充值次数'),
+      dataIndex: 'total_count',
+      key: 'total_count',
+      width: 120,
+    },
+    {
+      title: t('自动充值次数'),
+      dataIndex: 'auto_recharge_count',
+      key: 'auto_recharge_count',
+      width: 130,
+    },
+    {
+      title: t('临时额度次数'),
+      dataIndex: 'temp_quota_count',
+      key: 'temp_quota_count',
+      width: 130,
+    },
+  ];
+
   return (
     <div className='mt-[60px] px-2'>
       <Card>
@@ -180,6 +224,41 @@ const Stats = () => {
           <Table
             columns={columns}
             dataSource={topUsers}
+            pagination={false}
+            rowKey={(record) => record.username}
+            empty={t('暂无数据')}
+          />
+        </Spin>
+      </Card>
+
+      <Card style={{ marginTop: 20 }}>
+        <Title heading={3}>{t('本周充值排行榜')}</Title>
+
+        <Form layout='horizontal' style={{ marginBottom: 20 }}>
+          <Space>
+            <Form.Select
+              field='rechargeLimit'
+              label={t('显示数量')}
+              initValue={10}
+              style={{ width: 150 }}
+              value={rechargeLimit}
+              onChange={(value) => setRechargeLimit(value)}
+            >
+              <Form.Select.Option value={10}>Top 10</Form.Select.Option>
+              <Form.Select.Option value={20}>Top 20</Form.Select.Option>
+              <Form.Select.Option value={30}>Top 30</Form.Select.Option>
+            </Form.Select>
+
+            <Button type='primary' onClick={fetchLeaderboard} loading={rechargeLoading}>
+              {t('查询')}
+            </Button>
+          </Space>
+        </Form>
+
+        <Spin spinning={rechargeLoading}>
+          <Table
+            columns={rechargeColumns}
+            dataSource={leaderboard}
             pagination={false}
             rowKey={(record) => record.username}
             empty={t('暂无数据')}

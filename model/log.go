@@ -482,3 +482,46 @@ func DeleteOldLog(ctx context.Context, targetTimestamp int64, limit int) (int64,
 
 	return total, nil
 }
+
+// UserRechargeStat 用户充值排行统计
+type UserRechargeStat struct {
+	Username          string `json:"username"`
+	TotalCount        int    `json:"total_count"`
+	AutoRechargeCount int    `json:"auto_recharge_count"`
+	TempQuotaCount    int    `json:"temp_quota_count"`
+}
+
+// GetRechargeLeaderboard 查询本周自动充值次数和临时额度赠送次数排行
+func GetRechargeLeaderboard(limit int) ([]UserRechargeStat, error) {
+	if limit <= 0 {
+		limit = 10
+	} else if limit > 30 {
+		limit = 30
+	}
+
+	now := time.Now()
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	weekStart := time.Date(now.Year(), now.Month(), now.Day()-weekday+1, 0, 0, 0, 0, now.Location()).Unix()
+
+	var results []UserRechargeStat
+	err := LOG_DB.Table("logs").
+		Select(`users.username,
+			COUNT(*) as total_count,
+			SUM(CASE WHEN logs.type = ? AND logs.content LIKE ? THEN 1 ELSE 0 END) as auto_recharge_count,
+			SUM(CASE WHEN logs.type = ? AND logs.content LIKE ? THEN 1 ELSE 0 END) as temp_quota_count`,
+			LogTypeSystem, "系统自动赠送%",
+			LogTypeManage, "%临时额度").
+		Joins("INNER JOIN users ON users.id = logs.user_id").
+		Where("logs.created_at >= ?", weekStart).
+		Where("(logs.type = ? AND logs.content LIKE ?) OR (logs.type = ? AND logs.content LIKE ?)",
+			LogTypeSystem, "系统自动赠送%", LogTypeManage, "%临时额度").
+		Group("logs.user_id").
+		Order("total_count DESC").
+		Limit(limit).
+		Scan(&results).Error
+
+	return results, err
+}
