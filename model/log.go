@@ -485,6 +485,7 @@ func DeleteOldLog(ctx context.Context, targetTimestamp int64, limit int) (int64,
 
 // UserRechargeStat 用户充值排行统计
 type UserRechargeStat struct {
+	UserId            int    `json:"user_id"`
 	Username          string `json:"username"`
 	RemainingQuota    int    `json:"remaining_quota"`
 	TotalQuota        int    `json:"total_quota"`
@@ -512,7 +513,7 @@ func GetRechargeLeaderboard(limit int) ([]UserRechargeStat, error) {
 	// 先查充值次数排行
 	var results []UserRechargeStat
 	err := LOG_DB.Table("logs").
-		Select(`logs.user_id,
+		Select(`logs.user_id as user_id,
 			users.username,
 			users.quota as remaining_quota,
 			(users.quota + users.used_quota) as total_quota,

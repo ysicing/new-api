@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Button, DatePicker, Form, Typography, Space, Spin, Banner, Tag, Popover, Progress, Tabs, TabPane } from '@douyinfe/semi-ui';
+import { Card, Table, Button, DatePicker, Form, Typography, Space, Spin, Tag, Popover, Progress, Tabs, TabPane, Popconfirm } from '@douyinfe/semi-ui';
 import { useTopUsersData } from '../../hooks/stats/useTopUsersData';
 import { useRechargeLeaderboardData } from '../../hooks/stats/useRechargeLeaderboardData';
 import { useTranslation } from 'react-i18next';
@@ -43,9 +43,11 @@ const Stats = () => {
   const {
     loading: rechargeLoading,
     leaderboard,
+    weeklyLimit,
     limit: rechargeLimit,
     setLimit: setRechargeLimit,
     fetchLeaderboard,
+    rechargeUser,
   } = useRechargeLeaderboardData();
 
   const [dateRange, setDateRange] = useState([]);
@@ -195,6 +197,24 @@ const Stats = () => {
       dataIndex: 'temp_quota_count',
       key: 'temp_quota_count',
       width: 120,
+    },
+    {
+      title: t('操作'),
+      key: 'action',
+      width: 100,
+      render: (text, record) => {
+        if (weeklyLimit <= 0 || record.total_count < weeklyLimit) return null;
+        return (
+          <Popconfirm
+            title={t('确定要给该用户充值吗？')}
+            onConfirm={() => rechargeUser(record.user_id)}
+          >
+            <Button type='warning' size='small'>
+              {t('充值')}
+            </Button>
+          </Popconfirm>
+        );
+      },
     },
   ];
 

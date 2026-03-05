@@ -1308,6 +1308,7 @@
     "总充值次数": "Total Recharge Count",
     "自动充值次数": "Auto Recharge Count",
     "临时额度次数": "Temp Quota Grant Count",
+    "确定要给该用户充值吗？": "Are you sure you want to recharge this user?",
     "暂无数据": "No data",
     "暂无数据，点击下方按钮添加键值对": "No data, click the button below to add key-value pairs",
     "暂无日志": "No logs",

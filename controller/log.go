@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
 )
@@ -205,9 +206,13 @@ func GetRechargeLeaderboard(c *gin.Context) {
 		return
 	}
 
+	cfg := operation_setting.GetAutoRechargeSetting()
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    results,
+		"data": gin.H{
+			"list":         results,
+			"weekly_limit": cfg.WeeklyLimit,
+		},
 	})
 }
