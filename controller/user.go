@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/QuantumNous/new-api/constant"
 
@@ -843,10 +844,22 @@ type ManageRequest struct {
 	Action string `json:"action"`
 }
 
+func getManageRechargeQuotaAmount() (int, error) {
+	cfgAmount := operation_setting.GetAutoRechargeSetting().Amount
+	if cfgAmount <= 0 {
+		return 0, errors.New("自动充值金额未配置或小于等于0")
+	}
+	return int(float64(cfgAmount) * common.QuotaPerUnit), nil
+}
+
+func formatAdminTempQuotaLog(adminID int, amountQuota int) string {
+	return fmt.Sprintf("管理员(ID:%d)添加%s临时额度", adminID, logger.LogQuota(amountQuota))
+}
+
 // ManageUser Only admin user can do this
 func ManageUser(c *gin.Context) {
 	var req ManageRequest
-	err := json.NewDecoder(c.Request.Body).Decode(&req)
+	err := common.DecodeJson(c.Request.Body, &req)
 
 	if err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
@@ -907,6 +920,31 @@ func ManageUser(c *gin.Context) {
 			return
 		}
 		user.Role = common.RoleCommonUser
+	case "recharge_auto":
+		amountQuota, err := getManageRechargeQuotaAmount()
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if err := model.IncreaseUserQuota(user.Id, amountQuota, true); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		adminID := c.GetInt("id")
+		model.RecordLog(user.Id, model.LogTypeManage, formatAdminTempQuotaLog(adminID, amountQuota))
+		newQuota, err := model.GetUserQuota(user.Id, true)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "",
+			"data": gin.H{
+				"quota": newQuota,
+			},
+		})
+		return
 	}
 
 	if err := user.Update(false); err != nil {

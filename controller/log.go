@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
 )
@@ -146,6 +147,45 @@ func GetLogsSelfStat(c *gin.Context) {
 		},
 	})
 	return
+}
+
+func GetTopUsers(c *gin.Context) {
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	modelName := c.Query("model_name")
+	channel, _ := strconv.Atoi(c.Query("channel"))
+	group := c.Query("group")
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit <= 0 {
+		limit = 10
+	}
+
+	topUsers, err := model.GetTopUsers(startTimestamp, endTimestamp, modelName, channel, group, limit)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	common.ApiSuccess(c, topUsers)
+}
+
+func GetRechargeLeaderboard(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit <= 0 {
+		limit = 10
+	}
+
+	results, err := model.GetRechargeLeaderboard(limit)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	cfg := operation_setting.GetAutoRechargeSetting()
+	common.ApiSuccess(c, gin.H{
+		"list":         results,
+		"weekly_limit": cfg.WeeklyLimit,
+	})
 }
 
 func DeleteHistoryLogs(c *gin.Context) {
