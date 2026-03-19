@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -18,11 +19,11 @@ import (
 
 type Log struct {
 	Id               int    `json:"id" gorm:"index:idx_created_at_id,priority:1;index:idx_user_id_id,priority:2"`
-	UserId           int    `json:"user_id" gorm:"index;index:idx_user_id_id,priority:1"`
-	CreatedAt        int64  `json:"created_at" gorm:"bigint;index:idx_created_at_id,priority:2;index:idx_created_at_type"`
-	Type             int    `json:"type" gorm:"index:idx_created_at_type"`
+	UserId           int    `json:"user_id" gorm:"index;index:idx_user_id_id,priority:1;index:idx_logs_type_created_at_user_id,priority:3;index:idx_logs_user_id_type_created_at_id,priority:1;index:idx_logs_user_id_created_at_id,priority:1"`
+	CreatedAt        int64  `json:"created_at" gorm:"bigint;index:idx_created_at_id,priority:2;index:idx_created_at_type;index:idx_logs_type_created_at_user_id,priority:2;index:idx_logs_user_id_type_created_at_id,priority:3;index:idx_logs_username_type_created_at_id,priority:3;index:idx_logs_user_id_created_at_id,priority:2;index:idx_logs_username_created_at_id,priority:2"`
+	Type             int    `json:"type" gorm:"index:idx_created_at_type;index:idx_logs_type_created_at_user_id,priority:1;index:idx_logs_user_id_type_created_at_id,priority:2;index:idx_logs_username_type_created_at_id,priority:2"`
 	Content          string `json:"content"`
-	Username         string `json:"username" gorm:"index;index:index_username_model_name,priority:2;default:''"`
+	Username         string `json:"username" gorm:"index;index:index_username_model_name,priority:2;index:idx_logs_username_type_created_at_id,priority:1;index:idx_logs_username_created_at_id,priority:1;default:''"`
 	TokenName        string `json:"token_name" gorm:"index;default:''"`
 	ModelName        string `json:"model_name" gorm:"index;index:index_username_model_name,priority:1;default:''"`
 	Quota            int    `json:"quota" gorm:"default:0"`
@@ -70,6 +71,15 @@ func GetLogByTokenId(tokenId int) (logs []*Log, err error) {
 	err = LOG_DB.Model(&Log{}).Where("token_id = ?", tokenId).Order("id desc").Limit(common.MaxRecentItems).Find(&logs).Error
 	formatUserLogs(logs, 0)
 	return logs, err
+}
+
+func CountAutoRechargeLogs(userId int, sinceTimestamp int64) (int64, error) {
+	var count int64
+	err := LOG_DB.Model(&Log{}).
+		Where("user_id = ? AND type = ? AND content LIKE ? AND created_at >= ?",
+			userId, LogTypeSystem, "系统自动赠送%", sinceTimestamp).
+		Count(&count).Error
+	return count, err
 }
 
 func RecordLog(userId int, logType int, content string) {
@@ -432,6 +442,57 @@ type Stat struct {
 	Tpm   int `json:"tpm"`
 }
 
+type UserQuotaStat struct {
+	UserId         int    `json:"user_id"`
+	Username       string `json:"username"`
+	RemainingQuota int    `json:"remaining_quota"`
+	TotalQuota     int    `json:"total_quota"`
+	UsedQuota      int    `json:"used_quota"`
+}
+
+func GetTopUsers(startTimestamp int64, endTimestamp int64, modelName string, channel int, group string, limit int) ([]UserQuotaStat, error) {
+	if limit <= 0 {
+		limit = 10
+	} else if limit > 30 {
+		limit = 30
+	}
+	if startTimestamp > 0 && endTimestamp > 0 {
+		maxDuration := int64(30 * 24 * 60 * 60)
+		if endTimestamp-startTimestamp > maxDuration {
+			startTimestamp = endTimestamp - maxDuration
+		}
+	}
+
+	tx := LOG_DB.Table("logs").
+		Select("logs.user_id, users.username, MAX(users.quota) as remaining_quota, MAX(users.quota + users.used_quota) as total_quota, SUM(logs.quota) as used_quota").
+		Joins("inner join users on users.id = logs.user_id").
+		Where("logs.type = ?", LogTypeConsume)
+
+	if startTimestamp != 0 {
+		tx = tx.Where("logs.created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("logs.created_at <= ?", endTimestamp)
+	}
+	if modelName != "" {
+		tx = tx.Where("logs.model_name like ?", modelName)
+	}
+	if channel != 0 {
+		tx = tx.Where("logs.channel_id = ?", channel)
+	}
+	if group != "" {
+		tx = tx.Where("logs."+logGroupCol+" = ?", group)
+	}
+
+	var results []UserQuotaStat
+	err := tx.Group("logs.user_id, users.username").
+		Order("used_quota desc").
+		Limit(limit).
+		Scan(&results).Error
+
+	return results, err
+}
+
 func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
 	tx := LOG_DB.Table("logs").Select("sum(quota) quota")
 
@@ -530,4 +591,190 @@ func DeleteOldLog(ctx context.Context, targetTimestamp int64, limit int) (int64,
 	}
 
 	return total, nil
+}
+
+type UserRechargeStat struct {
+	UserId            int    `json:"user_id"`
+	Username          string `json:"username"`
+	RemainingQuota    int    `json:"remaining_quota"`
+	TotalQuota        int    `json:"total_quota"`
+	UsedQuota         int    `json:"used_quota"`
+	TotalCount        int    `json:"total_count"`
+	AutoRechargeCount int    `json:"auto_recharge_count"`
+	TempQuotaCount    int    `json:"temp_quota_count"`
+}
+
+func GetRechargeLeaderboard(limit int) ([]UserRechargeStat, error) {
+	if limit <= 0 {
+		limit = 10
+	} else if limit > 30 {
+		limit = 30
+	}
+
+	now := time.Now()
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	weekStart := time.Date(now.Year(), now.Month(), now.Day()-weekday+1, 0, 0, 0, 0, now.Location()).Unix()
+
+	type statRow struct {
+		UserId int
+		Count  int
+	}
+
+	autoMap := make(map[int]int)
+	tempMap := make(map[int]int)
+	totalMap := make(map[int]int)
+	candidateUserSet := make(map[int]struct{})
+
+	var autoRows []statRow
+	err := LOG_DB.Table("logs").
+		Select("logs.user_id, COUNT(*) as count").
+		Where("logs.created_at >= ?", weekStart).
+		Where("logs.type = ? AND logs.content LIKE ?", LogTypeSystem, "系统自动赠送%").
+		Group("logs.user_id").
+		Scan(&autoRows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range autoRows {
+		autoMap[row.UserId] = row.Count
+		totalMap[row.UserId] += row.Count
+		candidateUserSet[row.UserId] = struct{}{}
+	}
+
+	var tempRows []statRow
+	err = LOG_DB.Table("logs").
+		Select("logs.user_id, COUNT(*) as count").
+		Where("logs.created_at >= ?", weekStart).
+		Where("logs.type = ? AND logs.content LIKE ?", LogTypeManage, "%临时额度").
+		Group("logs.user_id").
+		Scan(&tempRows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range tempRows {
+		tempMap[row.UserId] = row.Count
+		totalMap[row.UserId] += row.Count
+		candidateUserSet[row.UserId] = struct{}{}
+	}
+
+	if len(totalMap) == 0 {
+		return []UserRechargeStat{}, nil
+	}
+
+	type candidate struct {
+		UserId     int
+		TotalCount int
+	}
+	candidates := make([]candidate, 0, len(totalMap))
+	for userId := range candidateUserSet {
+		candidates = append(candidates, candidate{UserId: userId, TotalCount: totalMap[userId]})
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].TotalCount == candidates[j].TotalCount {
+			return candidates[i].UserId < candidates[j].UserId
+		}
+		return candidates[i].TotalCount > candidates[j].TotalCount
+	})
+
+	type userInfo struct {
+		Id             int
+		Username       string
+		RemainingQuota int
+		TotalQuota     int
+	}
+
+	selectedCandidates := make([]candidate, 0, limit)
+	userMap := make(map[int]userInfo, limit)
+	batchSize := limit * 4
+	if batchSize < 64 {
+		batchSize = 64
+	}
+
+	for start := 0; start < len(candidates) && len(selectedCandidates) < limit; start += batchSize {
+		end := start + batchSize
+		if end > len(candidates) {
+			end = len(candidates)
+		}
+		batch := candidates[start:end]
+
+		batchUserIds := make([]int, 0, len(batch))
+		for _, c := range batch {
+			batchUserIds = append(batchUserIds, c.UserId)
+		}
+
+		var users []userInfo
+		err = LOG_DB.Table("users").
+			Select("id, username, quota as remaining_quota, (quota + used_quota) as total_quota").
+			Where("id IN ?", batchUserIds).
+			Scan(&users).Error
+		if err != nil {
+			return nil, err
+		}
+
+		batchUserMap := make(map[int]struct{}, len(users))
+		for _, u := range users {
+			batchUserMap[u.Id] = struct{}{}
+			userMap[u.Id] = u
+		}
+
+		for _, c := range batch {
+			if _, ok := batchUserMap[c.UserId]; ok {
+				selectedCandidates = append(selectedCandidates, c)
+				if len(selectedCandidates) >= limit {
+					break
+				}
+			}
+		}
+	}
+
+	if len(selectedCandidates) == 0 {
+		return []UserRechargeStat{}, nil
+	}
+
+	userIds := make([]int, 0, len(selectedCandidates))
+	for _, c := range selectedCandidates {
+		userIds = append(userIds, c.UserId)
+	}
+
+	type usedStat struct {
+		UserId    int
+		UsedQuota int
+	}
+	var usedStats []usedStat
+	err = LOG_DB.Table("logs").
+		Select("logs.user_id, COALESCE(SUM(logs.quota), 0) as used_quota").
+		Where("logs.type = ? AND logs.created_at >= ? AND logs.user_id IN ?", LogTypeConsume, weekStart, userIds).
+		Group("logs.user_id").
+		Scan(&usedStats).Error
+	if err != nil {
+		return nil, err
+	}
+
+	usedMap := make(map[int]int, len(usedStats))
+	for _, s := range usedStats {
+		usedMap[s.UserId] = s.UsedQuota
+	}
+
+	results := make([]UserRechargeStat, 0, len(selectedCandidates))
+	for _, c := range selectedCandidates {
+		u, ok := userMap[c.UserId]
+		if !ok {
+			continue
+		}
+		results = append(results, UserRechargeStat{
+			UserId:            c.UserId,
+			Username:          u.Username,
+			RemainingQuota:    u.RemainingQuota,
+			TotalQuota:        u.TotalQuota,
+			UsedQuota:         usedMap[c.UserId],
+			TotalCount:        c.TotalCount,
+			AutoRechargeCount: autoMap[c.UserId],
+			TempQuotaCount:    tempMap[c.UserId],
+		})
+	}
+
+	return results, nil
 }

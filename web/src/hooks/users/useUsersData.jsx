@@ -133,6 +133,11 @@ export const useUsersData = () => {
     const { success, message } = res.data;
     if (success) {
       showSuccess(t('操作成功完成！'));
+      if (action === 'recharge_auto') {
+        await refresh();
+        setLoading(false);
+        return;
+      }
       const user = res.data.data;
 
       // Create a new array and new object to ensure React detects changes

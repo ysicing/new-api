@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React from 'react';
 import {
   Button,
+  Popconfirm,
   Space,
   Tag,
   Tooltip,
@@ -216,6 +217,7 @@ const renderOperations = (
     showResetPasskeyModal,
     showResetTwoFAModal,
     showUserSubscriptionsModal,
+    rechargeUser,
     t,
   },
 ) => {
@@ -288,6 +290,14 @@ const renderOperations = (
       >
         {t('提升')}
       </Button>
+      <Popconfirm
+        title={t('确定要给该用户充值吗？')}
+        onConfirm={() => rechargeUser(record.id, 'recharge_auto', record)}
+      >
+        <Button type='primary' size='small'>
+          {t('充值')}
+        </Button>
+      </Popconfirm>
       <Button
         type='secondary'
         size='small'
@@ -316,6 +326,7 @@ export const getUsersColumns = ({
   showResetPasskeyModal,
   showResetTwoFAModal,
   showUserSubscriptionsModal,
+  rechargeUser,
 }) => {
   return [
     {
@@ -383,6 +394,7 @@ export const getUsersColumns = ({
           showResetPasskeyModal,
           showResetTwoFAModal,
           showUserSubscriptionsModal,
+          rechargeUser,
           t,
         }),
     },
