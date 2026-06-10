@@ -21,6 +21,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   API,
+  isRoot,
   showError,
   showSuccess,
   renderQuota,
@@ -78,6 +79,8 @@ const EditUserModal = (props) => {
   const [inputs, setInputs] = useState(null);
 
   const isEdit = Boolean(userId);
+  const canEditQuota = isRoot();
+  const quotaEditTip = t('子管理员请使用充值功能调整额度');
 
   const getInitValues = () => ({
     username: '',
@@ -168,9 +171,17 @@ const EditUserModal = (props) => {
 
   /* --------------------- atomic quota adjust -------------------- */
   const adjustQuota = async () => {
+    if (!canEditQuota) {
+      showError(quotaEditTip);
+      return;
+    }
     const quotaVal = parseInt(adjustQuotaLocal) || 0;
     if (quotaVal <= 0 && adjustMode !== 'override') return;
-    if (adjustMode === 'override' && (adjustQuotaLocal === '' || adjustQuotaLocal == null)) return;
+    if (
+      adjustMode === 'override' &&
+      (adjustQuotaLocal === '' || adjustQuotaLocal == null)
+    )
+      return;
     setAdjustLoading(true);
     try {
       const res = await API.post('/api/user/manage', {
@@ -384,10 +395,16 @@ const EditUserModal = (props) => {
                         <Form.Slot label={t('调整额度')}>
                           <Button
                             icon={<IconEdit />}
+                            disabled={!canEditQuota}
                             onClick={() => setAdjustModalOpen(true)}
                           >
                             {t('调整额度')}
                           </Button>
+                          {!canEditQuota && (
+                            <div className='text-xs text-gray-500 mt-1'>
+                              {quotaEditTip}
+                            </div>
+                          )}
                         </Form.Slot>
                       </Col>
 
