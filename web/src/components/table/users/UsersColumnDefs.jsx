@@ -31,6 +31,7 @@ import {
 } from '@douyinfe/semi-ui';
 import { IconMore } from '@douyinfe/semi-icons';
 import {
+  isRoot,
   renderGroup,
   renderNumber,
   renderQuota,
@@ -225,6 +226,9 @@ const renderOperations = (
     return <></>;
   }
 
+  const canToggleStatus =
+    record.role !== 100 && (isRoot() || record.role < 10);
+
   const moreMenu = [
     {
       node: 'item',
@@ -257,21 +261,25 @@ const renderOperations = (
 
   return (
     <Space>
-      {record.status === 1 ? (
-        <Button
-          type='danger'
-          size='small'
-          onClick={() => showEnableDisableModal(record, 'disable')}
-        >
-          {t('禁用')}
-        </Button>
-      ) : (
-        <Button
-          size='small'
-          onClick={() => showEnableDisableModal(record, 'enable')}
-        >
-          {t('启用')}
-        </Button>
+      {canToggleStatus && (
+        <>
+          {record.status === 1 ? (
+            <Button
+              type='danger'
+              size='small'
+              onClick={() => showEnableDisableModal(record, 'disable')}
+            >
+              {t('禁用')}
+            </Button>
+          ) : (
+            <Button
+              size='small'
+              onClick={() => showEnableDisableModal(record, 'enable')}
+            >
+              {t('启用')}
+            </Button>
+          )}
+        </>
       )}
       <Button
         type='tertiary'
