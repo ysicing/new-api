@@ -123,3 +123,41 @@ func TestManageUserAdminCannotDisableAdmin(t *testing.T) {
 		t.Fatalf("expected target admin to remain enabled, got status %d", updated.Status)
 	}
 }
+
+func TestUpdateUserAdminCannotEditQuota(t *testing.T) {
+	db := setupUserManageTestDB(t)
+	target := &model.User{
+		Username: "target-user",
+		Password: "password",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+		Quota:    100,
+		Group:    "default",
+	}
+	if err := db.Create(target).Error; err != nil {
+		t.Fatalf("failed to create target user: %v", err)
+	}
+
+	ctx, recorder := newManageUserContext(t, model.User{
+		Id:       target.Id,
+		Username: target.Username,
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+		Quota:    200,
+		Group:    "default",
+	}, common.RoleAdminUser, 99)
+	UpdateUser(ctx)
+
+	response := decodeManageUserResponse(t, recorder)
+	if response.Success {
+		t.Fatalf("expected admin editing quota to fail")
+	}
+
+	var updated model.User
+	if err := db.First(&updated, target.Id).Error; err != nil {
+		t.Fatalf("failed to reload target user: %v", err)
+	}
+	if updated.Quota != target.Quota {
+		t.Fatalf("expected target quota to remain %d, got %d", target.Quota, updated.Quota)
+	}
+}

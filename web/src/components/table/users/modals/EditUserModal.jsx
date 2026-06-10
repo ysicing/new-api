@@ -21,6 +21,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   API,
+  isRoot,
   showError,
   showSuccess,
   renderQuota,
@@ -69,9 +70,12 @@ const EditUserModal = (props) => {
   const isMobile = useIsMobile();
   const [groupOptions, setGroupOptions] = useState([]);
   const [bindingModalVisible, setBindingModalVisible] = useState(false);
+  const [originalQuota, setOriginalQuota] = useState(0);
   const formApiRef = useRef(null);
 
   const isEdit = Boolean(userId);
+  const canEditQuota = isRoot();
+  const quotaEditTip = t('子管理员请使用充值功能调整额度');
 
   const getInitValues = () => ({
     username: '',
@@ -107,6 +111,7 @@ const EditUserModal = (props) => {
     const { success, message, data } = res.data;
     if (success) {
       data.password = '';
+      setOriginalQuota(data.quota || 0);
       formApiRef.current?.setValues({ ...getInitValues(), ...data });
     } else {
       showError(message);
@@ -132,6 +137,9 @@ const EditUserModal = (props) => {
   const submit = async (values) => {
     setLoading(true);
     let payload = { ...values };
+    if (!canEditQuota) {
+      payload.quota = originalQuota;
+    }
     if (typeof payload.quota === 'string')
       payload.quota = parseInt(payload.quota) || 0;
     if (userId) {
@@ -152,6 +160,10 @@ const EditUserModal = (props) => {
 
   /* --------------------- quota helper -------------------- */
   const addLocalQuota = () => {
+    if (!canEditQuota) {
+      showError(quotaEditTip);
+      return;
+    }
     const current = parseInt(formApiRef.current?.getValue('quota') || 0);
     const delta = parseInt(addQuotaLocal) || 0;
     formApiRef.current?.setValue('quota', current + delta);
@@ -309,7 +321,12 @@ const EditUserModal = (props) => {
                           label={t('剩余额度')}
                           placeholder={t('请输入新的剩余额度')}
                           step={500000}
-                          extraText={renderQuotaWithPrompt(values.quota || 0)}
+                          disabled={!canEditQuota}
+                          extraText={
+                            canEditQuota
+                              ? renderQuotaWithPrompt(values.quota || 0)
+                              : quotaEditTip
+                          }
                           rules={[{ required: true, message: t('请输入额度') }]}
                           style={{ width: '100%' }}
                         />
@@ -319,8 +336,14 @@ const EditUserModal = (props) => {
                         <Form.Slot label={t('添加额度')}>
                           <Button
                             icon={<IconPlus />}
+                            disabled={!canEditQuota}
                             onClick={() => setIsModalOpen(true)}
                           />
+                          {!canEditQuota && (
+                            <div className='text-xs text-gray-500 mt-1'>
+                              {quotaEditTip}
+                            </div>
+                          )}
                         </Form.Slot>
                       </Col>
                     </Row>

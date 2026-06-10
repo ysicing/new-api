@@ -539,7 +539,7 @@ func GetUserModels(c *gin.Context) {
 
 func UpdateUser(c *gin.Context) {
 	var updatedUser model.User
-	err := json.NewDecoder(c.Request.Body).Decode(&updatedUser)
+	err := common.DecodeJson(c.Request.Body, &updatedUser)
 	if err != nil || updatedUser.Id == 0 {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
@@ -563,6 +563,10 @@ func UpdateUser(c *gin.Context) {
 	}
 	if myRole <= updatedUser.Role && myRole != common.RoleRootUser {
 		common.ApiErrorI18n(c, i18n.MsgUserCannotCreateHigherLevel)
+		return
+	}
+	if myRole != common.RoleRootUser && originUser.Quota != updatedUser.Quota {
+		common.ApiErrorMsg(c, "子管理员不能编辑用户额度，请使用充值功能")
 		return
 	}
 	if updatedUser.Password == "$I_LOVE_U" {
