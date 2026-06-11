@@ -145,33 +145,49 @@ const Stats = () => {
       { label: 'Qwen', quota: parseInt(record.qwen_quota) || 0 },
       { label: '其他', quota: parseInt(record.other_quota) || 0 },
     ];
-    const visibleItems = modelQuotaItems.filter((item) => item.quota !== 0);
+    const visibleItems = modelQuotaItems
+      .filter((item) => item.quota !== 0)
+      .sort((a, b) => b.quota - a.quota);
+    const topItems = visibleItems.slice(0, 3);
+    const renderModelPercent = (item) => {
+      const percent =
+        usedQuota > 0 ? ` ${((item.quota / usedQuota) * 100).toFixed(0)}%` : '';
+      return `${t(item.label)}${percent}`;
+    };
 
     const popoverContent = (
-      <div className='text-xs p-2'>
-        {visibleItems.length > 0 ? (
-          visibleItems.map((item) => {
-            const percent =
-              usedQuota > 0 ? ` (${((item.quota / usedQuota) * 100).toFixed(0)}%)` : '';
-            return (
-              <Paragraph key={item.label} copyable={{ content: renderQuota(item.quota) }}>
-                {t(item.label)}: {renderQuota(item.quota)}
-                {percent}
-              </Paragraph>
-            );
-          })
-        ) : (
-          <Paragraph>{t('暂无模型使用数据')}</Paragraph>
-        )}
+      <div className='flex max-w-[280px] flex-wrap gap-1 p-2'>
+        {visibleItems.map((item) => (
+          <span
+            key={item.label}
+            className='rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-xs leading-4 text-slate-700'
+          >
+            {renderModelPercent(item)}
+          </span>
+        ))}
       </div>
     );
 
     return (
-      <Popover content={popoverContent} position='top'>
+      <div className='flex max-w-[360px] items-center gap-2 py-1'>
         <Tag color='white' shape='circle'>
           <span className='text-xs leading-none'>{renderQuota(usedQuota)}</span>
         </Tag>
-      </Popover>
+        {topItems.length > 0 && (
+          <Popover content={popoverContent} position='top'>
+            <div className='flex min-w-0 flex-wrap gap-1'>
+              {topItems.map((item) => (
+                <span
+                  key={item.label}
+                  className='rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-xs leading-4 text-slate-700'
+                >
+                  {renderModelPercent(item)}
+                </span>
+              ))}
+            </div>
+          </Popover>
+        )}
+      </div>
     );
   };
 
@@ -199,7 +215,7 @@ const Stats = () => {
       title: t('时间范围内使用额度'),
       dataIndex: 'used_quota',
       key: 'used_quota',
-      width: 180,
+      width: 360,
       render: renderUsedQuotaWithModels,
     },
   ];
