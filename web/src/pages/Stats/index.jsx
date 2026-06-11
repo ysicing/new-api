@@ -146,14 +146,30 @@ const Stats = () => {
       { label: '其他', quota: parseInt(record.other_quota) || 0 },
     ];
     const visibleItems = modelQuotaItems
-      .filter((item) => item.quota !== 0)
+      .map((item) => ({
+        ...item,
+        percent: usedQuota > 0 ? Math.round((item.quota / usedQuota) * 100) : 0,
+      }))
+      .filter((item) => item.quota !== 0 && item.percent > 0)
       .sort((a, b) => b.quota - a.quota);
     const topItems = visibleItems.slice(0, 3);
+    const hasHiddenItems = visibleItems.length > topItems.length;
     const renderModelPercent = (item) => {
-      const percent =
-        usedQuota > 0 ? ` ${((item.quota / usedQuota) * 100).toFixed(0)}%` : '';
-      return `${t(item.label)}${percent}`;
+      return `${t(item.label)} ${item.percent}%`;
     };
+
+    const modelPercentTags = (
+      <div className='flex min-w-0 flex-wrap gap-1'>
+        {topItems.map((item) => (
+          <span
+            key={item.label}
+            className='rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-xs leading-4 text-slate-700'
+          >
+            {renderModelPercent(item)}
+          </span>
+        ))}
+      </div>
+    );
 
     const popoverContent = (
       <div className='flex max-w-[280px] flex-wrap gap-1 p-2'>
@@ -173,20 +189,14 @@ const Stats = () => {
         <Tag color='white' shape='circle'>
           <span className='text-xs leading-none'>{renderQuota(usedQuota)}</span>
         </Tag>
-        {topItems.length > 0 && (
-          <Popover content={popoverContent} position='top'>
-            <div className='flex min-w-0 flex-wrap gap-1'>
-              {topItems.map((item) => (
-                <span
-                  key={item.label}
-                  className='rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-xs leading-4 text-slate-700'
-                >
-                  {renderModelPercent(item)}
-                </span>
-              ))}
-            </div>
-          </Popover>
-        )}
+        {topItems.length > 0 &&
+          (hasHiddenItems ? (
+            <Popover content={popoverContent} position='top'>
+              {modelPercentTags}
+            </Popover>
+          ) : (
+            modelPercentTags
+          ))}
       </div>
     );
   };
