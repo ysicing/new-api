@@ -1760,6 +1760,7 @@
     "检测到该消息后有AI回复，是否删除后续回复并重新生成？": "Phát hiện trả lời AI sau tin nhắn này, xóa các trả lời tiếp theo và tạo lại?",
     "检测必须等待绘图成功才能进行放大等操作": "Việc phát hiện phải đợi vẽ thành công trước khi thực hiện phóng to và các thao tác khác",
     "模型": "Mô hình",
+    "模型占比": "Tỷ lệ mô hình",
     "模型: {{ratio}}": "Mô hình: {{ratio}}",
     "模型专用区域": "Khu vực dành riêng cho mô hình",
     "模型价格": "Giá mô hình",

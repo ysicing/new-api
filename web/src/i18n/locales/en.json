@@ -1791,6 +1791,7 @@
     "检测到该消息后有AI回复，是否删除后续回复并重新生成？": "AI reply detected after this message, delete subsequent replies and regenerate?",
     "检测必须等待绘图成功才能进行放大等操作": "Detection must wait for drawing to succeed before performing zooming and other operations",
     "模型": "Model",
+    "模型占比": "Model ratio",
     "模型: {{ratio}}": "Model: {{ratio}}",
     "模型专用区域": "Model-specific area",
     "模型价格": "Model price",

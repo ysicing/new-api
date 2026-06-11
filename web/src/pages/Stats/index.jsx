@@ -135,8 +135,7 @@ const Stats = () => {
     );
   };
 
-  const renderUsedQuotaWithModels = (_, record) => {
-    const usedQuota = parseInt(record.used_quota) || 0;
+  const renderModelQuotaPercents = (record, usedQuota, emptyContent = null) => {
     const modelQuotaItems = [
       { label: 'GPT', quota: parseInt(record.gpt_quota) || 0 },
       { label: 'Claude', quota: parseInt(record.claude_quota) || 0 },
@@ -158,6 +157,10 @@ const Stats = () => {
       return `${t(item.label)} ${item.percent}%`;
     };
 
+    if (topItems.length === 0) {
+      return emptyContent;
+    }
+
     const modelPercentTags = (
       <div className='flex min-w-0 flex-wrap gap-1'>
         {topItems.map((item) => (
@@ -170,6 +173,10 @@ const Stats = () => {
         ))}
       </div>
     );
+
+    if (!hasHiddenItems) {
+      return modelPercentTags;
+    }
 
     const popoverContent = (
       <div className='flex max-w-[280px] flex-wrap gap-1 p-2'>
@@ -185,20 +192,28 @@ const Stats = () => {
     );
 
     return (
+      <Popover content={popoverContent} position='top'>
+        {modelPercentTags}
+      </Popover>
+    );
+  };
+
+  const renderUsedQuotaWithModels = (_, record) => {
+    const usedQuota = parseInt(record.used_quota) || 0;
+
+    return (
       <div className='flex max-w-[360px] items-center gap-2 py-1'>
         <Tag color='white' shape='circle'>
           <span className='text-xs leading-none'>{renderQuota(usedQuota)}</span>
         </Tag>
-        {topItems.length > 0 &&
-          (hasHiddenItems ? (
-            <Popover content={popoverContent} position='top'>
-              {modelPercentTags}
-            </Popover>
-          ) : (
-            modelPercentTags
-          ))}
+        {renderModelQuotaPercents(record, usedQuota)}
       </div>
     );
+  };
+
+  const renderModelQuotaPercentColumn = (_, record) => {
+    const usedQuota = parseInt(record.used_quota) || 0;
+    return renderModelQuotaPercents(record, usedQuota, <span>-</span>);
   };
 
   const columns = [
@@ -256,6 +271,12 @@ const Stats = () => {
       key: 'used_quota',
       width: 150,
       render: (quota) => renderQuota(quota),
+    },
+    {
+      title: t('模型占比'),
+      key: 'model_quota_ratio',
+      width: 260,
+      render: renderModelQuotaPercentColumn,
     },
     {
       title: t('总充值次数'),

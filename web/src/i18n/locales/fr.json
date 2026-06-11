@@ -1776,6 +1776,7 @@
     "检测到该消息后有AI回复，是否删除后续回复并重新生成？": "Une réponse IA a été détectée après ce message, voulez-vous supprimer les réponses suivantes et régénérer ?",
     "检测必须等待绘图成功才能进行放大等操作": "La détection doit attendre que le dessin réussisse avant d'effectuer un zoom et d'autres opérations",
     "模型": "Modèle",
+    "模型占比": "Répartition des modèles",
     "模型: {{ratio}}": "Modèle : {{ratio}}",
     "模型专用区域": "Zone dédiée au modèle",
     "模型价格": "Prix du modèle",
