@@ -38,7 +38,7 @@ export default function DataDashboard(props) {
   ];
   const [loading, setLoading] = useState(false);
   const [inputs, setInputs] = useState({
-    DataExportEnabled: false,
+    DataExportEnabled: true,
     DataExportInterval: '',
     DataExportDefaultTime: '',
   });
@@ -87,6 +87,7 @@ export default function DataDashboard(props) {
         currentInputs[key] = props.options[key];
       }
     }
+    currentInputs.DataExportEnabled = true;
     setInputs(currentInputs);
     setInputsRow(structuredClone(currentInputs));
     refForm.current.setValues(currentInputs);
@@ -111,12 +112,14 @@ export default function DataDashboard(props) {
                   field={'DataExportEnabled'}
                   label={t('启用数据看板（实验性）')}
                   size='default'
+                  disabled
                   checkedText='｜'
                   uncheckedText='〇'
+                  extraText={t('数据看板为必需功能，不能关闭')}
                   onChange={(value) => {
                     setInputs({
                       ...inputs,
-                      DataExportEnabled: value,
+                      DataExportEnabled: true,
                     });
                   }}
                 />
