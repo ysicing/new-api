@@ -29,6 +29,7 @@ func AllOption() ([]*Option, error) {
 func InitOptionMap() {
 	common.OptionMapRWMutex.Lock()
 	common.OptionMap = make(map[string]string)
+	common.DataExportEnabled = true
 
 	// 添加原有的系统配置
 	common.OptionMap["FileUploadPermission"] = strconv.Itoa(common.FileUploadPermission)
@@ -51,7 +52,7 @@ func InitOptionMap() {
 	common.OptionMap["DisplayTokenStatEnabled"] = strconv.FormatBool(common.DisplayTokenStatEnabled)
 	common.OptionMap["DrawingEnabled"] = strconv.FormatBool(common.DrawingEnabled)
 	common.OptionMap["TaskEnabled"] = strconv.FormatBool(common.TaskEnabled)
-	common.OptionMap["DataExportEnabled"] = strconv.FormatBool(common.DataExportEnabled)
+	common.OptionMap["DataExportEnabled"] = strconv.FormatBool(true)
 	common.OptionMap["ChannelDisableThreshold"] = strconv.FormatFloat(common.ChannelDisableThreshold, 'f', -1, 64)
 	common.OptionMap["EmailDomainRestrictionEnabled"] = strconv.FormatBool(common.EmailDomainRestrictionEnabled)
 	common.OptionMap["EmailAliasRestrictionEnabled"] = strconv.FormatBool(common.EmailAliasRestrictionEnabled)
@@ -194,6 +195,9 @@ func SyncOptions(frequency int) {
 }
 
 func UpdateOption(key string, value string) error {
+	if key == "DataExportEnabled" {
+		value = strconv.FormatBool(true)
+	}
 	// Save to database first
 	option := Option{
 		Key: key,
@@ -212,6 +216,10 @@ func UpdateOption(key string, value string) error {
 func updateOptionMap(key string, value string) (err error) {
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	if key == "DataExportEnabled" {
+		value = strconv.FormatBool(true)
+		common.DataExportEnabled = true
+	}
 	common.OptionMap[key] = value
 
 	// 检查是否是模型配置 - 使用更规范的方式处理
@@ -281,7 +289,7 @@ func updateOptionMap(key string, value string) (err error) {
 		case "TaskEnabled":
 			common.TaskEnabled = boolValue
 		case "DataExportEnabled":
-			common.DataExportEnabled = boolValue
+			common.DataExportEnabled = true
 		case "DefaultCollapseSidebar":
 			common.DefaultCollapseSidebar = boolValue
 		case "MjNotifyEnabled":
