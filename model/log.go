@@ -1152,41 +1152,46 @@ func GetRechargeLeaderboard(limit int) ([]UserRechargeStat, error) {
 		batchSize = 64
 	}
 
-	for start := 0; start < len(candidates) && len(selectedCandidates) < limit; start += batchSize {
-		end := start + batchSize
-		if end > len(candidates) {
-			end = len(candidates)
-		}
-		batch := candidates[start:end]
-
-		batchUserIds := make([]int, 0, len(batch))
-		for _, c := range batch {
-			batchUserIds = append(batchUserIds, c.UserId)
+	for start := 0; start < len(candidates) && len(selectedCandidates) < limit; {
+		end := start + 1
+		for end < len(candidates) && candidates[end].TotalCount == candidates[start].TotalCount {
+			end++
 		}
 
-		var users []userInfo
-		err = LOG_DB.Table("users").
-			Select("id, username, quota as remaining_quota, (quota + used_quota) as total_quota").
-			Where("id IN ?", batchUserIds).
-			Scan(&users).Error
-		if err != nil {
-			return nil, err
-		}
+		for batchStart := start; batchStart < end; batchStart += batchSize {
+			batchEnd := batchStart + batchSize
+			if batchEnd > end {
+				batchEnd = end
+			}
+			batch := candidates[batchStart:batchEnd]
 
-		batchUserMap := make(map[int]struct{}, len(users))
-		for _, u := range users {
-			batchUserMap[u.Id] = struct{}{}
-			userMap[u.Id] = u
-		}
+			batchUserIds := make([]int, 0, len(batch))
+			for _, c := range batch {
+				batchUserIds = append(batchUserIds, c.UserId)
+			}
 
-		for _, c := range batch {
-			if _, ok := batchUserMap[c.UserId]; ok {
-				selectedCandidates = append(selectedCandidates, c)
-				if len(selectedCandidates) >= limit {
-					break
+			var users []userInfo
+			err = LOG_DB.Table("users").
+				Select("id, username, quota as remaining_quota, (quota + used_quota) as total_quota").
+				Where("id IN ?", batchUserIds).
+				Scan(&users).Error
+			if err != nil {
+				return nil, err
+			}
+
+			batchUserMap := make(map[int]struct{}, len(users))
+			for _, u := range users {
+				batchUserMap[u.Id] = struct{}{}
+				userMap[u.Id] = u
+			}
+
+			for _, c := range batch {
+				if _, ok := batchUserMap[c.UserId]; ok {
+					selectedCandidates = append(selectedCandidates, c)
 				}
 			}
 		}
+		start = end
 	}
 
 	if len(selectedCandidates) == 0 {
@@ -1226,6 +1231,19 @@ func GetRechargeLeaderboard(limit int) ([]UserRechargeStat, error) {
 			AutoRechargeCount: autoMap[c.UserId],
 			TempQuotaCount:    tempMap[c.UserId],
 		})
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].TotalCount == results[j].TotalCount {
+			if results[i].UsedQuota == results[j].UsedQuota {
+				return results[i].UserId < results[j].UserId
+			}
+			return results[i].UsedQuota > results[j].UsedQuota
+		}
+		return results[i].TotalCount > results[j].TotalCount
+	})
+	if len(results) > limit {
+		results = results[:limit]
 	}
 
 	return results, nil
