@@ -223,8 +223,12 @@ const renderOperations = (
     return <></>;
   }
 
-  const canToggleStatus =
-    record.role !== 100 && (isRoot() || record.role < 10);
+  const currentUserIsRoot = isRoot();
+  const canManageLowerUser = currentUserIsRoot || record.role < 10;
+  const canToggleStatus = record.role !== 100 && canManageLowerUser;
+  const canDelete = record.role !== 100 && canManageLowerUser;
+  const canPromote = currentUserIsRoot && record.role < 10;
+  const canDemote = currentUserIsRoot && record.role >= 10 && record.role < 100;
 
   const moreMenu = [
     {
@@ -245,16 +249,20 @@ const renderOperations = (
       name: t('重置 2FA'),
       onClick: () => showResetTwoFAModal(record),
     },
-    {
-      node: 'divider',
-    },
-    {
-      node: 'item',
-      name: t('注销'),
-      type: 'danger',
-      onClick: () => showDeleteModal(record),
-    },
   ];
+  if (canDelete) {
+    moreMenu.push(
+      {
+        node: 'divider',
+      },
+      {
+        node: 'item',
+        name: t('注销'),
+        type: 'danger',
+        onClick: () => showDeleteModal(record),
+      },
+    );
+  }
 
   return (
     <Space>
@@ -288,13 +296,15 @@ const renderOperations = (
       >
         {t('编辑')}
       </Button>
-      <Button
-        type='warning'
-        size='small'
-        onClick={() => showPromoteModal(record)}
-      >
-        {t('提升')}
-      </Button>
+      {canPromote && (
+        <Button
+          type='warning'
+          size='small'
+          onClick={() => showPromoteModal(record)}
+        >
+          {t('提升')}
+        </Button>
+      )}
       <Popconfirm
         title={t('确定要给该用户充值吗？')}
         onConfirm={() => rechargeUser(record.id, 'recharge_auto', record)}
@@ -303,13 +313,15 @@ const renderOperations = (
           {t('充值')}
         </Button>
       </Popconfirm>
-      <Button
-        type='secondary'
-        size='small'
-        onClick={() => showDemoteModal(record)}
-      >
-        {t('降级')}
-      </Button>
+      {canDemote && (
+        <Button
+          type='secondary'
+          size='small'
+          onClick={() => showDemoteModal(record)}
+        >
+          {t('降级')}
+        </Button>
+      )}
       <Dropdown menu={moreMenu} trigger='click' position='bottomRight'>
         <Button type='tertiary' size='small' icon={<IconMore />} />
       </Dropdown>
