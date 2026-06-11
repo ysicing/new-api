@@ -2069,6 +2069,7 @@
     "模型": "Modèle",
     "模型 {{name}} 缺少输入价格，无法计算补全/缓存/图片/音频价格对应的倍率": "Le modèle {{name}} n'a pas de prix d'entrée, impossible de calculer les ratios correspondants pour la complétion, le cache, les images et l'audio.",
     "模型 {{name}} 缺少音频输入价格，无法计算音频补全倍率": "Le modèle {{name}} n'a pas de prix d'entrée audio, impossible de calculer le ratio de complétion audio.",
+    "模型占比": "Répartition des modèles",
     "模型: {{ratio}}": "Modèle : {{ratio}}",
     "模型专用区域": "Zone dédiée au modèle",
     "模型价格": "Prix du modèle",

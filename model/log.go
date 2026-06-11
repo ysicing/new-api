@@ -470,8 +470,7 @@ func GetTopUsers(startTimestamp int64, endTimestamp int64, modelName string, lim
 		}
 	}
 
-	currentHourStart := common.GetTimestamp()
-	currentHourStart = currentHourStart - (currentHourStart % 3600)
+	currentHourStart := currentHourStartTimestamp()
 
 	if DB == LOG_DB {
 		results, err := getTopUsersFromUsageUnion(startTimestamp, endTimestamp, modelName, currentHourStart, limit)
@@ -509,6 +508,11 @@ func topUsersCurrentHourRange(startTimestamp int64, endTimestamp int64, currentH
 		return startTimestamp, endTimestamp, true
 	}
 	return currentHourStart, endTimestamp, true
+}
+
+func currentHourStartTimestamp() int64 {
+	now := common.GetTimestamp()
+	return now - (now % 3600)
 }
 
 type topUsersSourceQuery struct {
@@ -1037,9 +1041,26 @@ type UserRechargeStat struct {
 	RemainingQuota    int    `json:"remaining_quota"`
 	TotalQuota        int    `json:"total_quota"`
 	UsedQuota         int    `json:"used_quota"`
+	GptQuota          int    `json:"gpt_quota"`
+	ClaudeQuota       int    `json:"claude_quota"`
+	DeepSeekQuota     int    `json:"deepseek_quota"`
+	GeminiQuota       int    `json:"gemini_quota"`
+	QwenQuota         int    `json:"qwen_quota"`
+	OtherQuota        int    `json:"other_quota"`
 	TotalCount        int    `json:"total_count"`
 	AutoRechargeCount int    `json:"auto_recharge_count"`
 	TempQuotaCount    int    `json:"temp_quota_count"`
+}
+
+type rechargeUsageStat struct {
+	UserId        int `gorm:"column:user_id"`
+	UsedQuota     int `gorm:"column:used_quota"`
+	GptQuota      int `gorm:"column:gpt_quota"`
+	ClaudeQuota   int `gorm:"column:claude_quota"`
+	DeepSeekQuota int `gorm:"column:deepseek_quota"`
+	GeminiQuota   int `gorm:"column:gemini_quota"`
+	QwenQuota     int `gorm:"column:qwen_quota"`
+	OtherQuota    int `gorm:"column:other_quota"`
 }
 
 func GetRechargeLeaderboard(limit int) ([]UserRechargeStat, error) {
@@ -1177,23 +1198,10 @@ func GetRechargeLeaderboard(limit int) ([]UserRechargeStat, error) {
 		userIds = append(userIds, c.UserId)
 	}
 
-	type usedStat struct {
-		UserId    int
-		UsedQuota int
-	}
-	var usedStats []usedStat
-	err = LOG_DB.Table("logs").
-		Select("logs.user_id, COALESCE(SUM(logs.quota), 0) as used_quota").
-		Where("logs.type = ? AND logs.created_at >= ? AND logs.user_id IN ?", LogTypeConsume, weekStart, userIds).
-		Group("logs.user_id").
-		Scan(&usedStats).Error
+	currentHourStart := currentHourStartTimestamp()
+	usedMap, err := getRechargeLeaderboardUsageStats(weekStart, userIds, currentHourStart)
 	if err != nil {
 		return nil, err
-	}
-
-	usedMap := make(map[int]int, len(usedStats))
-	for _, s := range usedStats {
-		usedMap[s.UserId] = s.UsedQuota
 	}
 
 	results := make([]UserRechargeStat, 0, len(selectedCandidates))
@@ -1207,7 +1215,13 @@ func GetRechargeLeaderboard(limit int) ([]UserRechargeStat, error) {
 			Username:          u.Username,
 			RemainingQuota:    u.RemainingQuota,
 			TotalQuota:        u.TotalQuota,
-			UsedQuota:         usedMap[c.UserId],
+			UsedQuota:         usedMap[c.UserId].UsedQuota,
+			GptQuota:          usedMap[c.UserId].GptQuota,
+			ClaudeQuota:       usedMap[c.UserId].ClaudeQuota,
+			DeepSeekQuota:     usedMap[c.UserId].DeepSeekQuota,
+			GeminiQuota:       usedMap[c.UserId].GeminiQuota,
+			QwenQuota:         usedMap[c.UserId].QwenQuota,
+			OtherQuota:        usedMap[c.UserId].OtherQuota,
 			TotalCount:        c.TotalCount,
 			AutoRechargeCount: autoMap[c.UserId],
 			TempQuotaCount:    tempMap[c.UserId],
@@ -1215,4 +1229,106 @@ func GetRechargeLeaderboard(limit int) ([]UserRechargeStat, error) {
 	}
 
 	return results, nil
+}
+
+func getRechargeLeaderboardUsageStats(weekStart int64, userIds []int, currentHourStart int64) (map[int]rechargeUsageStat, error) {
+	usedMap := make(map[int]rechargeUsageStat, len(userIds))
+	if len(userIds) == 0 {
+		return usedMap, nil
+	}
+
+	if settledStart, settledEnd, ok := topUsersSettledRange(weekStart, 0, currentHourStart); ok {
+		settledStats, err := getRechargeUsageStatsFromQuotaData(settledStart, settledEnd, userIds)
+		if err != nil {
+			return nil, err
+		}
+		mergeRechargeUsageStats(usedMap, settledStats)
+
+		missingUserIds := rechargeUsageMissingUserIds(userIds, settledStats)
+		if len(missingUserIds) > 0 {
+			missingStats, err := getRechargeUsageStatsFromLogs(settledStart, settledEnd, missingUserIds)
+			if err != nil {
+				return nil, err
+			}
+			mergeRechargeUsageStats(usedMap, missingStats)
+		}
+	}
+
+	if currentStart, currentEnd, ok := topUsersCurrentHourRange(weekStart, 0, currentHourStart); ok {
+		currentStats, err := getRechargeUsageStatsFromLogs(currentStart, currentEnd, userIds)
+		if err != nil {
+			return nil, err
+		}
+		mergeRechargeUsageStats(usedMap, currentStats)
+	}
+
+	return usedMap, nil
+}
+
+func getRechargeUsageStatsFromQuotaData(startTimestamp int64, endTimestamp int64, userIds []int) ([]rechargeUsageStat, error) {
+	selectSQL := "quota_data.user_id, COALESCE(SUM(quota_data.quota), 0) as used_quota, " +
+		topUserModelFamilySelect("LOWER(quota_data.model_name)", "quota_data.quota")
+
+	tx := DB.Table("quota_data").
+		Select(selectSQL).
+		Where("quota_data.user_id IN ?", userIds)
+	if startTimestamp != 0 {
+		tx = tx.Where("quota_data.created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("quota_data.created_at <= ?", endTimestamp)
+	}
+
+	var results []rechargeUsageStat
+	err := tx.Group("quota_data.user_id").Scan(&results).Error
+	return results, err
+}
+
+func getRechargeUsageStatsFromLogs(startTimestamp int64, endTimestamp int64, userIds []int) ([]rechargeUsageStat, error) {
+	selectSQL := "logs.user_id, COALESCE(SUM(logs.quota), 0) as used_quota, " +
+		topUserModelFamilySelect("LOWER(logs.model_name)", "logs.quota")
+
+	tx := LOG_DB.Table("logs").
+		Select(selectSQL).
+		Where("logs.type = ? AND logs.user_id IN ?", LogTypeConsume, userIds)
+	if startTimestamp != 0 {
+		tx = tx.Where("logs.created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("logs.created_at <= ?", endTimestamp)
+	}
+
+	var results []rechargeUsageStat
+	err := tx.Group("logs.user_id").Scan(&results).Error
+	return results, err
+}
+
+func rechargeUsageMissingUserIds(userIds []int, stats []rechargeUsageStat) []int {
+	statUserIds := make(map[int]struct{}, len(stats))
+	for _, stat := range stats {
+		statUserIds[stat.UserId] = struct{}{}
+	}
+
+	missingUserIds := make([]int, 0, len(userIds))
+	for _, userId := range userIds {
+		if _, ok := statUserIds[userId]; !ok {
+			missingUserIds = append(missingUserIds, userId)
+		}
+	}
+	return missingUserIds
+}
+
+func mergeRechargeUsageStats(base map[int]rechargeUsageStat, additions []rechargeUsageStat) {
+	for _, stat := range additions {
+		existing := base[stat.UserId]
+		existing.UserId = stat.UserId
+		existing.UsedQuota += stat.UsedQuota
+		existing.GptQuota += stat.GptQuota
+		existing.ClaudeQuota += stat.ClaudeQuota
+		existing.DeepSeekQuota += stat.DeepSeekQuota
+		existing.GeminiQuota += stat.GeminiQuota
+		existing.QwenQuota += stat.QwenQuota
+		existing.OtherQuota += stat.OtherQuota
+		base[stat.UserId] = existing
+	}
 }

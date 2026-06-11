@@ -2078,6 +2078,7 @@
     "模型": "Model",
     "模型 {{name}} 缺少输入价格，无法计算补全/缓存/图片/音频价格对应的倍率": "Model {{name}} is missing an input price, so the ratios for completion, cache, image, and audio pricing cannot be calculated.",
     "模型 {{name}} 缺少音频输入价格，无法计算音频补全倍率": "Model {{name}} is missing an audio input price, so the audio completion ratio cannot be calculated.",
+    "模型占比": "Model ratio",
     "模型: {{ratio}}": "Model: {{ratio}}",
     "模型专用区域": "Model-specific area",
     "模型价格": "Model price",

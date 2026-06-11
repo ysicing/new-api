@@ -2041,6 +2041,7 @@
     "模型": "Mô hình",
     "模型 {{name}} 缺少输入价格，无法计算补全/缓存/图片/音频价格对应的倍率": "Mô hình {{name}} thiếu giá đầu vào, nên không thể tính tỷ lệ tương ứng cho giá hoàn thành, bộ nhớ đệm, hình ảnh và âm thanh.",
     "模型 {{name}} 缺少音频输入价格，无法计算音频补全倍率": "Mô hình {{name}} thiếu giá đầu vào âm thanh, nên không thể tính tỷ lệ hoàn thành âm thanh.",
+    "模型占比": "Tỷ lệ mô hình",
     "模型: {{ratio}}": "Mô hình: {{ratio}}",
     "模型专用区域": "Khu vực dành riêng cho mô hình",
     "模型价格": "Giá mô hình",
