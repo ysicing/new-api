@@ -479,3 +479,49 @@ func TestGetRechargeLeaderboard_TieBreakByUserIDAscending(t *testing.T) {
 		t.Fatalf("unexpected total_count in tie-break results: %+v", results)
 	}
 }
+
+func TestGetRechargeLeaderboard_TieBreakByUsedQuotaDescending(t *testing.T) {
+	db, _, cleanup := setupRechargeLeaderboardTestDB(t)
+	defer cleanup()
+
+	now := time.Now().Unix()
+
+	if err := db.Exec(`INSERT INTO users (id, username, quota, used_quota) VALUES
+		(1, 'alice', 1000, 100),
+		(2, 'bob', 2000, 200),
+		(3, 'carol', 3000, 300)`).Error; err != nil {
+		t.Fatalf("insert users failed: %v", err)
+	}
+
+	if err := db.Exec(`INSERT INTO logs (user_id, created_at, type, content, model_name, quota) VALUES
+		(1, ?, ?, '系统自动赠送 100', '', 0),
+		(2, ?, ?, '系统自动赠送 100', '', 0),
+		(3, ?, ?, '系统自动赠送 100', '', 0),
+		(1, ?, ?, 'consume', 'gpt-4o', 10),
+		(2, ?, ?, 'consume', 'gpt-4o', 30),
+		(3, ?, ?, 'consume', 'gpt-4o', 20)`,
+		now, LogTypeSystem,
+		now, LogTypeSystem,
+		now, LogTypeSystem,
+		now, LogTypeConsume,
+		now, LogTypeConsume,
+		now, LogTypeConsume,
+	).Error; err != nil {
+		t.Fatalf("insert logs failed: %v", err)
+	}
+
+	results, err := GetRechargeLeaderboard(2)
+	if err != nil {
+		t.Fatalf("GetRechargeLeaderboard returned error: %v", err)
+	}
+
+	if len(results) != 2 {
+		t.Fatalf("unexpected result length, got %d want %d", len(results), 2)
+	}
+	if results[0].UserId != 2 || results[1].UserId != 3 {
+		t.Fatalf("unexpected tie-break order: got [%d,%d] want [2,3]", results[0].UserId, results[1].UserId)
+	}
+	if results[0].UsedQuota != 30 || results[1].UsedQuota != 20 {
+		t.Fatalf("unexpected used_quota order: %+v", results)
+	}
+}
