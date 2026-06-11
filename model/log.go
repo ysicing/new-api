@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -443,14 +444,20 @@ type Stat struct {
 }
 
 type UserQuotaStat struct {
-	UserId         int    `json:"user_id"`
-	Username       string `json:"username"`
-	RemainingQuota int    `json:"remaining_quota"`
-	TotalQuota     int    `json:"total_quota"`
-	UsedQuota      int    `json:"used_quota"`
+	UserId         int    `json:"user_id" gorm:"column:user_id"`
+	Username       string `json:"username" gorm:"column:username"`
+	RemainingQuota int    `json:"remaining_quota" gorm:"column:remaining_quota"`
+	TotalQuota     int    `json:"total_quota" gorm:"column:total_quota"`
+	UsedQuota      int    `json:"used_quota" gorm:"column:used_quota"`
+	GptQuota       int    `json:"gpt_quota" gorm:"column:gpt_quota"`
+	ClaudeQuota    int    `json:"claude_quota" gorm:"column:claude_quota"`
+	DeepSeekQuota  int    `json:"deepseek_quota" gorm:"column:deepseek_quota"`
+	GeminiQuota    int    `json:"gemini_quota" gorm:"column:gemini_quota"`
+	QwenQuota      int    `json:"qwen_quota" gorm:"column:qwen_quota"`
+	OtherQuota     int    `json:"other_quota" gorm:"column:other_quota"`
 }
 
-func GetTopUsers(startTimestamp int64, endTimestamp int64, modelName string, channel int, group string, limit int) ([]UserQuotaStat, error) {
+func GetTopUsers(startTimestamp int64, endTimestamp int64, modelName string, limit int) ([]UserQuotaStat, error) {
 	if limit <= 0 {
 		limit = 10
 	} else if limit > 30 {
@@ -463,8 +470,440 @@ func GetTopUsers(startTimestamp int64, endTimestamp int64, modelName string, cha
 		}
 	}
 
+	currentHourStart := common.GetTimestamp()
+	currentHourStart = currentHourStart - (currentHourStart % 3600)
+
+	if DB == LOG_DB {
+		results, err := getTopUsersFromUsageUnion(startTimestamp, endTimestamp, modelName, currentHourStart, limit)
+		if err != nil {
+			return nil, err
+		}
+		if len(results) > 0 {
+			return results, nil
+		}
+		return getTopUsersFromLogs(startTimestamp, endTimestamp, modelName, limit)
+	}
+
+	return getTopUsersMergedAcrossDB(startTimestamp, endTimestamp, modelName, currentHourStart, limit)
+}
+
+func topUsersSettledRange(startTimestamp int64, endTimestamp int64, currentHourStart int64) (int64, int64, bool) {
+	if currentHourStart <= 0 {
+		return 0, 0, false
+	}
+	settledEndTimestamp := currentHourStart - 1
+	if endTimestamp != 0 && endTimestamp < currentHourStart {
+		settledEndTimestamp = endTimestamp
+	}
+	if startTimestamp != 0 && startTimestamp > settledEndTimestamp {
+		return 0, 0, false
+	}
+	return startTimestamp, settledEndTimestamp, true
+}
+
+func topUsersCurrentHourRange(startTimestamp int64, endTimestamp int64, currentHourStart int64) (int64, int64, bool) {
+	if endTimestamp != 0 && endTimestamp < currentHourStart {
+		return 0, 0, false
+	}
+	if startTimestamp > currentHourStart {
+		return startTimestamp, endTimestamp, true
+	}
+	return currentHourStart, endTimestamp, true
+}
+
+type topUsersSourceQuery struct {
+	sql  string
+	args []interface{}
+}
+
+type topUsersSettledSource struct {
+	startTimestamp int64
+	endTimestamp   int64
+	useQuotaData   bool
+}
+
+func getTopUsersFromUsageUnion(startTimestamp int64, endTimestamp int64, modelName string, currentHourStart int64, limit int) ([]UserQuotaStat, error) {
+	sources, err := buildTopUsersSourceQueries(startTimestamp, endTimestamp, modelName, currentHourStart)
+	if err != nil {
+		return nil, err
+	}
+	if len(sources) == 0 {
+		return nil, nil
+	}
+
+	sourceSQL := make([]string, 0, len(sources))
+	args := make([]interface{}, 0)
+	for _, source := range sources {
+		sourceSQL = append(sourceSQL, source.sql)
+		args = append(args, source.args...)
+	}
+
+	query := "SELECT usage_data.user_id, users.username, MAX(users.quota) as remaining_quota, " +
+		"MAX(users.quota + users.used_quota) as total_quota, COALESCE(SUM(usage_data.quota), 0) as used_quota, " +
+		topUserModelFamilySelect("LOWER(usage_data.model_name)", "usage_data.quota") +
+		" FROM (" + strings.Join(sourceSQL, " UNION ALL ") + ") usage_data" +
+		" INNER JOIN users ON users.id = usage_data.user_id" +
+		" GROUP BY usage_data.user_id, users.username" +
+		" ORDER BY used_quota DESC"
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	var results []UserQuotaStat
+	err = DB.Raw(query, args...).Scan(&results).Error
+	return results, err
+}
+
+func buildTopUsersSourceQueries(startTimestamp int64, endTimestamp int64, modelName string, currentHourStart int64) ([]topUsersSourceQuery, error) {
+	sources := make([]topUsersSourceQuery, 0, 2)
+
+	if settledSource, ok, err := chooseTopUsersSettledSource(startTimestamp, endTimestamp, modelName, currentHourStart); err != nil {
+		return nil, err
+	} else if ok {
+		source, err := buildTopUsersSettledSourceQuery(settledSource, modelName)
+		if err != nil {
+			return nil, err
+		}
+		sources = append(sources, source)
+	}
+
+	if currentStartTimestamp, currentEndTimestamp, ok := topUsersCurrentHourRange(startTimestamp, endTimestamp, currentHourStart); ok {
+		source, err := buildTopUsersLogsSourceQuery(currentStartTimestamp, currentEndTimestamp, modelName)
+		if err != nil {
+			return nil, err
+		}
+		sources = append(sources, source)
+	}
+
+	return sources, nil
+}
+
+func chooseTopUsersSettledSource(startTimestamp int64, endTimestamp int64, modelName string, currentHourStart int64) (topUsersSettledSource, bool, error) {
+	settledStartTimestamp, settledEndTimestamp, ok := topUsersSettledRange(startTimestamp, endTimestamp, currentHourStart)
+	if !ok {
+		return topUsersSettledSource{}, false, nil
+	}
+	hasQuotaData, err := hasTopUsersQuotaData(settledStartTimestamp, settledEndTimestamp, modelName)
+	if err != nil {
+		return topUsersSettledSource{}, false, err
+	}
+	return topUsersSettledSource{
+		startTimestamp: settledStartTimestamp,
+		endTimestamp:   settledEndTimestamp,
+		useQuotaData:   hasQuotaData,
+	}, true, nil
+}
+
+func buildTopUsersSettledSourceQuery(source topUsersSettledSource, modelName string) (topUsersSourceQuery, error) {
+	if source.useQuotaData {
+		return buildTopUsersQuotaDataSourceQuery(source.startTimestamp, source.endTimestamp, modelName)
+	}
+	return buildTopUsersLogsSourceQuery(source.startTimestamp, source.endTimestamp, modelName)
+}
+
+func buildTopUsersQuotaDataSourceQuery(startTimestamp int64, endTimestamp int64, modelName string) (topUsersSourceQuery, error) {
+	query := "SELECT quota_data.user_id, quota_data.model_name, quota_data.quota FROM quota_data WHERE 1 = 1"
+	args := make([]interface{}, 0)
+	if startTimestamp != 0 {
+		query += " AND quota_data.created_at >= ?"
+		args = append(args, startTimestamp)
+	}
+	if endTimestamp != 0 {
+		query += " AND quota_data.created_at <= ?"
+		args = append(args, endTimestamp)
+	}
+	if modelName != "" {
+		modelNamePattern, err := sanitizeLikePattern(modelName)
+		if err != nil {
+			return topUsersSourceQuery{}, err
+		}
+		query += " AND quota_data.model_name LIKE ? ESCAPE '!'"
+		args = append(args, modelNamePattern)
+	}
+	return topUsersSourceQuery{sql: query, args: args}, nil
+}
+
+func buildTopUsersLogsSourceQuery(startTimestamp int64, endTimestamp int64, modelName string) (topUsersSourceQuery, error) {
+	query := "SELECT logs.user_id, logs.model_name, logs.quota FROM logs WHERE logs.type = ?"
+	args := []interface{}{LogTypeConsume}
+	if startTimestamp != 0 {
+		query += " AND logs.created_at >= ?"
+		args = append(args, startTimestamp)
+	}
+	if endTimestamp != 0 {
+		query += " AND logs.created_at <= ?"
+		args = append(args, endTimestamp)
+	}
+	if modelName != "" {
+		modelNamePattern, err := sanitizeLikePattern(modelName)
+		if err != nil {
+			return topUsersSourceQuery{}, err
+		}
+		query += " AND logs.model_name LIKE ? ESCAPE '!'"
+		args = append(args, modelNamePattern)
+	}
+	return topUsersSourceQuery{sql: query, args: args}, nil
+}
+
+func hasTopUsersQuotaData(startTimestamp int64, endTimestamp int64, modelName string) (bool, error) {
+	tx := DB.Table("quota_data").Select("1 as matched")
+	if startTimestamp != 0 {
+		tx = tx.Where("quota_data.created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("quota_data.created_at <= ?", endTimestamp)
+	}
+	if modelName != "" {
+		modelNamePattern, err := sanitizeLikePattern(modelName)
+		if err != nil {
+			return false, err
+		}
+		tx = tx.Where("quota_data.model_name LIKE ? ESCAPE '!'", modelNamePattern)
+	}
+
+	var row struct {
+		Matched int `gorm:"column:matched"`
+	}
+	err := tx.Limit(1).Scan(&row).Error
+	if err != nil {
+		return false, err
+	}
+	return row.Matched == 1, nil
+}
+
+func getTopUsersMergedAcrossDB(startTimestamp int64, endTimestamp int64, modelName string, currentHourStart int64, limit int) ([]UserQuotaStat, error) {
+	var merged []UserQuotaStat
+
+	if settledSource, ok, err := chooseTopUsersSettledSource(startTimestamp, endTimestamp, modelName, currentHourStart); err != nil {
+		return nil, err
+	} else if ok {
+		settledResults, err := getTopUsersFromSettledSource(settledSource, modelName)
+		if err != nil {
+			return nil, err
+		}
+		merged = mergeUserQuotaStats(merged, settledResults)
+	}
+
+	if currentStartTimestamp, currentEndTimestamp, ok := topUsersCurrentHourRange(startTimestamp, endTimestamp, currentHourStart); ok {
+		currentResults, err := getTopUsersFromLogsAcrossDB(currentStartTimestamp, currentEndTimestamp, modelName, 0)
+		if err != nil {
+			return nil, err
+		}
+		merged = mergeUserQuotaStats(merged, currentResults)
+	}
+
+	if len(merged) > 0 {
+		return limitUserQuotaStats(merged, limit), nil
+	}
+
+	return getTopUsersFromLogsAcrossDB(startTimestamp, endTimestamp, modelName, limit)
+}
+
+func getTopUsersFromSettledSource(source topUsersSettledSource, modelName string) ([]UserQuotaStat, error) {
+	if source.useQuotaData {
+		return getTopUsersFromQuotaData(source.startTimestamp, source.endTimestamp, modelName, 0)
+	}
+	return getTopUsersFromLogsAcrossDB(source.startTimestamp, source.endTimestamp, modelName, 0)
+}
+
+func getTopUsersFromLogsAcrossDB(startTimestamp int64, endTimestamp int64, modelName string, limit int) ([]UserQuotaStat, error) {
+	results, err := getTopUsersUsageFromLogs(startTimestamp, endTimestamp, modelName, limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return results, nil
+	}
+	results, err = fillTopUsersInfo(results)
+	if err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+func getTopUsersUsageFromLogs(startTimestamp int64, endTimestamp int64, modelName string, limit int) ([]UserQuotaStat, error) {
+	selectSQL := "logs.user_id, COALESCE(SUM(logs.quota), 0) as used_quota, " +
+		topUserModelFamilySelect("LOWER(logs.model_name)", "logs.quota")
+
 	tx := LOG_DB.Table("logs").
-		Select("logs.user_id, users.username, MAX(users.quota) as remaining_quota, MAX(users.quota + users.used_quota) as total_quota, SUM(logs.quota) as used_quota").
+		Select(selectSQL).
+		Where("logs.type = ?", LogTypeConsume)
+
+	if startTimestamp != 0 {
+		tx = tx.Where("logs.created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("logs.created_at <= ?", endTimestamp)
+	}
+	if modelName != "" {
+		modelNamePattern, err := sanitizeLikePattern(modelName)
+		if err != nil {
+			return nil, err
+		}
+		tx = tx.Where("logs.model_name LIKE ? ESCAPE '!'", modelNamePattern)
+	}
+
+	var results []UserQuotaStat
+	tx = tx.Group("logs.user_id").
+		Order("used_quota desc")
+	if limit > 0 {
+		tx = tx.Limit(limit)
+	}
+	err := tx.Scan(&results).Error
+	return results, err
+}
+
+func fillTopUsersInfo(results []UserQuotaStat) ([]UserQuotaStat, error) {
+	userIds := make([]int, 0, len(results))
+	for _, result := range results {
+		userIds = append(userIds, result.UserId)
+	}
+
+	var users []UserQuotaStat
+	if err := DB.Table("users").
+		Select("id as user_id, username, quota as remaining_quota, (quota + used_quota) as total_quota").
+		Where("id IN ?", userIds).
+		Scan(&users).Error; err != nil {
+		return nil, err
+	}
+
+	userInfo := make(map[int]UserQuotaStat, len(users))
+	for _, user := range users {
+		userInfo[user.UserId] = user
+	}
+	filtered := make([]UserQuotaStat, 0, len(results))
+	for i := range results {
+		if user, ok := userInfo[results[i].UserId]; ok {
+			results[i].Username = user.Username
+			results[i].RemainingQuota = user.RemainingQuota
+			results[i].TotalQuota = user.TotalQuota
+			filtered = append(filtered, results[i])
+		}
+	}
+	return filtered, nil
+}
+
+func mergeUserQuotaStats(base []UserQuotaStat, additions []UserQuotaStat) []UserQuotaStat {
+	userStats := make(map[int]*UserQuotaStat, len(base)+len(additions))
+	order := make([]int, 0, len(base)+len(additions))
+
+	for _, stat := range base {
+		statCopy := stat
+		userStats[stat.UserId] = &statCopy
+		order = append(order, stat.UserId)
+	}
+	for _, stat := range additions {
+		existing, ok := userStats[stat.UserId]
+		if !ok {
+			statCopy := stat
+			userStats[stat.UserId] = &statCopy
+			order = append(order, stat.UserId)
+			continue
+		}
+		existing.UsedQuota += stat.UsedQuota
+		existing.GptQuota += stat.GptQuota
+		existing.ClaudeQuota += stat.ClaudeQuota
+		existing.DeepSeekQuota += stat.DeepSeekQuota
+		existing.GeminiQuota += stat.GeminiQuota
+		existing.QwenQuota += stat.QwenQuota
+		existing.OtherQuota += stat.OtherQuota
+		existing.Username = stat.Username
+		existing.RemainingQuota = stat.RemainingQuota
+		existing.TotalQuota = stat.TotalQuota
+	}
+
+	results := make([]UserQuotaStat, 0, len(userStats))
+	for _, userId := range order {
+		results = append(results, *userStats[userId])
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].UsedQuota == results[j].UsedQuota {
+			return results[i].UserId < results[j].UserId
+		}
+		return results[i].UsedQuota > results[j].UsedQuota
+	})
+	return results
+}
+
+func limitUserQuotaStats(results []UserQuotaStat, limit int) []UserQuotaStat {
+	if limit > 0 && len(results) > limit {
+		return results[:limit]
+	}
+	return results
+}
+
+func topUserModelFamilySelect(modelExpr string, quotaExpr string) string {
+	// modelExpr and quotaExpr must be internal SQL expressions, not user input.
+	gptCond := modelFamilyLikeCondition(modelExpr, []string{"%gpt%", "o1%", "o3%", "o4%"})
+	claudeCond := modelFamilyLikeCondition(modelExpr, []string{"%claude%"})
+	deepSeekCond := modelFamilyLikeCondition(modelExpr, []string{"%deepseek%", "%deep-seek%"})
+	geminiCond := modelFamilyLikeCondition(modelExpr, []string{"%gemini%"})
+	qwenCond := modelFamilyLikeCondition(modelExpr, []string{"%qwen%", "%qwq%"})
+	knownCond := strings.Join([]string{gptCond, claudeCond, deepSeekCond, geminiCond, qwenCond}, " OR ")
+
+	return strings.Join([]string{
+		modelFamilySumSelect(gptCond, quotaExpr, "gpt_quota"),
+		modelFamilySumSelect(claudeCond, quotaExpr, "claude_quota"),
+		modelFamilySumSelect(deepSeekCond, quotaExpr, "deepseek_quota"),
+		modelFamilySumSelect(geminiCond, quotaExpr, "gemini_quota"),
+		modelFamilySumSelect(qwenCond, quotaExpr, "qwen_quota"),
+		modelFamilySumSelect("NOT ("+knownCond+")", quotaExpr, "other_quota"),
+	}, ", ")
+}
+
+func modelFamilyLikeCondition(modelExpr string, patterns []string) string {
+	parts := make([]string, 0, len(patterns))
+	for _, pattern := range patterns {
+		parts = append(parts, fmt.Sprintf("%s LIKE '%s'", modelExpr, pattern))
+	}
+	return "(" + strings.Join(parts, " OR ") + ")"
+}
+
+func modelFamilySumSelect(condition string, quotaExpr string, alias string) string {
+	return fmt.Sprintf("COALESCE(SUM(CASE WHEN %s THEN %s ELSE 0 END), 0) AS %s", condition, quotaExpr, alias)
+}
+
+func getTopUsersFromQuotaData(startTimestamp int64, endTimestamp int64, modelName string, limit int) ([]UserQuotaStat, error) {
+	selectSQL := "quota_data.user_id, users.username, MAX(users.quota) as remaining_quota, " +
+		"MAX(users.quota + users.used_quota) as total_quota, COALESCE(SUM(quota_data.quota), 0) as used_quota, " +
+		topUserModelFamilySelect("LOWER(quota_data.model_name)", "quota_data.quota")
+
+	tx := DB.Table("quota_data").
+		Select(selectSQL).
+		Joins("inner join users on users.id = quota_data.user_id")
+
+	if startTimestamp != 0 {
+		tx = tx.Where("quota_data.created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("quota_data.created_at <= ?", endTimestamp)
+	}
+	if modelName != "" {
+		modelNamePattern, err := sanitizeLikePattern(modelName)
+		if err != nil {
+			return nil, err
+		}
+		tx = tx.Where("quota_data.model_name LIKE ? ESCAPE '!'", modelNamePattern)
+	}
+
+	var results []UserQuotaStat
+	tx = tx.Group("quota_data.user_id, users.username").
+		Order("used_quota desc")
+	if limit > 0 {
+		tx = tx.Limit(limit)
+	}
+	err := tx.Scan(&results).Error
+	return results, err
+}
+
+func getTopUsersFromLogs(startTimestamp int64, endTimestamp int64, modelName string, limit int) ([]UserQuotaStat, error) {
+	selectSQL := "logs.user_id, users.username, MAX(users.quota) as remaining_quota, " +
+		"MAX(users.quota + users.used_quota) as total_quota, COALESCE(SUM(logs.quota), 0) as used_quota, " +
+		topUserModelFamilySelect("LOWER(logs.model_name)", "logs.quota")
+
+	tx := LOG_DB.Table("logs").
+		Select(selectSQL).
 		Joins("inner join users on users.id = logs.user_id").
 		Where("logs.type = ?", LogTypeConsume)
 
@@ -475,20 +914,19 @@ func GetTopUsers(startTimestamp int64, endTimestamp int64, modelName string, cha
 		tx = tx.Where("logs.created_at <= ?", endTimestamp)
 	}
 	if modelName != "" {
-		tx = tx.Where("logs.model_name like ?", modelName)
+		modelNamePattern, err := sanitizeLikePattern(modelName)
+		if err != nil {
+			return nil, err
+		}
+		tx = tx.Where("logs.model_name LIKE ? ESCAPE '!'", modelNamePattern)
 	}
-	if channel != 0 {
-		tx = tx.Where("logs.channel_id = ?", channel)
-	}
-	if group != "" {
-		tx = tx.Where("logs."+logGroupCol+" = ?", group)
-	}
-
 	var results []UserQuotaStat
-	err := tx.Group("logs.user_id, users.username").
-		Order("used_quota desc").
-		Limit(limit).
-		Scan(&results).Error
+	tx = tx.Group("logs.user_id, users.username").
+		Order("used_quota desc")
+	if limit > 0 {
+		tx = tx.Limit(limit)
+	}
+	err := tx.Scan(&results).Error
 
 	return results, err
 }

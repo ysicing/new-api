@@ -135,6 +135,46 @@ const Stats = () => {
     );
   };
 
+  const renderUsedQuotaWithModels = (_, record) => {
+    const usedQuota = parseInt(record.used_quota) || 0;
+    const modelQuotaItems = [
+      { label: 'GPT', quota: parseInt(record.gpt_quota) || 0 },
+      { label: 'Claude', quota: parseInt(record.claude_quota) || 0 },
+      { label: 'DeepSeek', quota: parseInt(record.deepseek_quota) || 0 },
+      { label: 'Gemini', quota: parseInt(record.gemini_quota) || 0 },
+      { label: 'Qwen', quota: parseInt(record.qwen_quota) || 0 },
+      { label: '其他', quota: parseInt(record.other_quota) || 0 },
+    ];
+    const visibleItems = modelQuotaItems.filter((item) => item.quota !== 0);
+
+    const popoverContent = (
+      <div className='text-xs p-2'>
+        {visibleItems.length > 0 ? (
+          visibleItems.map((item) => {
+            const percent =
+              usedQuota > 0 ? ` (${((item.quota / usedQuota) * 100).toFixed(0)}%)` : '';
+            return (
+              <Paragraph key={item.label} copyable={{ content: renderQuota(item.quota) }}>
+                {t(item.label)}: {renderQuota(item.quota)}
+                {percent}
+              </Paragraph>
+            );
+          })
+        ) : (
+          <Paragraph>{t('暂无模型使用数据')}</Paragraph>
+        )}
+      </div>
+    );
+
+    return (
+      <Popover content={popoverContent} position='top'>
+        <Tag color='white' shape='circle'>
+          <span className='text-xs leading-none'>{renderQuota(usedQuota)}</span>
+        </Tag>
+      </Popover>
+    );
+  };
+
   const columns = [
     {
       title: t('排名'),
@@ -160,7 +200,7 @@ const Stats = () => {
       dataIndex: 'used_quota',
       key: 'used_quota',
       width: 180,
-      render: (quota) => renderQuota(quota),
+      render: renderUsedQuotaWithModels,
     },
   ];
 
@@ -269,6 +309,7 @@ const Stats = () => {
                 columns={columns}
                 dataSource={topUsers}
                 pagination={false}
+                scroll={{ x: 'max-content' }}
                 rowKey={(record) => record.user_id || record.username}
                 empty={t('暂无数据')}
               />

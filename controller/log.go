@@ -153,14 +153,12 @@ func GetTopUsers(c *gin.Context) {
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
 	modelName := c.Query("model_name")
-	channel, _ := strconv.Atoi(c.Query("channel"))
-	group := c.Query("group")
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	if limit <= 0 {
 		limit = 10
 	}
 
-	topUsers, err := model.GetTopUsers(startTimestamp, endTimestamp, modelName, channel, group, limit)
+	topUsers, err := model.GetTopUsers(startTimestamp, endTimestamp, modelName, limit)
 	if err != nil {
 		common.ApiError(c, err)
 		return
