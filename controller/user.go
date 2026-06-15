@@ -992,7 +992,11 @@ func ManageUser(c *gin.Context) {
 			return
 		}
 		adminID := c.GetInt("id")
-		model.RecordLog(user.Id, model.LogTypeManage, formatAdminTempQuotaLog(adminID, amountQuota))
+		adminInfo := map[string]interface{}{
+			"admin_id":       adminID,
+			"admin_username": c.GetString("username"),
+		}
+		model.RecordLogWithAdminInfo(user.Id, model.LogTypeManage, formatAdminTempQuotaLog(adminID, amountQuota), adminInfo)
 		newQuota, err := model.GetUserQuota(user.Id, true)
 		if err != nil {
 			common.ApiError(c, err)

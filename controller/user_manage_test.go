@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -47,6 +48,9 @@ func setupUserManageTestDB(t *testing.T) *gorm.DB {
 	if err := db.AutoMigrate(&model.User{}); err != nil {
 		t.Fatalf("failed to migrate user table: %v", err)
 	}
+	if err := db.AutoMigrate(&model.Log{}); err != nil {
+		t.Fatalf("failed to migrate log table: %v", err)
+	}
 
 	t.Cleanup(func() {
 		sqlDB, err := db.DB()
@@ -78,6 +82,7 @@ func newManageUserContext(t *testing.T, body any, role int, userID int) (*gin.Co
 	ctx.Request.Header.Set("Content-Type", "application/json")
 	ctx.Set("id", userID)
 	ctx.Set("role", role)
+	ctx.Set("username", "admin-user")
 	return ctx, recorder
 }
 
@@ -159,5 +164,60 @@ func TestUpdateUserAdminCannotEditQuota(t *testing.T) {
 	}
 	if updated.Quota != target.Quota {
 		t.Fatalf("expected target quota to remain %d, got %d", target.Quota, updated.Quota)
+	}
+}
+
+func TestManageUserRechargeAutoRecordsAdminInfo(t *testing.T) {
+	db := setupUserManageTestDB(t)
+	cfg := operation_setting.GetAutoRechargeSetting()
+	originalAmount := cfg.Amount
+	defer func() {
+		cfg.Amount = originalAmount
+	}()
+	cfg.Amount = 2
+
+	target := &model.User{
+		Username: "target-user",
+		Password: "password",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+		Quota:    100,
+		Group:    "default",
+	}
+	if err := db.Create(target).Error; err != nil {
+		t.Fatalf("failed to create target user: %v", err)
+	}
+
+	ctx, recorder := newManageUserContext(t, ManageRequest{
+		Id:     target.Id,
+		Action: "recharge_auto",
+	}, common.RoleAdminUser, 99)
+	ManageUser(ctx)
+
+	response := decodeManageUserResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected recharge_auto to succeed, got message %q", response.Message)
+	}
+
+	var log model.Log
+	if err := db.Where("user_id = ? AND type = ?", target.Id, model.LogTypeManage).
+		Order("id desc").
+		First(&log).Error; err != nil {
+		t.Fatalf("failed to load manage log: %v", err)
+	}
+
+	var other map[string]interface{}
+	if err := common.UnmarshalJsonStr(log.Other, &other); err != nil {
+		t.Fatalf("failed to decode log other: %v", err)
+	}
+	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected admin_info in log other, got %#v", other)
+	}
+	if got := int(adminInfo["admin_id"].(float64)); got != 99 {
+		t.Fatalf("unexpected admin_id, got %d want %d", got, 99)
+	}
+	if got := adminInfo["admin_username"]; got != "admin-user" {
+		t.Fatalf("unexpected admin_username, got %#v", got)
 	}
 }
