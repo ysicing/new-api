@@ -46,6 +46,20 @@ export function isRoot() {
   return user.role >= 100;
 }
 
+export function isQuotaPoolAdmin() {
+	let user = localStorage.getItem('user');
+	if (!user) return false;
+	user = JSON.parse(user);
+	return !!user.quota_pool_enabled && !!user.quota_pool_admin;
+}
+
+export function isQuotaPoolEnabled() {
+	let user = localStorage.getItem('user');
+	if (!user) return false;
+	user = JSON.parse(user);
+	return !!user.quota_pool_enabled;
+}
+
 export function getSystemName() {
   let system_name = localStorage.getItem('system_name');
   if (!system_name) return 'New API';

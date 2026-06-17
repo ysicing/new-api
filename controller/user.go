@@ -104,17 +104,29 @@ func setupLogin(user *model.User, c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgUserSessionSaveFailed)
 		return
 	}
+	data := map[string]any{
+		"id":           user.Id,
+		"username":     user.Username,
+		"display_name": user.DisplayName,
+		"role":         user.Role,
+		"status":       user.Status,
+		"group":        user.Group,
+	}
+	data["quota_pool_enabled"] = common.QuotaPoolEnabled
+	if common.QuotaPoolEnabled {
+		quotaPoolAdmin, err := model.GetQuotaPoolAdminSummary(user.Id)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		data["quota_pool_admin"] = quotaPoolAdmin
+	} else {
+		data["quota_pool_admin"] = nil
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"message": "",
 		"success": true,
-		"data": map[string]any{
-			"id":           user.Id,
-			"username":     user.Username,
-			"display_name": user.DisplayName,
-			"role":         user.Role,
-			"status":       user.Status,
-			"group":        user.Group,
-		},
+		"data":    data,
 	})
 }
 
@@ -417,6 +429,17 @@ func GetSelf(c *gin.Context) {
 		"sidebar_modules":   userSetting.SidebarModules, // 正确提取sidebar_modules字段
 		"permissions":       permissions,                // 新增权限字段
 	}
+	responseData["quota_pool_enabled"] = common.QuotaPoolEnabled
+	if common.QuotaPoolEnabled {
+		quotaPoolAdmin, err := model.GetQuotaPoolAdminSummary(user.Id)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		responseData["quota_pool_admin"] = quotaPoolAdmin
+	} else {
+		responseData["quota_pool_admin"] = nil
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -571,8 +594,8 @@ func UpdateUser(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgUserCannotCreateHigherLevel)
 		return
 	}
-	if myRole != common.RoleRootUser && originUser.Quota != updatedUser.Quota {
-		common.ApiErrorMsg(c, "子管理员不能编辑用户额度，请使用充值功能")
+	if originUser.Quota != updatedUser.Quota {
+		common.ApiErrorMsg(c, "不支持直接调整用户额度，请使用充值按钮")
 		return
 	}
 	if updatedUser.Password == "$I_LOVE_U" {
@@ -865,6 +888,32 @@ func formatAdminTempQuotaLog(adminID int, amountQuota int) string {
 	return fmt.Sprintf("管理员(ID:%d)添加%s临时额度", adminID, logger.LogQuota(amountQuota))
 }
 
+func rechargeUserByQuotaPool(user *model.User, amountQuota int, operatorId int) error {
+	if user == nil {
+		return errors.New("用户不存在")
+	}
+	poolId := user.QuotaPoolId
+	if !common.QuotaPoolEnabled || poolId == model.QuotaPoolDefaultUserPoolId {
+		return model.IncreaseUserQuota(user.Id, amountQuota, true)
+	}
+	transfer, err := model.TransferQuotaFromPoolToUser(poolId, user.Id, amountQuota)
+	if err != nil {
+		return err
+	}
+	if transfer != nil && transfer.PoolChanged {
+		model.RecordQuotaPoolTransaction(
+			poolId,
+			model.QuotaPoolTransactionAllocateManual,
+			transfer.Change.Amount,
+			transfer.Change.QuotaBefore,
+			transfer.Change.QuotaAfter,
+			user.Id,
+			operatorId,
+		)
+	}
+	return nil
+}
+
 // ManageUser Only admin user can do this
 func ManageUser(c *gin.Context) {
 	var req ManageRequest
@@ -935,11 +984,17 @@ func ManageUser(c *gin.Context) {
 		}
 		user.Role = common.RoleCommonUser
 	case "add_quota":
-		adminName := c.GetString("username")
-		adminId := c.GetInt("id")
+		if myRole != common.RoleRootUser {
+			common.ApiError(c, errors.New("只有 Root 可以直接调整默认额度池用户额度"))
+			return
+		}
+		if user.QuotaPoolId != model.QuotaPoolDefaultUserPoolId {
+			common.ApiError(c, errors.New("只能直接调整默认额度池用户额度"))
+			return
+		}
 		adminInfo := map[string]interface{}{
-			"admin_id":       adminId,
-			"admin_username": adminName,
+			"admin_id":       c.GetInt("id"),
+			"admin_username": c.GetString("username"),
 		}
 		switch req.Mode {
 		case "add":
@@ -964,7 +1019,7 @@ func ManageUser(c *gin.Context) {
 			}
 			model.RecordLogWithAdminInfo(user.Id, model.LogTypeManage,
 				fmt.Sprintf("管理员减少用户额度 %s", logger.LogQuota(req.Value)), adminInfo)
-		case "override":
+		case "override", "set":
 			oldQuota := user.Quota
 			if err := model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("quota", req.Value).Error; err != nil {
 				common.ApiError(c, err)
@@ -973,7 +1028,7 @@ func ManageUser(c *gin.Context) {
 			model.RecordLogWithAdminInfo(user.Id, model.LogTypeManage,
 				fmt.Sprintf("管理员覆盖用户额度从 %s 为 %s", logger.LogQuota(oldQuota), logger.LogQuota(req.Value)), adminInfo)
 		default:
-			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			common.ApiError(c, errors.New("额度调整模式无效"))
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
@@ -987,11 +1042,11 @@ func ManageUser(c *gin.Context) {
 			common.ApiError(c, err)
 			return
 		}
-		if err := model.IncreaseUserQuota(user.Id, amountQuota, true); err != nil {
+		adminID := c.GetInt("id")
+		if err := rechargeUserByQuotaPool(&user, amountQuota, adminID); err != nil {
 			common.ApiError(c, err)
 			return
 		}
-		adminID := c.GetInt("id")
 		adminInfo := map[string]interface{}{
 			"admin_id":       adminID,
 			"admin_username": c.GetString("username"),

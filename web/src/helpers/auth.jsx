@@ -81,4 +81,25 @@ export function RootRoute({ children }) {
   return <Navigate to='/forbidden' replace />;
 }
 
+export function QuotaPoolRoute({ children }) {
+  const raw = localStorage.getItem('user');
+  if (!raw) {
+    return <Navigate to='/login' state={{ from: history.location }} />;
+  }
+  try {
+    const user = JSON.parse(raw);
+    if (
+      user &&
+      user.quota_pool_enabled &&
+      ((typeof user.role === 'number' && user.role >= 10) ||
+        user.quota_pool_admin)
+    ) {
+      return children;
+    }
+  } catch (e) {
+    // ignore
+  }
+  return <Navigate to='/forbidden' replace />;
+}
+
 export { PrivateRoute };

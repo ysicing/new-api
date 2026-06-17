@@ -25,7 +25,7 @@ import { ChevronLeft } from 'lucide-react';
 import { useSidebarCollapsed } from '../../hooks/common/useSidebarCollapsed';
 import { useSidebar } from '../../hooks/common/useSidebar';
 import { useMinimumLoadingTime } from '../../hooks/common/useMinimumLoadingTime';
-import { isAdmin, isRoot, showError } from '../../helpers';
+import { isAdmin, isQuotaPoolAdmin, isQuotaPoolEnabled, isRoot, showError } from '../../helpers';
 import SkeletonWrapper from './components/SkeletonWrapper';
 
 import { Nav, Divider, Button } from '@douyinfe/semi-ui';
@@ -37,6 +37,7 @@ const routerMap = {
   redemption: '/console/redemption',
   topup: '/console/topup',
   user: '/console/user',
+  quota_pool: '/console/quota_pool',
   subscription: '/console/subscription',
   log: '/console/log',
   stats: '/console/stats',
@@ -68,6 +69,9 @@ const SiderBar = ({ onNavigate = () => {} }) => {
   const [openedKeys, setOpenedKeys] = useState([]);
   const location = useLocation();
   const [routerMapState, setRouterMapState] = useState(routerMap);
+  const adminVisible = isAdmin();
+  const rootVisible = isRoot();
+  const quotaPoolVisible = isQuotaPoolEnabled() && (adminVisible || isQuotaPoolAdmin());
 
   const workspaceItems = useMemo(() => {
     const items = [
@@ -170,31 +174,37 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         text: t('模型部署'),
         itemKey: 'deployment',
         to: '/deployment',
-        className: isAdmin() ? '' : 'tableHiddle',
+        className: adminVisible ? '' : 'tableHiddle',
       },
       {
         text: t('兑换码管理'),
         itemKey: 'redemption',
         to: '/redemption',
-        className: isAdmin() ? '' : 'tableHiddle',
+        className: adminVisible ? '' : 'tableHiddle',
       },
       {
         text: t('用户管理'),
         itemKey: 'user',
         to: '/user',
-        className: isAdmin() ? '' : 'tableHiddle',
+        className: adminVisible ? '' : 'tableHiddle',
+      },
+      {
+        text: t('额度池'),
+        itemKey: 'quota_pool',
+        to: '/quota_pool',
+        className: quotaPoolVisible ? '' : 'tableHiddle',
       },
       {
         text: t('统计数据'),
         itemKey: 'stats',
         to: '/stats',
-        className: isAdmin() ? '' : 'tableHiddle',
+        className: adminVisible ? '' : 'tableHiddle',
       },
       {
         text: t('系统设置'),
         itemKey: 'setting',
         to: '/setting',
-        className: isRoot() ? '' : 'tableHiddle',
+        className: rootVisible ? '' : 'tableHiddle',
       },
     ];
 
@@ -205,7 +215,7 @@ const SiderBar = ({ onNavigate = () => {} }) => {
     });
 
     return filteredItems;
-  }, [isAdmin(), isRoot(), t, isModuleVisible]);
+  }, [adminVisible, quotaPoolVisible, rootVisible, t, isModuleVisible]);
 
   const chatMenuItems = useMemo(() => {
     const items = [
@@ -483,7 +493,8 @@ const SiderBar = ({ onNavigate = () => {} }) => {
           )}
 
           {/* 管理员区域 - 只在管理员时显示且配置允许时显示 */}
-          {isAdmin() && hasSectionVisibleModules('admin') && (
+          {(adminVisible || quotaPoolVisible) &&
+            (hasSectionVisibleModules('admin') || quotaPoolVisible) && (
             <>
               <Divider className='sidebar-divider' />
               <div>

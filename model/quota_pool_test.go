@@ -1,0 +1,369 @@
+package model
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
+)
+
+func setupQuotaPoolTestDB(t *testing.T) (*gorm.DB, func()) {
+	t.Helper()
+
+	oldDB := DB
+	oldLogDB := LOG_DB
+	oldRedisEnabled := common.RedisEnabled
+	oldUsingSQLite := common.UsingSQLite
+	oldUsingMySQL := common.UsingMySQL
+	oldUsingPostgreSQL := common.UsingPostgreSQL
+
+	common.RedisEnabled = false
+	common.UsingSQLite = true
+	common.UsingMySQL = false
+	common.UsingPostgreSQL = false
+
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite db failed: %v", err)
+	}
+	DB = db
+	LOG_DB = db
+	if err := db.AutoMigrate(&User{}, &QuotaPool{}, &QuotaPoolAdmin{}, &QuotaPoolTransaction{}); err != nil {
+		t.Fatalf("migrate quota pool test tables failed: %v", err)
+	}
+	cleanup := func() {
+		sqlDB, err := db.DB()
+		if err == nil {
+			_ = sqlDB.Close()
+		}
+		DB = oldDB
+		LOG_DB = oldLogDB
+		common.RedisEnabled = oldRedisEnabled
+		common.UsingSQLite = oldUsingSQLite
+		common.UsingMySQL = oldUsingMySQL
+		common.UsingPostgreSQL = oldUsingPostgreSQL
+	}
+	return db, cleanup
+}
+
+func createQuotaPoolTestUser(t *testing.T, db *gorm.DB, id int, quota int, poolId int) *User {
+	t.Helper()
+	user := &User{
+		Id:          id,
+		Username:    fmt.Sprintf("user_%d", id),
+		Password:    "password",
+		Role:        common.RoleCommonUser,
+		Status:      common.UserStatusEnabled,
+		Quota:       quota,
+		QuotaPoolId: poolId,
+		Group:       "default",
+		AffCode:     fmt.Sprintf("user_%d_code", id),
+	}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("create user failed: %v", err)
+	}
+	return user
+}
+
+func createQuotaPoolForTest(t *testing.T, db *gorm.DB, quota int) *QuotaPool {
+	t.Helper()
+	pool := &QuotaPool{
+		Name:               fmt.Sprintf("pool_%d", time.Now().UnixNano()),
+		Enabled:            true,
+		BaseQuota:          quota,
+		Quota:              quota,
+		AutoRechargeAmount: QuotaPoolAutoRechargeInherit,
+		WeeklyLimit:        QuotaPoolAutoRechargeInherit,
+		MonthlyLimit:       QuotaPoolAutoRechargeInherit,
+		MonthlyRefillDay:   1,
+	}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create quota pool failed: %v", err)
+	}
+	return pool
+}
+
+func TestTransferQuotaFromPoolToUserDebitsPoolAndCreditsUser(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 1000)
+	user := createQuotaPoolTestUser(t, db, 1, 10, pool.Id)
+
+	result, err := TransferQuotaFromPoolToUser(pool.Id, user.Id, 200)
+	if err != nil {
+		t.Fatalf("transfer failed: %v", err)
+	}
+	if !result.PoolChanged {
+		t.Fatalf("expected non-default pool to be changed")
+	}
+	if result.Change.QuotaBefore != 1000 || result.Change.QuotaAfter != 800 || result.Change.Amount != -200 {
+		t.Fatalf("unexpected change: %+v", result.Change)
+	}
+
+	var gotPool QuotaPool
+	if err := db.First(&gotPool, pool.Id).Error; err != nil {
+		t.Fatalf("load pool failed: %v", err)
+	}
+	if gotPool.Quota != 800 {
+		t.Fatalf("pool quota = %d, want 800", gotPool.Quota)
+	}
+	var gotUser User
+	if err := db.First(&gotUser, user.Id).Error; err != nil {
+		t.Fatalf("load user failed: %v", err)
+	}
+	if gotUser.Quota != 210 {
+		t.Fatalf("user quota = %d, want 210", gotUser.Quota)
+	}
+}
+
+func TestTransferQuotaFromPoolToUserRejectsInsufficientPool(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 100)
+	user := createQuotaPoolTestUser(t, db, 1, 10, pool.Id)
+
+	_, err := TransferQuotaFromPoolToUser(pool.Id, user.Id, 200)
+	if err == nil {
+		t.Fatalf("expected insufficient quota error")
+	}
+
+	var gotPool QuotaPool
+	_ = db.First(&gotPool, pool.Id).Error
+	if gotPool.Quota != 100 {
+		t.Fatalf("pool quota = %d, want 100", gotPool.Quota)
+	}
+	var gotUser User
+	_ = db.First(&gotUser, user.Id).Error
+	if gotUser.Quota != 10 {
+		t.Fatalf("user quota = %d, want 10", gotUser.Quota)
+	}
+}
+
+func TestTransferQuotaFromPoolToUserRejectsWhenConditionalDebitAffectsNoRows(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 200)
+	user := createQuotaPoolTestUser(t, db, 1, 10, pool.Id)
+
+	callbackName := "quota_pool_test:drain_pool_before_debit"
+	drained := false
+	if err := db.Callback().Update().Before("gorm:update").Register(callbackName, func(tx *gorm.DB) {
+		if drained {
+			return
+		}
+		if tx.Statement.Schema == nil || tx.Statement.Schema.Name != "QuotaPool" || tx.Statement.Table != "quota_pools" {
+			return
+		}
+		drained = true
+		tx.Exec("UPDATE quota_pools SET quota = 100 WHERE id = ?", pool.Id)
+	}); err != nil {
+		t.Fatalf("register update callback failed: %v", err)
+	}
+	defer db.Callback().Update().Remove(callbackName)
+
+	_, err := TransferQuotaFromPoolToUser(pool.Id, user.Id, 200)
+	if !errors.Is(err, ErrQuotaPoolInsufficientQuota) {
+		t.Fatalf("expected insufficient quota after conditional debit miss, got %v", err)
+	}
+
+	var gotPool QuotaPool
+	_ = db.First(&gotPool, pool.Id).Error
+	if gotPool.Quota != 200 {
+		t.Fatalf("pool quota = %d, want unchanged 200", gotPool.Quota)
+	}
+	var gotUser User
+	_ = db.First(&gotUser, user.Id).Error
+	if gotUser.Quota != 10 {
+		t.Fatalf("user quota = %d, want unchanged 10", gotUser.Quota)
+	}
+}
+
+func TestTransferQuotaFromPoolToUserRejectsNonMember(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 1000)
+	otherPool := createQuotaPoolForTest(t, db, 1000)
+	user := createQuotaPoolTestUser(t, db, 1, 10, otherPool.Id)
+
+	_, err := TransferQuotaFromPoolToUser(pool.Id, user.Id, 200)
+	if !errors.Is(err, ErrQuotaPoolMemberMismatch) {
+		t.Fatalf("expected member mismatch error, got %v", err)
+	}
+
+	var gotPool QuotaPool
+	_ = db.First(&gotPool, pool.Id).Error
+	if gotPool.Quota != 1000 {
+		t.Fatalf("pool quota = %d, want 1000", gotPool.Quota)
+	}
+	var gotUser User
+	_ = db.First(&gotUser, user.Id).Error
+	if gotUser.Quota != 10 {
+		t.Fatalf("user quota = %d, want 10", gotUser.Quota)
+	}
+}
+
+func TestListQuotaPoolMembersAndCandidatesOmitAccessToken(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 1000)
+	member := createQuotaPoolTestUser(t, db, 1, 10, pool.Id)
+	candidate := createQuotaPoolTestUser(t, db, 2, 10, QuotaPoolDefaultUserPoolId)
+	memberToken := "0123456789abcdef0123456789abcdef"
+	candidateToken := "abcdef0123456789abcdef0123456789"
+	if err := db.Model(&User{}).Where("id = ?", member.Id).Update("access_token", memberToken).Error; err != nil {
+		t.Fatalf("update member access token failed: %v", err)
+	}
+	if err := db.Model(&User{}).Where("id = ?", candidate.Id).Update("access_token", candidateToken).Error; err != nil {
+		t.Fatalf("update candidate access token failed: %v", err)
+	}
+
+	members, _, err := ListQuotaPoolMembers(pool.Id, &common.PageInfo{Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("list members failed: %v", err)
+	}
+	if len(members) != 1 || members[0].AccessToken != nil {
+		t.Fatalf("expected member access token omitted, got %#v", members)
+	}
+
+	candidates, _, err := ListDefaultQuotaPoolCandidates("", &common.PageInfo{Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("list candidates failed: %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].AccessToken != nil {
+		t.Fatalf("expected candidate access token omitted, got %#v", candidates)
+	}
+}
+
+func TestTransferQuotaFromDefaultPoolUsesUserQuotaOnly(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	user := createQuotaPoolTestUser(t, db, 1, 10, QuotaPoolDefaultUserPoolId)
+
+	result, err := TransferQuotaFromPoolToUser(QuotaPoolDefaultUserPoolId, user.Id, 200)
+	if err != nil {
+		t.Fatalf("default transfer failed: %v", err)
+	}
+	if result.PoolChanged {
+		t.Fatalf("default pool should not be marked changed")
+	}
+	var gotUser User
+	_ = db.First(&gotUser, user.Id).Error
+	if gotUser.Quota != 210 {
+		t.Fatalf("user quota = %d, want 210", gotUser.Quota)
+	}
+}
+
+func TestMoveUserQuotaPoolRejectsSamePoolWithoutClearingQuota(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 500)
+	user := createQuotaPoolTestUser(t, db, 1, 120, pool.Id)
+
+	_, err := MoveUserQuotaPool(user.Id, pool.Id)
+	if !errors.Is(err, ErrQuotaPoolSamePool) {
+		t.Fatalf("expected same pool error, got %v", err)
+	}
+
+	var gotUser User
+	_ = db.First(&gotUser, user.Id).Error
+	if gotUser.Quota != 120 || gotUser.QuotaPoolId != pool.Id {
+		t.Fatalf("unexpected user after same-pool move: quota=%d pool=%d", gotUser.Quota, gotUser.QuotaPoolId)
+	}
+}
+
+func TestMoveUserQuotaPoolReclaimsOldFinitePoolQuota(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	oldPool := createQuotaPoolForTest(t, db, 500)
+	newPool := createQuotaPoolForTest(t, db, 700)
+	user := createQuotaPoolTestUser(t, db, 1, 120, oldPool.Id)
+	if err := db.Create(&QuotaPoolAdmin{PoolId: oldPool.Id, UserId: user.Id, Level: QuotaPoolAdminLevelV1}).Error; err != nil {
+		t.Fatalf("create admin failed: %v", err)
+	}
+
+	result, err := MoveUserQuotaPool(user.Id, newPool.Id)
+	if err != nil {
+		t.Fatalf("move failed: %v", err)
+	}
+	if !result.Reclaimed || result.Change.QuotaBefore != 500 || result.Change.QuotaAfter != 620 {
+		t.Fatalf("unexpected reclaim result: %+v", result)
+	}
+
+	var gotUser User
+	_ = db.First(&gotUser, user.Id).Error
+	if gotUser.Quota != 0 || gotUser.QuotaPoolId != newPool.Id {
+		t.Fatalf("unexpected user after move: quota=%d pool=%d", gotUser.Quota, gotUser.QuotaPoolId)
+	}
+	var gotOldPool QuotaPool
+	_ = db.First(&gotOldPool, oldPool.Id).Error
+	if gotOldPool.Quota != 620 {
+		t.Fatalf("old pool quota = %d, want 620", gotOldPool.Quota)
+	}
+	var adminCount int64
+	_ = db.Model(&QuotaPoolAdmin{}).Where("user_id = ?", user.Id).Count(&adminCount).Error
+	if adminCount != 0 {
+		t.Fatalf("expected old pool admin relation removed, got %d", adminCount)
+	}
+}
+
+func TestGrantQuotaPoolAdminRejectsDisabledPool(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 500)
+	if err := db.Model(&QuotaPool{}).Where("id = ?", pool.Id).Update("enabled", false).Error; err != nil {
+		t.Fatalf("disable pool failed: %v", err)
+	}
+	user := createQuotaPoolTestUser(t, db, 1, 0, pool.Id)
+
+	err := GrantQuotaPoolAdmin(pool.Id, user.Id, QuotaPoolAdminLevelV1)
+	if !errors.Is(err, ErrQuotaPoolDisabled) {
+		t.Fatalf("expected disabled pool error, got %v", err)
+	}
+
+	var adminCount int64
+	_ = db.Model(&QuotaPoolAdmin{}).Where("user_id = ?", user.Id).Count(&adminCount).Error
+	if adminCount != 0 {
+		t.Fatalf("expected no admin relation, got %d", adminCount)
+	}
+}
+
+func TestAddQuotaPoolManualRefillLimitsAmountAndMonthlyCount(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 1000)
+
+	if _, err := AddQuotaPoolManualRefill(pool.Id, 600, 99); err == nil {
+		t.Fatalf("expected amount over 50 percent to fail")
+	}
+	if _, err := AddQuotaPoolManualRefill(pool.Id, 500, 99); err != nil {
+		t.Fatalf("first refill failed: %v", err)
+	}
+	if _, err := AddQuotaPoolManualRefill(pool.Id, 500, 99); err != nil {
+		t.Fatalf("second refill failed: %v", err)
+	}
+	if _, err := AddQuotaPoolManualRefill(pool.Id, 1, 99); err == nil {
+		t.Fatalf("expected third refill in same month to fail")
+	}
+
+	var gotPool QuotaPool
+	_ = db.First(&gotPool, pool.Id).Error
+	if gotPool.Quota != 2000 {
+		t.Fatalf("pool quota = %d, want 2000", gotPool.Quota)
+	}
+}

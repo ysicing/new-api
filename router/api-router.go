@@ -321,6 +321,43 @@ func SetApiRouter(router *gin.Engine) {
 			prefillGroupRoute.DELETE("/:id", controller.DeletePrefillGroup)
 		}
 
+		quotaPoolRoute := apiRouter.Group("/quota_pool")
+		quotaPoolRoute.Use(middleware.AdminAuth())
+		{
+			quotaPoolRoute.GET("/", controller.GetQuotaPools)
+			quotaPoolRoute.GET("/candidates", controller.GetQuotaPoolCandidates)
+			quotaPoolRoute.GET("/:id", controller.GetQuotaPool)
+			quotaPoolRoute.GET("/:id/transactions", controller.GetQuotaPoolTransactions)
+			quotaPoolRoute.GET("/:id/members", controller.GetQuotaPoolMembers)
+			quotaPoolRoute.POST("/:id/refill", controller.RefillQuotaPool)
+			quotaPoolRoute.POST("/:id/members", controller.AddQuotaPoolMember)
+			quotaPoolRoute.PUT("/users/:user_id", controller.MoveUserQuotaPool)
+			quotaPoolRoute.POST("/:id/members/:user_id/recharge", controller.RechargeQuotaPoolMember)
+			quotaPoolRoute.POST("/:id/admins", controller.GrantQuotaPoolAdmin)
+			quotaPoolRoute.DELETE("/:id/admins/:user_id", controller.RevokeQuotaPoolAdmin)
+		}
+		quotaPoolRootRoute := apiRouter.Group("/quota_pool")
+		quotaPoolRootRoute.Use(middleware.RootAuth())
+		{
+			quotaPoolRootRoute.POST("/", controller.CreateQuotaPool)
+			quotaPoolRootRoute.PUT("/:id", controller.UpdateQuotaPool)
+			quotaPoolRootRoute.POST("/:id/enable", controller.EnableQuotaPool)
+			quotaPoolRootRoute.POST("/:id/disable", controller.DisableQuotaPool)
+			quotaPoolRootRoute.DELETE("/:id", controller.DeleteQuotaPool)
+		}
+		quotaPoolSelfRoute := apiRouter.Group("/quota_pool/self")
+		quotaPoolSelfRoute.Use(middleware.UserAuth())
+		{
+			quotaPoolSelfRoute.GET("/", controller.GetSelfQuotaPool)
+			quotaPoolSelfRoute.GET("/transactions", controller.GetSelfQuotaPoolTransactions)
+			quotaPoolSelfRoute.GET("/members", controller.GetSelfQuotaPoolMembers)
+			quotaPoolSelfRoute.GET("/candidates", controller.GetSelfQuotaPoolCandidates)
+			quotaPoolSelfRoute.POST("/members", controller.AddSelfQuotaPoolMember)
+			quotaPoolSelfRoute.POST("/members/:user_id/recharge", controller.RechargeSelfQuotaPoolMember)
+			quotaPoolSelfRoute.POST("/admins", controller.GrantSelfQuotaPoolAdmin)
+			quotaPoolSelfRoute.DELETE("/admins/:user_id", controller.RevokeSelfQuotaPoolAdmin)
+		}
+
 		mjRoute := apiRouter.Group("/mj")
 		mjRoute.GET("/self", middleware.UserAuth(), controller.GetUserMidjourney)
 		mjRoute.GET("/", middleware.AdminAuth(), controller.GetAllMidjourney)

@@ -14,6 +14,7 @@ func setupOptionTestDB(t *testing.T) {
 	oldDB := DB
 	oldOptionMap := common.OptionMap
 	oldDataExportEnabled := common.DataExportEnabled
+	oldQuotaPoolEnabled := common.QuotaPoolEnabled
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -33,6 +34,7 @@ func setupOptionTestDB(t *testing.T) {
 		DB = oldDB
 		common.OptionMap = oldOptionMap
 		common.DataExportEnabled = oldDataExportEnabled
+		common.QuotaPoolEnabled = oldQuotaPoolEnabled
 	})
 }
 
@@ -57,5 +59,33 @@ func TestUpdateOptionDataExportEnabledAlwaysTrue(t *testing.T) {
 	}
 	if option.Value != "true" {
 		t.Fatalf("expected database option to store true, got %q", option.Value)
+	}
+}
+
+func TestUpdateOptionQuotaPoolEnabledCannotTurnOffAfterEnabled(t *testing.T) {
+	setupOptionTestDB(t)
+
+	common.QuotaPoolEnabled = false
+	if err := UpdateOption("QuotaPoolEnabled", "true"); err != nil {
+		t.Fatalf("failed to enable quota pool option: %v", err)
+	}
+	if !common.QuotaPoolEnabled {
+		t.Fatalf("expected quota pool runtime option to be enabled")
+	}
+
+	err := UpdateOption("QuotaPoolEnabled", "false")
+	if err == nil {
+		t.Fatalf("expected disabling quota pool option to be rejected")
+	}
+	if !common.QuotaPoolEnabled {
+		t.Fatalf("expected quota pool runtime option to remain enabled")
+	}
+
+	var option Option
+	if err := DB.First(&option, "key = ?", "QuotaPoolEnabled").Error; err != nil {
+		t.Fatalf("failed to load option: %v", err)
+	}
+	if option.Value != "true" {
+		t.Fatalf("expected database option to remain true, got %q", option.Value)
 	}
 }

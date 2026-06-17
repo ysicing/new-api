@@ -384,6 +384,20 @@ export const getUsersColumns = ({
       },
     },
     {
+      title: t('额度池'),
+      dataIndex: 'quota_pool_id',
+      render: (value) =>
+        value && value > 0 ? (
+          <Tag color='cyan' shape='circle'>
+            #{value}
+          </Tag>
+        ) : (
+          <Tag color='grey' shape='circle'>
+            {t('默认')}
+          </Tag>
+        ),
+    },
+    {
       title: t('邀请信息'),
       dataIndex: 'invite',
       render: (text, record, index) => renderInviteInfo(text, record, t),

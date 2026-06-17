@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -52,6 +53,7 @@ func InitOptionMap() {
 	common.OptionMap["DisplayTokenStatEnabled"] = strconv.FormatBool(common.DisplayTokenStatEnabled)
 	common.OptionMap["DrawingEnabled"] = strconv.FormatBool(common.DrawingEnabled)
 	common.OptionMap["TaskEnabled"] = strconv.FormatBool(common.TaskEnabled)
+	common.OptionMap["QuotaPoolEnabled"] = strconv.FormatBool(common.QuotaPoolEnabled)
 	common.OptionMap["DataExportEnabled"] = strconv.FormatBool(true)
 	common.OptionMap["ChannelDisableThreshold"] = strconv.FormatFloat(common.ChannelDisableThreshold, 'f', -1, 64)
 	common.OptionMap["EmailDomainRestrictionEnabled"] = strconv.FormatBool(common.EmailDomainRestrictionEnabled)
@@ -211,6 +213,9 @@ func UpdateOption(key string, value string) error {
 	if key == "DataExportEnabled" {
 		value = strconv.FormatBool(true)
 	}
+	if key == "QuotaPoolEnabled" && common.QuotaPoolEnabled && value != strconv.FormatBool(true) {
+		return errors.New("额度池功能开启后不能关闭")
+	}
 	// Save to database first
 	option := Option{
 		Key: key,
@@ -301,6 +306,12 @@ func updateOptionMap(key string, value string) (err error) {
 			common.DrawingEnabled = boolValue
 		case "TaskEnabled":
 			common.TaskEnabled = boolValue
+		case "QuotaPoolEnabled":
+			if common.QuotaPoolEnabled && !boolValue {
+				common.OptionMap[key] = strconv.FormatBool(true)
+				return errors.New("额度池功能开启后不能关闭")
+			}
+			common.QuotaPoolEnabled = boolValue
 		case "DataExportEnabled":
 			common.DataExportEnabled = true
 		case "DefaultCollapseSidebar":

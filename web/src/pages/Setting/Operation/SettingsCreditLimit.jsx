@@ -36,6 +36,7 @@ export default function SettingsCreditLimit(props) {
     PreConsumedQuota: '',
     QuotaForInviter: '',
     QuotaForInvitee: '',
+    QuotaPoolEnabled: false,
     'quota_setting.enable_free_model_pre_consume': true,
   });
   const refForm = useRef();
@@ -59,13 +60,28 @@ export default function SettingsCreditLimit(props) {
     setLoading(true);
     Promise.all(requestQueue)
       .then((res) => {
-        if (requestQueue.length === 1) {
-          if (res.includes(undefined)) return;
-        } else if (requestQueue.length > 1) {
-          if (res.includes(undefined))
-            return showError(t('部分保存失败，请重试'));
+        if (res.includes(undefined)) {
+          return showError(t('部分保存失败，请重试'));
+        }
+        const failed = res.find((item) => !item.data?.success);
+        if (failed) {
+          return showError(failed.data?.message || t('保存失败，请重试'));
         }
         showSuccess(t('保存成功'));
+        if (Object.prototype.hasOwnProperty.call(inputs, 'QuotaPoolEnabled')) {
+          try {
+            const user = JSON.parse(localStorage.getItem('user') || '{}');
+            localStorage.setItem(
+              'user',
+              JSON.stringify({
+                ...user,
+                quota_pool_enabled: !!inputs.QuotaPoolEnabled,
+              }),
+            );
+          } catch (e) {
+            // ignore local cache update errors
+          }
+        }
         props.refresh();
       })
       .catch(() => {
@@ -169,6 +185,18 @@ export default function SettingsCreditLimit(props) {
             </Row>
             <Row>
               <Col>
+                <Form.Switch
+                  label={t('启用额度池')}
+                  field={'QuotaPoolEnabled'}
+                  extraText={t('开启后额度池功能生效，开启后不能关闭')}
+                  disabled={!!inputs.QuotaPoolEnabled}
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      QuotaPoolEnabled: value,
+                    })
+                  }
+                />
                 <Form.Switch
                   label={t('对免费模型启用预消耗')}
                   field={'quota_setting.enable_free_model_pre_consume'}

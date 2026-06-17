@@ -1,0 +1,649 @@
+package model
+
+import (
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+)
+
+const (
+	QuotaPoolAdminLevelV1 = 1
+	QuotaPoolAdminLevelV2 = 2
+
+	QuotaPoolDefaultUserPoolId = 0
+	QuotaPoolUnlimitedQuota    = -1
+
+	QuotaPoolAutoRechargeInherit = -1
+	QuotaPoolAutoRechargeOff     = 0
+
+	QuotaPoolTransactionInitialFund    = "initial_fund"
+	QuotaPoolTransactionManualRefill   = "manual_refill"
+	QuotaPoolTransactionMonthlyRefill  = "monthly_refill"
+	QuotaPoolTransactionAllocateAuto   = "allocate_auto"
+	QuotaPoolTransactionAllocateManual = "allocate_manual"
+	QuotaPoolTransactionReclaimUser    = "reclaim_user"
+)
+
+var (
+	ErrQuotaPoolNotFound          = errors.New("额度池不存在")
+	ErrQuotaPoolDisabled          = errors.New("额度池已禁用")
+	ErrQuotaPoolDefaultReadonly   = errors.New("默认额度池不支持该操作")
+	ErrQuotaPoolInvalidAmount     = errors.New("额度池金额无效")
+	ErrQuotaPoolInsufficientQuota = errors.New("额度池余额不足")
+	ErrQuotaPoolNameExists        = errors.New("额度池名称已存在")
+	ErrQuotaPoolRefillLimited     = errors.New("额度池临时额度超出限制")
+	ErrQuotaPoolMemberMismatch    = errors.New("用户不属于该额度池")
+	ErrQuotaPoolSamePool          = errors.New("用户已在该额度池")
+)
+
+type QuotaPool struct {
+	Id                   int            `json:"id"`
+	Name                 string         `json:"name" gorm:"type:varchar(64);index"`
+	Enabled              bool           `json:"enabled" gorm:"default:true"`
+	IsDefault            bool           `json:"is_default" gorm:"default:false;index"`
+	BaseQuota            int            `json:"base_quota" gorm:"type:int;default:0;column:base_quota"`
+	Quota                int            `json:"quota" gorm:"type:int;default:0"`
+	AutoRechargeAmount   int            `json:"auto_recharge_amount" gorm:"type:int;default:-1;column:auto_recharge_amount"`
+	WeeklyLimit          int            `json:"weekly_limit" gorm:"type:int;default:-1;column:weekly_limit"`
+	MonthlyLimit         int            `json:"monthly_limit" gorm:"type:int;default:-1;column:monthly_limit"`
+	MonthlyRefillEnabled bool           `json:"monthly_refill_enabled" gorm:"default:false;column:monthly_refill_enabled"`
+	MonthlyRefillAmount  int            `json:"monthly_refill_amount" gorm:"type:int;default:0;column:monthly_refill_amount"`
+	MonthlyRefillDay     int            `json:"monthly_refill_day" gorm:"type:int;default:1;column:monthly_refill_day"`
+	LastRefillMonth      int            `json:"last_refill_month" gorm:"type:int;default:0;column:last_refill_month"`
+	CreatedAt            int64          `json:"created_at" gorm:"autoCreateTime;column:created_at"`
+	UpdatedAt            int64          `json:"updated_at" gorm:"autoUpdateTime;column:updated_at"`
+	DeletedAt            gorm.DeletedAt `json:"deleted_at" gorm:"index"`
+}
+
+type QuotaPoolAdmin struct {
+	Id        int   `json:"id"`
+	PoolId    int   `json:"pool_id" gorm:"index;column:pool_id"`
+	UserId    int   `json:"user_id" gorm:"uniqueIndex;column:user_id"`
+	Level     int   `json:"level" gorm:"type:int;default:1"`
+	CreatedAt int64 `json:"created_at" gorm:"autoCreateTime;column:created_at"`
+}
+
+type QuotaPoolTransaction struct {
+	Id          int    `json:"id"`
+	PoolId      int    `json:"pool_id" gorm:"index;column:pool_id"`
+	Type        string `json:"type" gorm:"type:varchar(32);index"`
+	Amount      int    `json:"amount" gorm:"type:int;default:0"`
+	QuotaBefore int    `json:"quota_before" gorm:"type:int;default:0;column:quota_before"`
+	QuotaAfter  int    `json:"quota_after" gorm:"type:int;default:0;column:quota_after"`
+	UserId      int    `json:"user_id" gorm:"index;column:user_id"`
+	OperatorId  int    `json:"operator_id" gorm:"index;column:operator_id"`
+	CreatedAt   int64  `json:"created_at" gorm:"autoCreateTime;column:created_at"`
+}
+
+type QuotaPoolAdminSummary struct {
+	PoolId int `json:"pool_id"`
+	Level  int `json:"level"`
+}
+
+type QuotaPoolBalanceChange struct {
+	PoolId      int
+	Amount      int
+	QuotaBefore int
+	QuotaAfter  int
+}
+
+type QuotaPoolTransferResult struct {
+	PoolChanged bool
+	Change      QuotaPoolBalanceChange
+}
+
+type QuotaPoolMoveResult struct {
+	OldPoolId int
+	NewPoolId int
+	UserQuota int
+	Reclaimed bool
+	Change    QuotaPoolBalanceChange
+}
+
+type QuotaPoolListItem struct {
+	QuotaPool
+	MemberCount int64 `json:"member_count"`
+	AdminCount  int64 `json:"admin_count"`
+}
+
+func normalizeQuotaPoolId(poolId int) int {
+	if poolId < 0 {
+		return QuotaPoolDefaultUserPoolId
+	}
+	return poolId
+}
+
+func EnsureDefaultQuotaPool() (*QuotaPool, error) {
+	pool := &QuotaPool{}
+	err := DB.Where("is_default = ?", true).First(pool).Error
+	if err == nil {
+		return pool, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	pool = &QuotaPool{
+		Name:               "系统默认额度池",
+		Enabled:            true,
+		IsDefault:          true,
+		BaseQuota:          QuotaPoolUnlimitedQuota,
+		Quota:              QuotaPoolUnlimitedQuota,
+		AutoRechargeAmount: QuotaPoolAutoRechargeInherit,
+		WeeklyLimit:        QuotaPoolAutoRechargeInherit,
+		MonthlyLimit:       QuotaPoolAutoRechargeInherit,
+		MonthlyRefillDay:   1,
+	}
+	if err := DB.Create(pool).Error; err != nil {
+		return nil, err
+	}
+	return pool, nil
+}
+
+func GetQuotaPoolAdminSummary(userId int) (*QuotaPoolAdminSummary, error) {
+	var admin QuotaPoolAdmin
+	err := DB.Where("user_id = ?", userId).First(&admin).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &QuotaPoolAdminSummary{PoolId: admin.PoolId, Level: admin.Level}, nil
+}
+
+func GetQuotaPoolById(poolId int) (*QuotaPool, error) {
+	poolId = normalizeQuotaPoolId(poolId)
+	if poolId == QuotaPoolDefaultUserPoolId {
+		return EnsureDefaultQuotaPool()
+	}
+	pool := &QuotaPool{}
+	if err := DB.First(pool, "id = ?", poolId).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrQuotaPoolNotFound
+		}
+		return nil, err
+	}
+	return pool, nil
+}
+
+func ListQuotaPools() ([]QuotaPoolListItem, error) {
+	var pools []QuotaPool
+	if err := DB.Order("is_default desc, id desc").Find(&pools).Error; err != nil {
+		return nil, err
+	}
+	items := make([]QuotaPoolListItem, 0, len(pools))
+	for _, pool := range pools {
+		item := QuotaPoolListItem{QuotaPool: pool}
+		if pool.IsDefault {
+			DB.Model(&User{}).Where("quota_pool_id = ?", QuotaPoolDefaultUserPoolId).Count(&item.MemberCount)
+		} else {
+			DB.Model(&User{}).Where("quota_pool_id = ?", pool.Id).Count(&item.MemberCount)
+			DB.Model(&QuotaPoolAdmin{}).Where("pool_id = ?", pool.Id).Count(&item.AdminCount)
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func ListQuotaPoolTransactions(poolId int, pageInfo *common.PageInfo) ([]*QuotaPoolTransaction, int64, error) {
+	var total int64
+	query := DB.Model(&QuotaPoolTransaction{}).Where("pool_id = ?", poolId)
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var txs []*QuotaPoolTransaction
+	err := query.Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&txs).Error
+	return txs, total, err
+}
+
+func ListQuotaPoolMembers(poolId int, pageInfo *common.PageInfo) ([]*User, int64, error) {
+	var total int64
+	query := DB.Model(&User{}).Where("quota_pool_id = ?", poolId)
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var users []*User
+	err := query.Select("Id", "Username", "DisplayName", "Role", "Status", "Email", "Group", "Quota", "UsedQuota", "QuotaPoolId", "CreatedAt", "LastLoginAt").
+		Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&users).Error
+	return users, total, err
+}
+
+func ListDefaultQuotaPoolCandidates(keyword string, pageInfo *common.PageInfo) ([]*User, int64, error) {
+	query := DB.Model(&User{}).Where("quota_pool_id = ? AND role = ? AND status = ?", QuotaPoolDefaultUserPoolId, common.RoleCommonUser, common.UserStatusEnabled)
+	if keyword != "" {
+		like := "%" + keyword + "%"
+		query = query.Where("username LIKE ? OR email LIKE ? OR display_name LIKE ?", like, like, like)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var users []*User
+	err := query.Select("Id", "Username", "DisplayName", "Role", "Status", "Email", "Group", "Quota", "UsedQuota", "QuotaPoolId", "CreatedAt", "LastLoginAt").
+		Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&users).Error
+	return users, total, err
+}
+
+func quotaPoolNameExists(tx *gorm.DB, name string, excludeId int) (bool, error) {
+	var count int64
+	query := tx.Model(&QuotaPool{}).Where("name = ?", name)
+	if excludeId > 0 {
+		query = query.Where("id <> ?", excludeId)
+	}
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func CreateQuotaPool(name string, baseQuota int, operatorId int) (*QuotaPool, error) {
+	if name == "" || baseQuota <= 0 {
+		return nil, ErrQuotaPoolInvalidAmount
+	}
+	var pool *QuotaPool
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		exists, err := quotaPoolNameExists(tx, name, 0)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return ErrQuotaPoolNameExists
+		}
+		pool = &QuotaPool{
+			Name:               name,
+			Enabled:            true,
+			IsDefault:          false,
+			BaseQuota:          baseQuota,
+			Quota:              baseQuota,
+			AutoRechargeAmount: QuotaPoolAutoRechargeInherit,
+			WeeklyLimit:        QuotaPoolAutoRechargeInherit,
+			MonthlyLimit:       QuotaPoolAutoRechargeInherit,
+			MonthlyRefillDay:   1,
+		}
+		if err := tx.Create(pool).Error; err != nil {
+			return err
+		}
+		return tx.Create(&QuotaPoolTransaction{
+			PoolId:      pool.Id,
+			Type:        QuotaPoolTransactionInitialFund,
+			Amount:      baseQuota,
+			QuotaBefore: 0,
+			QuotaAfter:  baseQuota,
+			OperatorId:  operatorId,
+		}).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return pool, nil
+}
+
+func UpdateQuotaPoolConfig(poolId int, updates map[string]interface{}) error {
+	if poolId == QuotaPoolDefaultUserPoolId {
+		return ErrQuotaPoolDefaultReadonly
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		pool := &QuotaPool{}
+		if err := tx.First(pool, "id = ?", poolId).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrQuotaPoolNotFound
+			}
+			return err
+		}
+		if pool.IsDefault {
+			return ErrQuotaPoolDefaultReadonly
+		}
+		if nameVal, ok := updates["name"].(string); ok && nameVal != "" && nameVal != pool.Name {
+			exists, err := quotaPoolNameExists(tx, nameVal, poolId)
+			if err != nil {
+				return err
+			}
+			if exists {
+				return ErrQuotaPoolNameExists
+			}
+		}
+		return tx.Model(&QuotaPool{}).Where("id = ?", poolId).Updates(updates).Error
+	})
+}
+
+func SetQuotaPoolEnabled(poolId int, enabled bool) error {
+	if poolId == QuotaPoolDefaultUserPoolId {
+		return ErrQuotaPoolDefaultReadonly
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		pool := &QuotaPool{}
+		if err := tx.First(pool, "id = ?", poolId).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrQuotaPoolNotFound
+			}
+			return err
+		}
+		if pool.IsDefault {
+			return ErrQuotaPoolDefaultReadonly
+		}
+		return tx.Model(&QuotaPool{}).Where("id = ?", poolId).Update("enabled", enabled).Error
+	})
+}
+
+func DeleteQuotaPool(poolId int) error {
+	if poolId == QuotaPoolDefaultUserPoolId {
+		return ErrQuotaPoolDefaultReadonly
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		pool := &QuotaPool{}
+		if err := tx.First(pool, "id = ?", poolId).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrQuotaPoolNotFound
+			}
+			return err
+		}
+		if pool.IsDefault {
+			return ErrQuotaPoolDefaultReadonly
+		}
+		var count int64
+		if err := tx.Model(&User{}).Where("quota_pool_id = ?", poolId).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return errors.New("额度池仍有成员，不能删除")
+		}
+		if err := tx.Where("pool_id = ?", poolId).Delete(&QuotaPoolAdmin{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(pool).Error
+	})
+}
+
+func TransferQuotaFromPoolToUser(poolId int, userId int, amount int) (*QuotaPoolTransferResult, error) {
+	if amount <= 0 {
+		return nil, ErrQuotaPoolInvalidAmount
+	}
+	poolId = normalizeQuotaPoolId(poolId)
+	if poolId == QuotaPoolDefaultUserPoolId {
+		if err := IncreaseUserQuota(userId, amount, true); err != nil {
+			return nil, err
+		}
+		return &QuotaPoolTransferResult{PoolChanged: false}, nil
+	}
+
+	result := &QuotaPoolTransferResult{PoolChanged: true}
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		pool := &QuotaPool{}
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(pool, "id = ?", poolId).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrQuotaPoolNotFound
+			}
+			return err
+		}
+		if pool.IsDefault {
+			return ErrQuotaPoolDefaultReadonly
+		}
+		if !pool.Enabled {
+			return ErrQuotaPoolDisabled
+		}
+		user := &User{}
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(user, "id = ?", userId).Error; err != nil {
+			return err
+		}
+		if normalizeQuotaPoolId(user.QuotaPoolId) != poolId {
+			return ErrQuotaPoolMemberMismatch
+		}
+		if pool.Quota < amount {
+			return ErrQuotaPoolInsufficientQuota
+		}
+		before := pool.Quota
+		debitResult := tx.Model(&QuotaPool{}).
+			Where("id = ? AND quota >= ?", poolId, amount).
+			Update("quota", gorm.Expr("quota - ?", amount))
+		if debitResult.Error != nil {
+			return debitResult.Error
+		}
+		if debitResult.RowsAffected == 0 {
+			return ErrQuotaPoolInsufficientQuota
+		}
+		if err := tx.Model(&User{}).Where("id = ?", userId).Update("quota", gorm.Expr("quota + ?", amount)).Error; err != nil {
+			return err
+		}
+		result.Change = QuotaPoolBalanceChange{
+			PoolId:      poolId,
+			Amount:      -amount,
+			QuotaBefore: before,
+			QuotaAfter:  before - amount,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	gopoolUpdateUserQuotaCache(userId)
+	return result, nil
+}
+
+func gopoolUpdateUserQuotaCache(userId int) {
+	if !common.RedisEnabled {
+		return
+	}
+	quota, err := GetUserQuota(userId, true)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to reload user quota cache for user %d: %s", userId, err.Error()))
+		return
+	}
+	if err := updateUserQuotaCache(userId, quota); err != nil {
+		common.SysLog(fmt.Sprintf("failed to update user quota cache for user %d: %s", userId, err.Error()))
+	}
+}
+
+func MoveUserQuotaPool(userId int, targetPoolId int) (*QuotaPoolMoveResult, error) {
+	targetPoolId = normalizeQuotaPoolId(targetPoolId)
+	result := &QuotaPoolMoveResult{NewPoolId: targetPoolId}
+
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if targetPoolId != QuotaPoolDefaultUserPoolId {
+			target := &QuotaPool{}
+			if err := tx.First(target, "id = ?", targetPoolId).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return ErrQuotaPoolNotFound
+				}
+				return err
+			}
+			if target.IsDefault {
+				return ErrQuotaPoolDefaultReadonly
+			}
+			if !target.Enabled {
+				return ErrQuotaPoolDisabled
+			}
+		}
+
+		user := &User{}
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(user, "id = ?", userId).Error; err != nil {
+			return err
+		}
+		oldPoolId := normalizeQuotaPoolId(user.QuotaPoolId)
+		result.OldPoolId = oldPoolId
+		result.UserQuota = user.Quota
+		if oldPoolId == targetPoolId {
+			return ErrQuotaPoolSamePool
+		}
+
+		if oldPoolId != QuotaPoolDefaultUserPoolId && user.Quota > 0 {
+			oldPool := &QuotaPool{}
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(oldPool, "id = ?", oldPoolId).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return ErrQuotaPoolNotFound
+				}
+				return err
+			}
+			before := oldPool.Quota
+			if err := tx.Model(&QuotaPool{}).Where("id = ?", oldPoolId).Update("quota", gorm.Expr("quota + ?", user.Quota)).Error; err != nil {
+				return err
+			}
+			result.Reclaimed = true
+			result.Change = QuotaPoolBalanceChange{
+				PoolId:      oldPoolId,
+				Amount:      user.Quota,
+				QuotaBefore: before,
+				QuotaAfter:  before + user.Quota,
+			}
+		}
+
+		if err := tx.Model(&User{}).Where("id = ?", userId).Updates(map[string]interface{}{
+			"quota":         0,
+			"quota_pool_id": targetPoolId,
+		}).Error; err != nil {
+			return err
+		}
+		if oldPoolId != targetPoolId {
+			if err := tx.Where("user_id = ? AND pool_id = ?", userId, oldPoolId).Delete(&QuotaPoolAdmin{}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	gopoolUpdateUserQuotaCache(userId)
+	return result, nil
+}
+
+func GrantQuotaPoolAdmin(poolId int, userId int, level int) error {
+	if level != QuotaPoolAdminLevelV1 && level != QuotaPoolAdminLevelV2 {
+		return errors.New("额度池管理员等级无效")
+	}
+	if poolId == QuotaPoolDefaultUserPoolId {
+		return ErrQuotaPoolDefaultReadonly
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		pool := &QuotaPool{}
+		if err := tx.First(pool, "id = ?", poolId).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrQuotaPoolNotFound
+			}
+			return err
+		}
+		if pool.IsDefault {
+			return ErrQuotaPoolDefaultReadonly
+		}
+		if !pool.Enabled {
+			return ErrQuotaPoolDisabled
+		}
+		user := &User{}
+		if err := tx.First(user, "id = ?", userId).Error; err != nil {
+			return err
+		}
+		if user.Role != common.RoleCommonUser {
+			return errors.New("只能任命普通用户为额度池管理员")
+		}
+		if normalizeQuotaPoolId(user.QuotaPoolId) != poolId {
+			return errors.New("用户不是该额度池成员")
+		}
+		admin := &QuotaPoolAdmin{}
+		err := tx.Where("user_id = ?", userId).First(admin).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return tx.Create(&QuotaPoolAdmin{PoolId: poolId, UserId: userId, Level: level}).Error
+		}
+		if err != nil {
+			return err
+		}
+		if admin.PoolId != poolId {
+			return errors.New("用户已是其他额度池管理员")
+		}
+		return tx.Model(&QuotaPoolAdmin{}).Where("id = ?", admin.Id).Update("level", level).Error
+	})
+}
+
+func RevokeQuotaPoolAdmin(poolId int, userId int) error {
+	return DB.Where("pool_id = ? AND user_id = ?", poolId, userId).Delete(&QuotaPoolAdmin{}).Error
+}
+
+func RecordQuotaPoolTransaction(poolId int, txType string, amount int, before int, after int, userId int, operatorId int) {
+	if poolId == QuotaPoolDefaultUserPoolId {
+		return
+	}
+	record := &QuotaPoolTransaction{
+		PoolId:      poolId,
+		Type:        txType,
+		Amount:      amount,
+		QuotaBefore: before,
+		QuotaAfter:  after,
+		UserId:      userId,
+		OperatorId:  operatorId,
+	}
+	if err := DB.Create(record).Error; err != nil {
+		common.SysLog("failed to record quota pool transaction: " + err.Error())
+	}
+}
+
+func CountQuotaPoolManualRefills(poolId int, startTs int64, endTs int64) (int64, error) {
+	var count int64
+	err := DB.Model(&QuotaPoolTransaction{}).
+		Where("pool_id = ? AND type = ? AND created_at >= ? AND created_at < ?", poolId, QuotaPoolTransactionManualRefill, startTs, endTs).
+		Count(&count).Error
+	return count, err
+}
+
+func AddQuotaPoolManualRefill(poolId int, amount int, operatorId int) (*QuotaPoolBalanceChange, error) {
+	if amount <= 0 {
+		return nil, ErrQuotaPoolInvalidAmount
+	}
+	now := time.Now()
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).Unix()
+	nextMonthStart := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location()).Unix()
+
+	change := &QuotaPoolBalanceChange{PoolId: poolId, Amount: amount}
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		pool := &QuotaPool{}
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(pool, "id = ?", poolId).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrQuotaPoolNotFound
+			}
+			return err
+		}
+		if pool.IsDefault {
+			return ErrQuotaPoolDefaultReadonly
+		}
+		if !pool.Enabled {
+			return ErrQuotaPoolDisabled
+		}
+		if pool.BaseQuota <= 0 || amount*2 > pool.BaseQuota {
+			return ErrQuotaPoolRefillLimited
+		}
+		var count int64
+		if err := tx.Model(&QuotaPoolTransaction{}).
+			Where("pool_id = ? AND type = ? AND created_at >= ? AND created_at < ?", poolId, QuotaPoolTransactionManualRefill, monthStart, nextMonthStart).
+			Count(&count).Error; err != nil {
+			return err
+		}
+		if count >= 2 {
+			return ErrQuotaPoolRefillLimited
+		}
+		before := pool.Quota
+		if err := tx.Model(&QuotaPool{}).Where("id = ?", poolId).Update("quota", gorm.Expr("quota + ?", amount)).Error; err != nil {
+			return err
+		}
+		after := before + amount
+		change.QuotaBefore = before
+		change.QuotaAfter = after
+		return tx.Create(&QuotaPoolTransaction{
+			PoolId:      poolId,
+			Type:        QuotaPoolTransactionManualRefill,
+			Amount:      amount,
+			QuotaBefore: before,
+			QuotaAfter:  after,
+			OperatorId:  operatorId,
+		}).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return change, nil
+}
+
+func FormatQuotaPoolTransferLog(operatorId int, amount int) string {
+	return fmt.Sprintf("额度池管理员(ID:%d)添加%s临时额度", operatorId, logger.LogQuota(amount))
+}

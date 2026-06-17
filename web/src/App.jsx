@@ -21,7 +21,7 @@ import React, { lazy, Suspense, useContext, useMemo } from 'react';
 import { Route, Routes, useLocation, useParams } from 'react-router-dom';
 import Loading from './components/common/ui/Loading';
 import User from './pages/User';
-import { AuthRedirect, PrivateRoute, AdminRoute, RootRoute } from './helpers';
+import { AuthRedirect, PrivateRoute, AdminRoute, RootRoute, QuotaPoolRoute } from './helpers';
 import RegisterForm from './components/auth/RegisterForm';
 import LoginForm from './components/auth/LoginForm';
 import NotFound from './pages/NotFound';
@@ -46,6 +46,7 @@ import ModelPage from './pages/Model';
 import ModelDeploymentPage from './pages/ModelDeployment';
 import Playground from './pages/Playground';
 import Subscription from './pages/Subscription';
+import QuotaPool from './pages/QuotaPool';
 import OAuth2Callback from './components/auth/OAuth2Callback';
 import PersonalSetting from './components/settings/PersonalSetting';
 import Setup from './pages/Setup';
@@ -170,6 +171,14 @@ function App() {
             <AdminRoute>
               <User />
             </AdminRoute>
+          }
+        />
+        <Route
+          path='/console/quota_pool'
+          element={
+            <QuotaPoolRoute>
+              <QuotaPool />
+            </QuotaPoolRoute>
           }
         />
         <Route
