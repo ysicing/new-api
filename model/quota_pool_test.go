@@ -129,6 +129,11 @@ func TestCreateQuotaPoolDefaultsMonthlyRefill(t *testing.T) {
 	if got.MonthlyRefillDay != wantDay {
 		t.Fatalf("monthly refill day = %d, want %d", got.MonthlyRefillDay, wantDay)
 	}
+	now := time.Now()
+	wantMonth := now.Year()*100 + int(now.Month())
+	if got.LastRefillMonth != wantMonth {
+		t.Fatalf("last refill month = %d, want current month %d", got.LastRefillMonth, wantMonth)
+	}
 }
 
 func TestTransferQuotaFromPoolToUserDebitsPoolAndCreditsUser(t *testing.T) {
@@ -359,6 +364,70 @@ func TestListQuotaPoolTransactionsIncludesUserNames(t *testing.T) {
 	}
 	if items[2].UserName != member.Username || items[2].OperatorName != operator.Username {
 		t.Fatalf("expected named user/operator, got user=%q operator=%q", items[2].UserName, items[2].OperatorName)
+	}
+}
+
+func TestGetQuotaPoolStatsScopesUsageAndRechargeToPool(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+	if err := db.AutoMigrate(&Log{}); err != nil {
+		t.Fatalf("migrate log table failed: %v", err)
+	}
+
+	pool := createQuotaPoolForTest(t, db, 1000)
+	otherPool := createQuotaPoolForTest(t, db, 1000)
+	member := createQuotaPoolTestUser(t, db, 1, 100, pool.Id)
+	otherMember := createQuotaPoolTestUser(t, db, 2, 100, otherPool.Id)
+	now := time.Now().Unix()
+	oldTs := now - 10*24*60*60
+
+	logs := []*Log{
+		{UserId: member.Id, Username: member.Username, Type: LogTypeConsume, ModelName: "gpt-4o", Quota: 60, CreatedAt: now},
+		{UserId: member.Id, Username: member.Username, Type: LogTypeConsume, ModelName: "claude-3-5-sonnet", Quota: 40, CreatedAt: now},
+		{UserId: member.Id, Username: member.Username, Type: LogTypeConsume, ModelName: "gpt-4o", Quota: 999, CreatedAt: oldTs},
+		{UserId: otherMember.Id, Username: otherMember.Username, Type: LogTypeConsume, ModelName: "gpt-4o", Quota: 200, CreatedAt: now},
+	}
+	if err := db.Create(&logs).Error; err != nil {
+		t.Fatalf("create logs failed: %v", err)
+	}
+	transactions := []*QuotaPoolTransaction{
+		{PoolId: pool.Id, Type: QuotaPoolTransactionManualRefill, Amount: 300, CreatedAt: now},
+		{PoolId: pool.Id, Type: QuotaPoolTransactionAllocateAuto, Amount: -80, UserId: member.Id, CreatedAt: now},
+		{PoolId: pool.Id, Type: QuotaPoolTransactionAllocateManual, Amount: -20, UserId: member.Id, CreatedAt: now},
+		{PoolId: pool.Id, Type: QuotaPoolTransactionReclaimUser, Amount: 50, UserId: member.Id, CreatedAt: now},
+		{PoolId: pool.Id, Type: QuotaPoolTransactionMonthlyRefill, Amount: 999, CreatedAt: oldTs},
+		{PoolId: otherPool.Id, Type: QuotaPoolTransactionManualRefill, Amount: 500, CreatedAt: now},
+	}
+	if err := db.Create(&transactions).Error; err != nil {
+		t.Fatalf("create transactions failed: %v", err)
+	}
+
+	stats, err := GetQuotaPoolStats(pool.Id, now-60, now+60)
+	if err != nil {
+		t.Fatalf("GetQuotaPoolStats returned error: %v", err)
+	}
+	if stats.TotalUsage != 100 {
+		t.Fatalf("total usage = %d, want 100", stats.TotalUsage)
+	}
+	if stats.TotalRefill != 300 {
+		t.Fatalf("total refill = %d, want 300", stats.TotalRefill)
+	}
+	if stats.TotalAllocate != 100 {
+		t.Fatalf("total allocate = %d, want 100", stats.TotalAllocate)
+	}
+	if len(stats.Usage) != 1 {
+		t.Fatalf("usage length = %d, want 1", len(stats.Usage))
+	}
+	if stats.Usage[0].UserId != member.Id || stats.Usage[0].GptQuota != 60 || stats.Usage[0].ClaudeQuota != 40 {
+		t.Fatalf("unexpected usage stat: %+v", stats.Usage[0])
+	}
+	if len(stats.Recharge) != 4 {
+		t.Fatalf("recharge length = %d, want 4", len(stats.Recharge))
+	}
+	for _, item := range stats.Recharge {
+		if item.Type == QuotaPoolTransactionReclaimUser && item.Amount != -50 {
+			t.Fatalf("reclaim amount = %d, want -50", item.Amount)
+		}
 	}
 }
 

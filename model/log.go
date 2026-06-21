@@ -77,10 +77,18 @@ func GetLogByTokenId(tokenId int) (logs []*Log, err error) {
 func CountAutoRechargeLogs(userId int, sinceTimestamp int64) (int64, error) {
 	var count int64
 	err := LOG_DB.Model(&Log{}).
-		Where("user_id = ? AND type = ? AND content LIKE ? AND created_at >= ?",
-			userId, LogTypeSystem, "系统自动赠送%", sinceTimestamp).
+		Where("user_id = ? AND type = ? AND created_at >= ?", userId, LogTypeSystem, sinceTimestamp).
+		Where(autoRechargeLogCondition("content"), autoRechargeLogPatterns()...).
 		Count(&count).Error
 	return count, err
+}
+
+func autoRechargeLogCondition(column string) string {
+	return fmt.Sprintf("(%s LIKE ? OR %s LIKE ?)", column, column)
+}
+
+func autoRechargeLogPatterns() []interface{} {
+	return []interface{}{"系统自动赠送%", "额度池%自动赠送%"}
 }
 
 func RecordLog(userId int, logType int, content string) {
@@ -1091,7 +1099,8 @@ func GetRechargeLeaderboard(limit int) ([]UserRechargeStat, error) {
 	err := LOG_DB.Table("logs").
 		Select("logs.user_id, COUNT(*) as count").
 		Where("logs.created_at >= ?", weekStart).
-		Where("logs.type = ? AND logs.content LIKE ?", LogTypeSystem, "系统自动赠送%").
+		Where("logs.type = ?", LogTypeSystem).
+		Where(autoRechargeLogCondition("logs.content"), autoRechargeLogPatterns()...).
 		Group("logs.user_id").
 		Scan(&autoRows).Error
 	if err != nil {

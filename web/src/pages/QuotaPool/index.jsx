@@ -5,6 +5,8 @@ import {
   Form,
   Modal,
   Popconfirm,
+  Radio,
+  RadioGroup,
   Select,
   Space,
   TabPane,
@@ -52,6 +54,11 @@ const QuotaPool = () => {
     handleMembersPageChange,
     handleMembersPageSizeChange,
     transactions,
+    stats,
+    statsLoading,
+    statsPeriod,
+    setStatsPeriod,
+    loadStats,
     candidates,
     loadCandidates,
     createPool,
@@ -83,10 +90,12 @@ const QuotaPool = () => {
 
   const poolOptions = useMemo(
     () =>
-      pools.map((pool) => ({
-        label: pool.name,
-        value: pool.id,
-      })),
+      pools
+        .filter((pool) => !pool.is_default)
+        .map((pool) => ({
+          label: pool.name,
+          value: pool.id,
+        })),
     [pools],
   );
 
@@ -152,6 +161,39 @@ const QuotaPool = () => {
     return t('成员');
   };
 
+  const renderModelQuotaPercents = (record, usedQuota, emptyContent = '-') => {
+    const items = [
+      { label: 'GPT', quota: parseInt(record.gpt_quota) || 0 },
+      { label: 'Claude', quota: parseInt(record.claude_quota) || 0 },
+      { label: 'DeepSeek', quota: parseInt(record.deepseek_quota) || 0 },
+      { label: 'Gemini', quota: parseInt(record.gemini_quota) || 0 },
+      { label: 'Qwen', quota: parseInt(record.qwen_quota) || 0 },
+      { label: '其他', quota: parseInt(record.other_quota) || 0 },
+    ]
+      .map((item) => ({
+        ...item,
+        percent: usedQuota > 0 ? Math.round((item.quota / usedQuota) * 100) : 0,
+      }))
+      .filter((item) => item.quota !== 0 && item.percent > 0)
+      .sort((a, b) => b.quota - a.quota);
+
+    if (items.length === 0) {
+      return emptyContent;
+    }
+    return (
+      <div className='flex min-w-0 flex-wrap gap-1'>
+        {items.map((item) => (
+          <span
+            key={item.label}
+            className='rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-xs leading-4 text-slate-700'
+          >
+            {t(item.label)} {item.percent}%
+          </span>
+        ))}
+      </div>
+    );
+  };
+
   const adminRoleOptions = canGrantV2Admins
     ? [
         { label: t('成员'), value: ROLE_MEMBER },
@@ -170,6 +212,9 @@ const QuotaPool = () => {
     (pool.member_count || 0) === 0;
 
   const openPoolDetail = (pool) => {
+    if (pool?.is_default) {
+      return;
+    }
     setSelectedPool(pool);
   };
 
@@ -237,13 +282,15 @@ const QuotaPool = () => {
       fixed: 'right',
       render: (_, record) => (
         <Space spacing={6} wrap>
-          <Button
-            size='small'
-            icon={<IconEyeOpened />}
-            onClick={() => openPoolDetail(record)}
-          >
-            {t('查看')}
-          </Button>
+          {!record.is_default && (
+            <Button
+              size='small'
+              icon={<IconEyeOpened />}
+              onClick={() => openPoolDetail(record)}
+            >
+              {t('查看')}
+            </Button>
+          )}
           {canConfigurePools && !record.is_default && (
             <Button
               size='small'
@@ -392,6 +439,43 @@ const QuotaPool = () => {
       title: t('时间'),
       dataIndex: 'created_at',
       render: (value) => timestamp2string(value),
+    },
+  ];
+
+  const usageStatColumns = [
+    { title: t('ID'), dataIndex: 'user_id', width: 80 },
+    { title: t('用户名'), dataIndex: 'username', width: 180 },
+    {
+      title: t('使用额度'),
+      dataIndex: 'used_quota',
+      width: 160,
+      render: (value) => renderQuota(value),
+    },
+    {
+      title: t('模型占比'),
+      dataIndex: 'model_quota_ratio',
+      render: (_, record) =>
+        renderModelQuotaPercents(record, parseInt(record.used_quota) || 0),
+    },
+  ];
+
+  const rechargeStatColumns = [
+    {
+      title: t('类型'),
+      dataIndex: 'type',
+      width: 160,
+      render: renderTransactionType,
+    },
+    {
+      title: t('次数'),
+      dataIndex: 'count',
+      width: 120,
+    },
+    {
+      title: t('金额'),
+      dataIndex: 'amount',
+      width: 160,
+      render: (value) => renderQuota(value),
     },
   ];
 
@@ -569,6 +653,67 @@ const QuotaPool = () => {
                     scroll={{ x: 'max-content' }}
                     pagination={false}
                   />
+                </TabPane>
+                <TabPane itemKey='stats' tab={t('数据统计')}>
+                  <div className='flex flex-col gap-3 pt-3'>
+                    <div className='flex flex-col md:flex-row md:items-center justify-between gap-3'>
+                      <RadioGroup
+                        type='button'
+                        value={statsPeriod}
+                        onChange={(event) => setStatsPeriod(event.target.value)}
+                      >
+                        <Radio value='week'>{t('本周')}</Radio>
+                        <Radio value='month'>{t('本月')}</Radio>
+                      </RadioGroup>
+                      <Button
+                        icon={<IconRefresh />}
+                        loading={statsLoading}
+                        onClick={loadStats}
+                      >
+                        {t('刷新统计')}
+                      </Button>
+                    </div>
+                    <div className='grid grid-cols-1 md:grid-cols-3 gap-3'>
+                      <Card title={t('使用统计')}>
+                        <Typography.Text strong>
+                          {renderQuota(stats.total_usage || 0)}
+                        </Typography.Text>
+                      </Card>
+                      <Card title={t('充值统计')}>
+                        <Typography.Text strong>
+                          {renderQuota(stats.total_refill || 0)}
+                        </Typography.Text>
+                      </Card>
+                      <Card title={t('分配统计')}>
+                        <Typography.Text strong>
+                          {renderQuota(stats.total_allocate || 0)}
+                        </Typography.Text>
+                      </Card>
+                    </div>
+                    <div className='grid grid-cols-1 xl:grid-cols-2 gap-3'>
+                      <Card title={t('使用统计')}>
+                        <Table
+                          size='small'
+                          columns={usageStatColumns}
+                          dataSource={stats.usage || []}
+                          rowKey='user_id'
+                          loading={statsLoading}
+                          pagination={false}
+                          scroll={{ x: 'max-content' }}
+                        />
+                      </Card>
+                      <Card title={t('充值统计')}>
+                        <Table
+                          size='small'
+                          columns={rechargeStatColumns}
+                          dataSource={stats.recharge || []}
+                          rowKey='type'
+                          loading={statsLoading}
+                          pagination={false}
+                        />
+                      </Card>
+                    </div>
+                  </div>
                 </TabPane>
               </Tabs>
             </Card>

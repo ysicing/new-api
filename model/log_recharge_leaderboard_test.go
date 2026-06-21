@@ -103,6 +103,37 @@ func setupRechargeLeaderboardTestDB(t *testing.T) (*gorm.DB, *sqlCaptureLogger, 
 	return db, capture, cleanup
 }
 
+func TestCountAutoRechargeLogs_CountsSystemAndQuotaPoolLogs(t *testing.T) {
+	db, _, cleanup := setupRechargeLeaderboardTestDB(t)
+	defer cleanup()
+
+	now := time.Now().Unix()
+	since := now - 60
+
+	if err := db.Exec(`INSERT INTO logs (user_id, created_at, type, content, quota) VALUES
+		(1, ?, ?, '系统自动赠送 100', 0),
+		(1, ?, ?, '额度池team-a自动赠送 100', 0),
+		(1, ?, ?, '普通系统日志', 0),
+		(1, ?, ?, '额度池team-a自动赠送 100', 0),
+		(2, ?, ?, '额度池team-a自动赠送 100', 0)`,
+		now, LogTypeSystem,
+		now, LogTypeSystem,
+		now, LogTypeSystem,
+		now, LogTypeManage,
+		now, LogTypeSystem,
+	).Error; err != nil {
+		t.Fatalf("insert logs failed: %v", err)
+	}
+
+	count, err := CountAutoRechargeLogs(1, since)
+	if err != nil {
+		t.Fatalf("CountAutoRechargeLogs returned error: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("auto recharge count = %d, want 2", count)
+	}
+}
+
 func TestGetRechargeLeaderboard_AvoidsSlowLegacyQueryPatterns(t *testing.T) {
 	db, capture, cleanup := setupRechargeLeaderboardTestDB(t)
 	defer cleanup()
@@ -165,6 +196,7 @@ func TestGetRechargeLeaderboard_ReturnsExpectedRankingAndQuota(t *testing.T) {
 	if err := db.Exec(`INSERT INTO logs (user_id, created_at, type, content, quota) VALUES
 		(1, ?, ?, '系统自动赠送 100', 0),
 		(1, ?, ?, '系统自动赠送 100', 0),
+		(1, ?, ?, '额度池team-a自动赠送 100', 0),
 		(1, ?, ?, '管理员(ID:9)添加100临时额度', 0),
 		(2, ?, ?, '系统自动赠送 100', 0),
 		(2, ?, ?, '管理员(ID:9)添加100临时额度', 0),
@@ -176,6 +208,7 @@ func TestGetRechargeLeaderboard_ReturnsExpectedRankingAndQuota(t *testing.T) {
 		(3, ?, ?, 'consume', 5),
 		(2, ?, ?, '系统自动赠送 100', 0),
 		(1, ?, ?, '普通系统日志', 0)`,
+		now, LogTypeSystem,
 		now, LogTypeSystem,
 		now, LogTypeSystem,
 		now, LogTypeManage,
@@ -218,7 +251,7 @@ func TestGetRechargeLeaderboard_ReturnsExpectedRankingAndQuota(t *testing.T) {
 	if results[1].UserId != 1 {
 		t.Fatalf("unexpected top2 user_id, got %d want %d", results[1].UserId, 1)
 	}
-	if results[1].TotalCount != 3 || results[1].AutoRechargeCount != 2 || results[1].TempQuotaCount != 1 {
+	if results[1].TotalCount != 4 || results[1].AutoRechargeCount != 3 || results[1].TempQuotaCount != 1 {
 		t.Fatalf("unexpected top2 counts: %+v", results[1])
 	}
 	if results[1].UsedQuota != 20 {

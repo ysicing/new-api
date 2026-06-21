@@ -150,6 +150,13 @@ func TestCreateQuotaPoolCreatesInitialFundTransaction(t *testing.T) {
 	if tx.OperatorId != 99 {
 		t.Fatalf("operator id = %d, want 99", tx.OperatorId)
 	}
+	var log model.Log
+	if err := db.First(&log, "user_id = ? AND type = ?", 99, model.LogTypeManage).Error; err != nil {
+		t.Fatalf("load create quota pool manage log failed: %v", err)
+	}
+	if !strings.Contains(log.Content, "创建额度池 team-a") || !strings.Contains(log.Content, "10.000000") {
+		t.Fatalf("unexpected manage log content: %q", log.Content)
+	}
 }
 
 func TestGrantSelfQuotaPoolAdminRejectsV2Grant(t *testing.T) {

@@ -172,6 +172,13 @@ func TestTryAutoRechargeUser_DefaultPoolKeepsOldPath(t *testing.T) {
 	if txCount != 0 {
 		t.Fatalf("default pool should not write quota pool transactions, got %d", txCount)
 	}
+	var log model.Log
+	if err := db.First(&log, "user_id = ? AND type = ?", user.Id, model.LogTypeSystem).Error; err != nil {
+		t.Fatalf("expected auto recharge log: %v", err)
+	}
+	if !strings.HasPrefix(log.Content, "系统自动赠送 ") {
+		t.Fatalf("auto recharge log content = %q, want system prefix", log.Content)
+	}
 }
 
 func TestTryAutoRechargeUser_NonDefaultPoolDebitsPool(t *testing.T) {
@@ -225,6 +232,16 @@ func TestTryAutoRechargeUser_NonDefaultPoolDebitsPool(t *testing.T) {
 	}
 	if tx.Type != model.QuotaPoolTransactionAllocateAuto || tx.Amount != -20 {
 		t.Fatalf("unexpected transaction: %+v", tx)
+	}
+	var log model.Log
+	if err := db.First(&log, "user_id = ? AND type = ?", user.Id, model.LogTypeSystem).Error; err != nil {
+		t.Fatalf("expected auto recharge log: %v", err)
+	}
+	if !strings.Contains(log.Content, "额度池team-a自动赠送 ") {
+		t.Fatalf("auto recharge log content = %q, want quota pool prefix", log.Content)
+	}
+	if strings.HasPrefix(log.Content, "系统自动赠送 ") {
+		t.Fatalf("auto recharge log content = %q, should not use system prefix", log.Content)
 	}
 }
 

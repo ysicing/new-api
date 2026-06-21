@@ -2,10 +2,13 @@ package controller
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -55,6 +58,23 @@ func quotaPoolPageInfo(c *gin.Context) *common.PageInfo {
 		page = 1
 	}
 	return &common.PageInfo{Page: page, PageSize: pageSize}
+}
+
+func quotaPoolStatsRange(c *gin.Context) (int64, int64) {
+	now := time.Now()
+	period := c.DefaultQuery("period", "week")
+	var start time.Time
+	if period == "month" {
+		start = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	} else {
+		weekday := int(now.Weekday())
+		if weekday == 0 {
+			weekday = 7
+		}
+		start = time.Date(now.Year(), now.Month(), now.Day()-weekday+1, 0, 0, 0, 0, now.Location())
+		period = "week"
+	}
+	return start.Unix(), now.Unix()
 }
 
 func parseQuotaPoolId(c *gin.Context) (int, bool) {
@@ -126,6 +146,13 @@ func CreateQuotaPool(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	adminId := c.GetInt("id")
+	adminInfo := map[string]interface{}{
+		"admin_id":       adminId,
+		"admin_username": c.GetString("username"),
+		"quota_pool_id":  pool.Id,
+	}
+	model.RecordLogWithAdminInfo(adminId, model.LogTypeManage, fmt.Sprintf("创建额度池 %s，初始额度 %s", pool.Name, logger.LogQuota(pool.BaseQuota)), adminInfo)
 	common.ApiSuccess(c, pool)
 }
 
@@ -314,6 +341,23 @@ func GetQuotaPoolMembers(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, gin.H{"items": items, "total": total})
+}
+
+func GetQuotaPoolStats(c *gin.Context) {
+	if !requireQuotaPoolEnabled(c) {
+		return
+	}
+	id, ok := parseQuotaPoolId(c)
+	if !ok {
+		return
+	}
+	startTimestamp, endTimestamp := quotaPoolStatsRange(c)
+	stats, err := model.GetQuotaPoolStats(id, startTimestamp, endTimestamp)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, stats)
 }
 
 func GetQuotaPoolCandidates(c *gin.Context) {
@@ -590,6 +634,23 @@ func GetSelfQuotaPoolMembers(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, gin.H{"items": items, "total": total})
+}
+
+func GetSelfQuotaPoolStats(c *gin.Context) {
+	if !requireQuotaPoolEnabled(c) {
+		return
+	}
+	admin, ok := requireQuotaPoolAdmin(c, model.QuotaPoolAdminLevelV1)
+	if !ok {
+		return
+	}
+	startTimestamp, endTimestamp := quotaPoolStatsRange(c)
+	stats, err := model.GetQuotaPoolStats(admin.PoolId, startTimestamp, endTimestamp)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, stats)
 }
 
 func GetSelfQuotaPoolCandidates(c *gin.Context) {

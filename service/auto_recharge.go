@@ -70,6 +70,14 @@ type QuotaPoolAutoRechargeResult struct {
 	Amount    int
 }
 
+func formatAutoRechargeLog(pool *model.QuotaPool, amountQuota int) string {
+	quotaText := logger.LogQuota(amountQuota)
+	if pool != nil && !pool.IsDefault {
+		return fmt.Sprintf("额度池%s自动赠送 %s", pool.Name, quotaText)
+	}
+	return fmt.Sprintf("系统自动赠送 %s", quotaText)
+}
+
 func TryAutoRechargeUserById(userId int) QuotaPoolAutoRechargeResult {
 	cfg := operation_setting.GetAutoRechargeSetting()
 	user := &model.User{}
@@ -249,7 +257,7 @@ func tryAutoRechargeUser(
 			common.SysError(fmt.Sprintf("failed to increase quota for user %d: %s", user.Id, err.Error()))
 			return QuotaPoolAutoRechargeResult{Reason: "increase_user_quota_failed"}
 		}
-		model.RecordLog(user.Id, model.LogTypeSystem, fmt.Sprintf("系统自动赠送 %s", logger.LogQuota(policy.AmountQuota)))
+		model.RecordLog(user.Id, model.LogTypeSystem, formatAutoRechargeLog(pool, policy.AmountQuota))
 		return QuotaPoolAutoRechargeResult{Recharged: true, Amount: policy.AmountQuota}
 	}
 
@@ -257,7 +265,7 @@ func tryAutoRechargeUser(
 	if err != nil {
 		return QuotaPoolAutoRechargeResult{Reason: err.Error()}
 	}
-	model.RecordLog(user.Id, model.LogTypeSystem, fmt.Sprintf("系统自动赠送 %s", logger.LogQuota(policy.AmountQuota)))
+	model.RecordLog(user.Id, model.LogTypeSystem, formatAutoRechargeLog(pool, policy.AmountQuota))
 	if transfer != nil && transfer.PoolChanged {
 		model.RecordQuotaPoolTransaction(
 			pool.Id,

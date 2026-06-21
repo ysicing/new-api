@@ -33,6 +33,15 @@ export const useQuotaPoolsData = () => {
   const [membersTotal, setMembersTotal] = useState(0);
   const [transactions, setTransactions] = useState([]);
   const [candidates, setCandidates] = useState([]);
+  const [stats, setStats] = useState({
+    usage: [],
+    recharge: [],
+    total_usage: 0,
+    total_refill: 0,
+    total_allocate: 0,
+  });
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [statsPeriod, setStatsPeriod] = useState('week');
 
   const selectedPoolId = selectedPool?.id || poolAdmin?.pool_id || 0;
 
@@ -117,6 +126,42 @@ export const useQuotaPoolsData = () => {
     }
   }, [canUseGlobalApi, selectedPoolId]);
 
+  const loadStats = useCallback(async () => {
+    if (!selectedPoolId) {
+      setStats({
+        usage: [],
+        recharge: [],
+        total_usage: 0,
+        total_refill: 0,
+        total_allocate: 0,
+      });
+      return;
+    }
+    setStatsLoading(true);
+    try {
+      const url = canUseGlobalApi
+        ? `/api/quota_pool/${selectedPoolId}/stats`
+        : '/api/quota_pool/self/stats';
+      const res = await API.get(`${url}?period=${statsPeriod}`);
+      const { success, message, data } = res.data;
+      if (success) {
+        setStats({
+          usage: data?.usage || [],
+          recharge: data?.recharge || [],
+          total_usage: data?.total_usage || 0,
+          total_refill: data?.total_refill || 0,
+          total_allocate: data?.total_allocate || 0,
+        });
+      } else {
+        showError(message);
+      }
+    } catch (error) {
+      showError(error.message || t('加载失败'));
+    } finally {
+      setStatsLoading(false);
+    }
+  }, [canUseGlobalApi, selectedPoolId, statsPeriod, t]);
+
   const loadCandidates = useCallback(
     async (keyword = '') => {
       const url = canUseGlobalApi
@@ -138,8 +183,8 @@ export const useQuotaPoolsData = () => {
   }, [loadMembers, membersPage, membersPageSize]);
 
   const refreshDetail = useCallback(async () => {
-    await Promise.all([refreshMembers(), loadTransactions()]);
-  }, [refreshMembers, loadTransactions]);
+    await Promise.all([refreshMembers(), loadTransactions(), loadStats()]);
+  }, [refreshMembers, loadTransactions, loadStats]);
 
   const handleMembersPageChange = useCallback((page) => {
     setMembersPage(page);
@@ -165,6 +210,10 @@ export const useQuotaPoolsData = () => {
   useEffect(() => {
     loadTransactions();
   }, [loadTransactions]);
+
+  useEffect(() => {
+    loadStats();
+  }, [loadStats]);
 
   const createPool = async (values) => {
     const res = await API.post('/api/quota_pool', values);
@@ -236,7 +285,7 @@ export const useQuotaPoolsData = () => {
       await loadPools();
       setMembersPage(1);
       await loadMembers(1, membersPageSize);
-      await loadTransactions();
+      await Promise.all([loadTransactions(), loadStats()]);
     } else {
       showError(message);
     }
@@ -250,8 +299,7 @@ export const useQuotaPoolsData = () => {
     if (success) {
       showSuccess(message || t('操作成功完成！'));
       await loadPools();
-      await loadMembers(membersPage, membersPageSize);
-      await loadTransactions();
+      await refreshDetail();
     } else {
       showError(message);
     }
@@ -265,8 +313,8 @@ export const useQuotaPoolsData = () => {
     const { success, message } = res.data;
     if (success) {
       showSuccess(t('操作成功完成！'));
-      await loadMembers(membersPage, membersPageSize);
-      await loadTransactions();
+      await loadPools();
+      await refreshDetail();
     } else {
       showError(message);
     }
@@ -313,6 +361,11 @@ export const useQuotaPoolsData = () => {
     handleMembersPageChange,
     handleMembersPageSizeChange,
     transactions,
+    stats,
+    statsLoading,
+    statsPeriod,
+    setStatsPeriod,
+    loadStats,
     candidates,
     loadCandidates,
     createPool,

@@ -135,6 +135,32 @@ type QuotaPoolMember struct {
 	LastLoginAt         int64  `json:"last_login_at"`
 }
 
+type QuotaPoolUsageStat struct {
+	UserId        int    `json:"user_id" gorm:"column:user_id"`
+	Username      string `json:"username" gorm:"column:username"`
+	UsedQuota     int    `json:"used_quota" gorm:"column:used_quota"`
+	GptQuota      int    `json:"gpt_quota" gorm:"column:gpt_quota"`
+	ClaudeQuota   int    `json:"claude_quota" gorm:"column:claude_quota"`
+	DeepSeekQuota int    `json:"deepseek_quota" gorm:"column:deepseek_quota"`
+	GeminiQuota   int    `json:"gemini_quota" gorm:"column:gemini_quota"`
+	QwenQuota     int    `json:"qwen_quota" gorm:"column:qwen_quota"`
+	OtherQuota    int    `json:"other_quota" gorm:"column:other_quota"`
+}
+
+type QuotaPoolRechargeStat struct {
+	Type   string `json:"type" gorm:"column:type"`
+	Count  int    `json:"count" gorm:"column:count"`
+	Amount int    `json:"amount" gorm:"column:amount"`
+}
+
+type QuotaPoolStats struct {
+	Usage         []QuotaPoolUsageStat    `json:"usage"`
+	Recharge      []QuotaPoolRechargeStat `json:"recharge"`
+	TotalUsage    int                     `json:"total_usage"`
+	TotalRefill   int                     `json:"total_refill"`
+	TotalAllocate int                     `json:"total_allocate"`
+}
+
 func normalizeQuotaPoolId(poolId int) int {
 	if poolId < 0 {
 		return QuotaPoolDefaultUserPoolId
@@ -325,6 +351,99 @@ func ListDefaultQuotaPoolCandidates(keyword string, pageInfo *common.PageInfo) (
 	return users, total, err
 }
 
+func GetQuotaPoolStats(poolId int, startTimestamp int64, endTimestamp int64) (*QuotaPoolStats, error) {
+	usage, err := getQuotaPoolUsageStats(poolId, startTimestamp, endTimestamp)
+	if err != nil {
+		return nil, err
+	}
+	recharge, err := getQuotaPoolRechargeStats(poolId, startTimestamp, endTimestamp)
+	if err != nil {
+		return nil, err
+	}
+	stats := &QuotaPoolStats{
+		Usage:    usage,
+		Recharge: recharge,
+	}
+	for _, item := range usage {
+		stats.TotalUsage += item.UsedQuota
+	}
+	for _, item := range recharge {
+		if item.Type == QuotaPoolTransactionAllocateAuto || item.Type == QuotaPoolTransactionAllocateManual {
+			stats.TotalAllocate += -item.Amount
+		} else if item.Type == QuotaPoolTransactionInitialFund || item.Type == QuotaPoolTransactionManualRefill || item.Type == QuotaPoolTransactionMonthlyRefill {
+			stats.TotalRefill += item.Amount
+		}
+	}
+	return stats, nil
+}
+
+func getQuotaPoolUsageStats(poolId int, startTimestamp int64, endTimestamp int64) ([]QuotaPoolUsageStat, error) {
+	var members []User
+	if err := DB.Select("id", "username").Where("quota_pool_id = ?", poolId).Find(&members).Error; err != nil {
+		return nil, err
+	}
+	if len(members) == 0 {
+		return []QuotaPoolUsageStat{}, nil
+	}
+	userIds := make([]int, 0, len(members))
+	userNames := make(map[int]string, len(members))
+	for _, member := range members {
+		userIds = append(userIds, member.Id)
+		userNames[member.Id] = member.Username
+	}
+
+	selectSQL := "logs.user_id, COALESCE(SUM(logs.quota), 0) as used_quota, " +
+		topUserModelFamilySelect("LOWER(logs.model_name)", "logs.quota")
+
+	tx := LOG_DB.Table("logs").
+		Select(selectSQL).
+		Where("logs.type = ?", LogTypeConsume).
+		Where("logs.user_id IN ?", userIds)
+
+	if startTimestamp != 0 {
+		tx = tx.Where("logs.created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("logs.created_at <= ?", endTimestamp)
+	}
+
+	var results []QuotaPoolUsageStat
+	err := tx.Group("logs.user_id").
+		Order("used_quota desc").
+		Scan(&results).Error
+	if err != nil {
+		return nil, err
+	}
+	for i := range results {
+		results[i].Username = userNames[results[i].UserId]
+	}
+	return results, err
+}
+
+func getQuotaPoolRechargeStats(poolId int, startTimestamp int64, endTimestamp int64) ([]QuotaPoolRechargeStat, error) {
+	tx := DB.Model(&QuotaPoolTransaction{}).
+		Select("type, COUNT(*) as count, COALESCE(SUM(amount), 0) as amount").
+		Where("pool_id = ?", poolId)
+
+	if startTimestamp != 0 {
+		tx = tx.Where("created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("created_at <= ?", endTimestamp)
+	}
+
+	var results []QuotaPoolRechargeStat
+	err := tx.Group("type").
+		Order("type asc").
+		Scan(&results).Error
+	for i := range results {
+		if results[i].Type == QuotaPoolTransactionReclaimUser && results[i].Amount > 0 {
+			results[i].Amount = -results[i].Amount
+		}
+	}
+	return results, err
+}
+
 func quotaPoolNameExists(tx *gorm.DB, name string, excludeId int) (bool, error) {
 	var count int64
 	query := tx.Model(&QuotaPool{}).Where("name = ?", name)
@@ -349,7 +468,9 @@ func CreateQuotaPool(name string, baseQuota int, operatorId int) (*QuotaPool, er
 	if name == "" || baseQuota <= 0 {
 		return nil, ErrQuotaPoolInvalidAmount
 	}
-	monthlyRefillDay := defaultQuotaPoolMonthlyRefillDay(time.Now())
+	now := time.Now()
+	monthlyRefillDay := defaultQuotaPoolMonthlyRefillDay(now)
+	currentMonth := now.Year()*100 + int(now.Month())
 	var pool *QuotaPool
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		exists, err := quotaPoolNameExists(tx, name, 0)
@@ -371,6 +492,7 @@ func CreateQuotaPool(name string, baseQuota int, operatorId int) (*QuotaPool, er
 			MonthlyRefillEnabled: true,
 			MonthlyRefillAmount:  baseQuota,
 			MonthlyRefillDay:     monthlyRefillDay,
+			LastRefillMonth:      currentMonth,
 		}
 		if err := tx.Create(pool).Error; err != nil {
 			return err
