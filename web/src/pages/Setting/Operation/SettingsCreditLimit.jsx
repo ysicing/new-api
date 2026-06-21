@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useContext, useEffect, useState, useRef } from 'react';
 import { Button, Col, Form, Row, Spin } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import {
@@ -27,9 +27,11 @@ import {
   showSuccess,
   showWarning,
 } from '../../../helpers';
+import { UserContext } from '../../../context/User';
 
 export default function SettingsCreditLimit(props) {
   const { t } = useTranslation();
+  const [userState, userDispatch] = useContext(UserContext);
   const [loading, setLoading] = useState(false);
   const [inputs, setInputs] = useState({
     QuotaForNewUser: '',
@@ -68,16 +70,16 @@ export default function SettingsCreditLimit(props) {
           return showError(failed.data?.message || t('保存失败，请重试'));
         }
         showSuccess(t('保存成功'));
-        if (Object.prototype.hasOwnProperty.call(inputs, 'QuotaPoolEnabled')) {
+        if (updateArray.some((item) => item.key === 'QuotaPoolEnabled')) {
           try {
-            const user = JSON.parse(localStorage.getItem('user') || '{}');
-            localStorage.setItem(
-              'user',
-              JSON.stringify({
-                ...user,
-                quota_pool_enabled: !!inputs.QuotaPoolEnabled,
-              }),
-            );
+            const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+            const nextUser = {
+              ...storedUser,
+              ...userState?.user,
+              quota_pool_enabled: !!inputs.QuotaPoolEnabled,
+            };
+            localStorage.setItem('user', JSON.stringify(nextUser));
+            userDispatch({ type: 'login', payload: nextUser });
           } catch (e) {
             // ignore local cache update errors
           }

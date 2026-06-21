@@ -552,7 +552,7 @@ func GetSelfQuotaPool(c *gin.Context) {
 	if !ok {
 		return
 	}
-	pool, err := model.GetQuotaPoolById(admin.PoolId)
+	pool, err := model.GetQuotaPoolListItemById(admin.PoolId)
 	if err != nil {
 		common.ApiError(c, err)
 		return

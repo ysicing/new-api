@@ -28,6 +28,9 @@ export const useQuotaPoolsData = () => {
   const [pools, setPools] = useState([]);
   const [selectedPool, setSelectedPool] = useState(null);
   const [members, setMembers] = useState([]);
+  const [membersPage, setMembersPage] = useState(1);
+  const [membersPageSize, setMembersPageSize] = useState(20);
+  const [membersTotal, setMembersTotal] = useState(0);
   const [transactions, setTransactions] = useState([]);
   const [candidates, setCandidates] = useState([]);
 
@@ -48,11 +51,14 @@ export const useQuotaPoolsData = () => {
           showError(message);
           return;
         }
-        setPools(data || []);
-        if (!selectedPool && data?.length) {
-          const firstNonDefault = data.find((pool) => !pool.is_default);
-          setSelectedPool(firstNonDefault || data[0]);
-        }
+        const nextPools = data || [];
+        setPools(nextPools);
+        setSelectedPool((current) => {
+          if (!current) {
+            return null;
+          }
+          return nextPools.find((pool) => pool.id === current.id) || null;
+        });
       } else {
         const res = await API.get('/api/quota_pool/self');
         const { success, message, data } = res.data;
@@ -61,28 +67,41 @@ export const useQuotaPoolsData = () => {
           return;
         }
         setPools(data?.pool ? [data.pool] : []);
-        setSelectedPool(data?.pool || null);
+        setSelectedPool((current) => {
+          if (!current) {
+            return null;
+          }
+          return data?.pool || null;
+        });
       }
     } catch (error) {
       showError(t('加载失败'));
     } finally {
       setLoading(false);
     }
-  }, [canUseGlobalApi, selectedPool, t]);
+  }, [canUseGlobalApi, t]);
 
-  const loadMembers = useCallback(async () => {
-    if (!selectedPoolId) return;
-    const url = canUseGlobalApi
-      ? `/api/quota_pool/${selectedPoolId}/members`
-      : '/api/quota_pool/self/members';
-    const res = await API.get(`${url}?p=1&page_size=100`);
-    const { success, message, data } = res.data;
-    if (success) {
-      setMembers(data?.items || []);
-    } else {
-      showError(message);
-    }
-  }, [canUseGlobalApi, selectedPoolId]);
+  const loadMembers = useCallback(
+    async (page, pageSize) => {
+      if (!selectedPoolId) {
+        setMembers([]);
+        setMembersTotal(0);
+        return;
+      }
+      const url = canUseGlobalApi
+        ? `/api/quota_pool/${selectedPoolId}/members`
+        : '/api/quota_pool/self/members';
+      const res = await API.get(`${url}?p=${page}&page_size=${pageSize}`);
+      const { success, message, data } = res.data;
+      if (success) {
+        setMembers(data?.items || []);
+        setMembersTotal(data?.total || 0);
+      } else {
+        showError(message);
+      }
+    },
+    [canUseGlobalApi, selectedPoolId],
+  );
 
   const loadTransactions = useCallback(async () => {
     if (!selectedPoolId) return;
@@ -98,30 +117,54 @@ export const useQuotaPoolsData = () => {
     }
   }, [canUseGlobalApi, selectedPoolId]);
 
-  const loadCandidates = useCallback(async (keyword = '') => {
-    const url = canUseGlobalApi
-      ? `/api/quota_pool/candidates?keyword=${encodeURIComponent(keyword)}`
-      : `/api/quota_pool/self/candidates?keyword=${encodeURIComponent(keyword)}`;
-    const res = await API.get(`${url}&p=1&page_size=20`);
-    const { success, message, data } = res.data;
-    if (success) {
-      setCandidates(data?.items || []);
-    } else {
-      showError(message);
-    }
-  }, [canUseGlobalApi]);
+  const loadCandidates = useCallback(
+    async (keyword = '') => {
+      const url = canUseGlobalApi
+        ? `/api/quota_pool/candidates?keyword=${encodeURIComponent(keyword)}`
+        : `/api/quota_pool/self/candidates?keyword=${encodeURIComponent(keyword)}`;
+      const res = await API.get(`${url}&p=1&page_size=20`);
+      const { success, message, data } = res.data;
+      if (success) {
+        setCandidates(data?.items || []);
+      } else {
+        showError(message);
+      }
+    },
+    [canUseGlobalApi],
+  );
+
+  const refreshMembers = useCallback(async () => {
+    await loadMembers(membersPage, membersPageSize);
+  }, [loadMembers, membersPage, membersPageSize]);
 
   const refreshDetail = useCallback(async () => {
-    await Promise.all([loadMembers(), loadTransactions()]);
-  }, [loadMembers, loadTransactions]);
+    await Promise.all([refreshMembers(), loadTransactions()]);
+  }, [refreshMembers, loadTransactions]);
+
+  const handleMembersPageChange = useCallback((page) => {
+    setMembersPage(page);
+  }, []);
+
+  const handleMembersPageSizeChange = useCallback((pageSize) => {
+    setMembersPage(1);
+    setMembersPageSize(pageSize);
+  }, []);
 
   useEffect(() => {
     loadPools();
   }, [loadPools]);
 
   useEffect(() => {
-    refreshDetail();
-  }, [refreshDetail]);
+    setMembersPage(1);
+  }, [selectedPoolId]);
+
+  useEffect(() => {
+    refreshMembers();
+  }, [refreshMembers]);
+
+  useEffect(() => {
+    loadTransactions();
+  }, [loadTransactions]);
 
   const createPool = async (values) => {
     const res = await API.post('/api/quota_pool', values);
@@ -140,6 +183,31 @@ export const useQuotaPoolsData = () => {
     if (success) {
       showSuccess(t('操作成功完成！'));
       await loadPools();
+    } else {
+      showError(message);
+    }
+  };
+
+  const setPoolEnabled = async (poolId, enabled) => {
+    const action = enabled ? 'enable' : 'disable';
+    const res = await API.post(`/api/quota_pool/${poolId}/${action}`);
+    const { success, message } = res.data;
+    if (success) {
+      showSuccess(t('操作成功完成！'));
+      await loadPools();
+      await refreshDetail();
+    } else {
+      showError(message);
+    }
+  };
+
+  const deletePool = async (poolId) => {
+    const res = await API.delete(`/api/quota_pool/${poolId}`);
+    const { success, message } = res.data;
+    if (success) {
+      showSuccess(t('操作成功完成！'));
+      await loadPools();
+      await refreshDetail();
     } else {
       showError(message);
     }
@@ -166,7 +234,24 @@ export const useQuotaPoolsData = () => {
     if (success) {
       showSuccess(message || t('操作成功完成！'));
       await loadPools();
-      await refreshDetail();
+      setMembersPage(1);
+      await loadMembers(1, membersPageSize);
+      await loadTransactions();
+    } else {
+      showError(message);
+    }
+  };
+
+  const moveMember = async (userId, poolId) => {
+    const res = await API.put(`/api/quota_pool/users/${userId}`, {
+      pool_id: poolId,
+    });
+    const { success, message } = res.data;
+    if (success) {
+      showSuccess(message || t('操作成功完成！'));
+      await loadPools();
+      await loadMembers(membersPage, membersPageSize);
+      await loadTransactions();
     } else {
       showError(message);
     }
@@ -180,7 +265,8 @@ export const useQuotaPoolsData = () => {
     const { success, message } = res.data;
     if (success) {
       showSuccess(t('操作成功完成！'));
-      await refreshDetail();
+      await loadMembers(membersPage, membersPageSize);
+      await loadTransactions();
     } else {
       showError(message);
     }
@@ -194,7 +280,21 @@ export const useQuotaPoolsData = () => {
     const { success, message } = res.data;
     if (success) {
       showSuccess(t('操作成功完成！'));
-      await refreshDetail();
+      await loadMembers(membersPage, membersPageSize);
+    } else {
+      showError(message);
+    }
+  };
+
+  const revokeAdmin = async (userId) => {
+    const url = canUseGlobalApi
+      ? `/api/quota_pool/${selectedPoolId}/admins/${userId}`
+      : `/api/quota_pool/self/admins/${userId}`;
+    const res = await API.delete(url);
+    const { success, message } = res.data;
+    if (success) {
+      showSuccess(t('操作成功完成！'));
+      await loadMembers(membersPage, membersPageSize);
     } else {
       showError(message);
     }
@@ -207,15 +307,24 @@ export const useQuotaPoolsData = () => {
     selectedPool,
     setSelectedPool,
     members,
+    membersPage,
+    membersPageSize,
+    membersTotal,
+    handleMembersPageChange,
+    handleMembersPageSizeChange,
     transactions,
     candidates,
     loadCandidates,
     createPool,
     updatePool,
+    setPoolEnabled,
+    deletePool,
     refillPool,
     addMember,
+    moveMember,
     rechargeMember,
     grantAdmin,
+    revokeAdmin,
     canUseGlobalApi,
     canConfigurePools,
     canManagePoolAdmins,

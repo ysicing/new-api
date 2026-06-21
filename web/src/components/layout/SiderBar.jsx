@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { getLucideIcon } from '../../helpers/render';
@@ -25,7 +25,8 @@ import { ChevronLeft } from 'lucide-react';
 import { useSidebarCollapsed } from '../../hooks/common/useSidebarCollapsed';
 import { useSidebar } from '../../hooks/common/useSidebar';
 import { useMinimumLoadingTime } from '../../hooks/common/useMinimumLoadingTime';
-import { isAdmin, isQuotaPoolAdmin, isQuotaPoolEnabled, isRoot, showError } from '../../helpers';
+import { showError } from '../../helpers';
+import { UserContext } from '../../context/User';
 import SkeletonWrapper from './components/SkeletonWrapper';
 
 import { Nav, Divider, Button } from '@douyinfe/semi-ui';
@@ -64,14 +65,25 @@ const SiderBar = ({ onNavigate = () => {} }) => {
 
   const showSkeleton = useMinimumLoadingTime(sidebarLoading, 200);
 
+  const [userState] = useContext(UserContext);
   const [selectedKeys, setSelectedKeys] = useState(['home']);
   const [chatItems, setChatItems] = useState([]);
   const [openedKeys, setOpenedKeys] = useState([]);
   const location = useLocation();
   const [routerMapState, setRouterMapState] = useState(routerMap);
-  const adminVisible = isAdmin();
-  const rootVisible = isRoot();
-  const quotaPoolVisible = isQuotaPoolEnabled() && (adminVisible || isQuotaPoolAdmin());
+  const currentUser = useMemo(() => {
+    if (userState?.user) return userState.user;
+    try {
+      return JSON.parse(localStorage.getItem('user') || '{}');
+    } catch (e) {
+      return {};
+    }
+  }, [userState?.user]);
+  const adminVisible = (currentUser?.role || 0) >= 10;
+  const rootVisible = (currentUser?.role || 0) >= 100;
+  const quotaPoolVisible =
+    !!currentUser?.quota_pool_enabled &&
+    (adminVisible || !!currentUser?.quota_pool_admin);
 
   const workspaceItems = useMemo(() => {
     const items = [
@@ -110,6 +122,12 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         className:
           localStorage.getItem('enable_task') === 'true' ? '' : 'tableHiddle',
       },
+      {
+        text: t('额度池'),
+        itemKey: 'quota_pool',
+        to: '/quota_pool',
+        className: quotaPoolVisible ? '' : 'tableHiddle',
+      },
     ];
 
     // 根据配置过滤项目
@@ -125,6 +143,7 @@ const SiderBar = ({ onNavigate = () => {} }) => {
     localStorage.getItem('enable_task'),
     t,
     isModuleVisible,
+    quotaPoolVisible,
   ]);
 
   const financeItems = useMemo(() => {
@@ -156,19 +175,19 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         text: t('渠道管理'),
         itemKey: 'channel',
         to: '/channel',
-        className: isRoot() ? '' : 'tableHiddle',
+        className: rootVisible ? '' : 'tableHiddle',
       },
       {
         text: t('订阅管理'),
         itemKey: 'subscription',
         to: '/subscription',
-        className: isAdmin() ? '' : 'tableHiddle',
+        className: adminVisible ? '' : 'tableHiddle',
       },
       {
         text: t('模型管理'),
         itemKey: 'models',
         to: '/console/models',
-        className: isAdmin() ? '' : 'tableHiddle',
+        className: adminVisible ? '' : 'tableHiddle',
       },
       {
         text: t('模型部署'),
@@ -187,12 +206,6 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         itemKey: 'user',
         to: '/user',
         className: adminVisible ? '' : 'tableHiddle',
-      },
-      {
-        text: t('额度池'),
-        itemKey: 'quota_pool',
-        to: '/quota_pool',
-        className: quotaPoolVisible ? '' : 'tableHiddle',
       },
       {
         text: t('统计数据'),
@@ -215,7 +228,7 @@ const SiderBar = ({ onNavigate = () => {} }) => {
     });
 
     return filteredItems;
-  }, [adminVisible, quotaPoolVisible, rootVisible, t, isModuleVisible]);
+  }, [adminVisible, rootVisible, t, isModuleVisible]);
 
   const chatMenuItems = useMemo(() => {
     const items = [
@@ -415,7 +428,7 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         type='sidebar'
         className=''
         collapsed={collapsed}
-        showAdmin={isAdmin()}
+        showAdmin={adminVisible}
       >
         <Nav
           className='sidebar-nav'
@@ -467,7 +480,7 @@ const SiderBar = ({ onNavigate = () => {} }) => {
           )}
 
           {/* 控制台区域 */}
-          {hasSectionVisibleModules('console') && (
+          {(hasSectionVisibleModules('console') || quotaPoolVisible) && (
             <>
               <Divider className='sidebar-divider' />
               <div>
@@ -493,8 +506,7 @@ const SiderBar = ({ onNavigate = () => {} }) => {
           )}
 
           {/* 管理员区域 - 只在管理员时显示且配置允许时显示 */}
-          {(adminVisible || quotaPoolVisible) &&
-            (hasSectionVisibleModules('admin') || quotaPoolVisible) && (
+          {adminVisible && hasSectionVisibleModules('admin') && (
             <>
               <Divider className='sidebar-divider' />
               <div>

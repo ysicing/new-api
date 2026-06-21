@@ -76,6 +76,7 @@ const NotificationSettings = ({
       log: true,
       midjourney: true,
       task: true,
+      quota_pool: true,
     },
     personal: {
       enabled: true,
@@ -165,6 +166,7 @@ const NotificationSettings = ({
         log: true,
         midjourney: true,
         task: true,
+        quota_pool: true,
       },
       personal: { enabled: true, topup: true, personal: true },
       admin: {
@@ -209,7 +211,7 @@ const NotificationSettings = ({
           } else {
             userConf = userRes.data.data.sidebar_modules;
           }
-          setSidebarModulesUser(userConf);
+          setSidebarModulesUser(mergeAdminConfig(userConf));
         }
       } catch (error) {
         console.error('加载边栏配置失败:', error);
@@ -273,6 +275,7 @@ const NotificationSettings = ({
           description: t('绘图任务记录'),
         },
         { key: 'task', title: t('任务日志'), description: t('系统任务记录') },
+        { key: 'quota_pool', title: t('额度池'), description: t('额度池管理') },
       ],
     },
     {

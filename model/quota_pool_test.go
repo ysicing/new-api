@@ -89,6 +89,48 @@ func createQuotaPoolForTest(t *testing.T, db *gorm.DB, quota int) *QuotaPool {
 	return pool
 }
 
+func TestDefaultQuotaPoolMonthlyRefillDayCapsAt28(t *testing.T) {
+	cases := []struct {
+		now  time.Time
+		want int
+	}{
+		{now: time.Date(2026, 2, 24, 0, 0, 0, 0, time.Local), want: 24},
+		{now: time.Date(2026, 3, 29, 0, 0, 0, 0, time.Local), want: 28},
+		{now: time.Date(2026, 5, 31, 0, 0, 0, 0, time.Local), want: 28},
+	}
+	for _, testCase := range cases {
+		got := defaultQuotaPoolMonthlyRefillDay(testCase.now)
+		if got != testCase.want {
+			t.Fatalf("default monthly refill day for %s = %d, want %d", testCase.now.Format("2006-01-02"), got, testCase.want)
+		}
+	}
+}
+
+func TestCreateQuotaPoolDefaultsMonthlyRefill(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool, err := CreateQuotaPool("team-default-refill", 1000, 1)
+	if err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+
+	var got QuotaPool
+	if err := db.First(&got, pool.Id).Error; err != nil {
+		t.Fatalf("load pool failed: %v", err)
+	}
+	if !got.MonthlyRefillEnabled {
+		t.Fatalf("expected monthly refill enabled by default")
+	}
+	if got.MonthlyRefillAmount != got.BaseQuota || got.MonthlyRefillAmount != 1000 {
+		t.Fatalf("monthly refill amount = %d, want base quota %d", got.MonthlyRefillAmount, got.BaseQuota)
+	}
+	wantDay := defaultQuotaPoolMonthlyRefillDay(time.Now())
+	if got.MonthlyRefillDay != wantDay {
+		t.Fatalf("monthly refill day = %d, want %d", got.MonthlyRefillDay, wantDay)
+	}
+}
+
 func TestTransferQuotaFromPoolToUserDebitsPoolAndCreditsUser(t *testing.T) {
 	db, cleanup := setupQuotaPoolTestDB(t)
 	defer cleanup()
@@ -224,6 +266,9 @@ func TestListQuotaPoolMembersAndCandidatesOmitAccessToken(t *testing.T) {
 	if err := db.Model(&User{}).Where("id = ?", member.Id).Update("access_token", memberToken).Error; err != nil {
 		t.Fatalf("update member access token failed: %v", err)
 	}
+	if err := db.Create(&QuotaPoolAdmin{PoolId: pool.Id, UserId: member.Id, Level: QuotaPoolAdminLevelV2}).Error; err != nil {
+		t.Fatalf("create quota pool admin failed: %v", err)
+	}
 	if err := db.Model(&User{}).Where("id = ?", candidate.Id).Update("access_token", candidateToken).Error; err != nil {
 		t.Fatalf("update candidate access token failed: %v", err)
 	}
@@ -232,8 +277,15 @@ func TestListQuotaPoolMembersAndCandidatesOmitAccessToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list members failed: %v", err)
 	}
-	if len(members) != 1 || members[0].AccessToken != nil {
-		t.Fatalf("expected member access token omitted, got %#v", members)
+	if len(members) != 1 || members[0].QuotaPoolAdminLevel != QuotaPoolAdminLevelV2 {
+		t.Fatalf("expected member admin level v2, got %#v", members)
+	}
+	memberJSON, err := common.Marshal(members[0])
+	if err != nil {
+		t.Fatalf("marshal member failed: %v", err)
+	}
+	if strings.Contains(string(memberJSON), "access_token") || strings.Contains(string(memberJSON), memberToken) {
+		t.Fatalf("expected member access token omitted, got %s", string(memberJSON))
 	}
 
 	candidates, _, err := ListDefaultQuotaPoolCandidates("", &common.PageInfo{Page: 1, PageSize: 10})
@@ -242,6 +294,71 @@ func TestListQuotaPoolMembersAndCandidatesOmitAccessToken(t *testing.T) {
 	}
 	if len(candidates) != 1 || candidates[0].AccessToken != nil {
 		t.Fatalf("expected candidate access token omitted, got %#v", candidates)
+	}
+	candidatesById, _, err := ListDefaultQuotaPoolCandidates(fmt.Sprintf("%d", candidate.Id), &common.PageInfo{Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("list candidates by id failed: %v", err)
+	}
+	if len(candidatesById) != 1 || candidatesById[0].Id != candidate.Id {
+		t.Fatalf("expected candidate searchable by id, got %#v", candidatesById)
+	}
+}
+
+func TestListQuotaPoolTransactionsIncludesUserNames(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 1000)
+	operator := createQuotaPoolTestUser(t, db, 1, 0, pool.Id)
+	member := createQuotaPoolTestUser(t, db, 2, 0, pool.Id)
+	records := []*QuotaPoolTransaction{
+		{
+			PoolId:      pool.Id,
+			Type:        QuotaPoolTransactionAllocateManual,
+			Amount:      -100,
+			QuotaBefore: 1000,
+			QuotaAfter:  900,
+			UserId:      member.Id,
+			OperatorId:  operator.Id,
+		},
+		{
+			PoolId:      pool.Id,
+			Type:        QuotaPoolTransactionAllocateAuto,
+			Amount:      -100,
+			QuotaBefore: 900,
+			QuotaAfter:  800,
+			UserId:      member.Id,
+			OperatorId:  0,
+		},
+		{
+			PoolId:      pool.Id,
+			Type:        QuotaPoolTransactionManualRefill,
+			Amount:      100,
+			QuotaBefore: 800,
+			QuotaAfter:  900,
+			UserId:      999,
+			OperatorId:  operator.Id,
+		},
+	}
+	if err := db.Create(&records).Error; err != nil {
+		t.Fatalf("create transactions failed: %v", err)
+	}
+
+	items, total, err := ListQuotaPoolTransactions(pool.Id, &common.PageInfo{Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("list transactions failed: %v", err)
+	}
+	if total != 3 || len(items) != 3 {
+		t.Fatalf("expected 3 transactions, got total=%d len=%d", total, len(items))
+	}
+	if items[0].OperatorName != operator.Username || items[0].UserName != "" {
+		t.Fatalf("expected missing user and named operator, got user=%q operator=%q", items[0].UserName, items[0].OperatorName)
+	}
+	if items[1].UserName != member.Username || items[1].OperatorName != "" {
+		t.Fatalf("expected named user and system operator, got user=%q operator=%q", items[1].UserName, items[1].OperatorName)
+	}
+	if items[2].UserName != member.Username || items[2].OperatorName != operator.Username {
+		t.Fatalf("expected named user/operator, got user=%q operator=%q", items[2].UserName, items[2].OperatorName)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -129,6 +130,19 @@ func TestCreateQuotaPoolCreatesInitialFundTransaction(t *testing.T) {
 	if pool.Quota != int(10*common.QuotaPerUnit) || pool.BaseQuota != int(10*common.QuotaPerUnit) {
 		t.Fatalf("unexpected pool quota: %+v", pool)
 	}
+	if !pool.MonthlyRefillEnabled {
+		t.Fatalf("expected monthly refill enabled by default")
+	}
+	if pool.MonthlyRefillAmount != pool.BaseQuota {
+		t.Fatalf("monthly refill amount = %d, want base quota %d", pool.MonthlyRefillAmount, pool.BaseQuota)
+	}
+	today := time.Now().Day()
+	if today > 28 {
+		today = 28
+	}
+	if pool.MonthlyRefillDay != today {
+		t.Fatalf("monthly refill day = %d, want %d", pool.MonthlyRefillDay, today)
+	}
 	var tx model.QuotaPoolTransaction
 	if err := db.First(&tx, "pool_id = ? AND type = ?", pool.Id, model.QuotaPoolTransactionInitialFund).Error; err != nil {
 		t.Fatalf("load initial fund tx failed: %v", err)
@@ -166,6 +180,42 @@ func TestGrantSelfQuotaPoolAdminRejectsV2Grant(t *testing.T) {
 	response := decodeQuotaPoolResponse(t, recorder)
 	if response["success"] == true {
 		t.Fatalf("expected v2 self grant of v2 to fail")
+	}
+}
+
+func TestGetSelfQuotaPoolIncludesCounts(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 100, Quota: 100, MonthlyRefillDay: 1}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	operator := &model.User{Id: 1, Username: "operator", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id, AffCode: "operator-code"}
+	member := &model.User{Id: 2, Username: "member", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id, AffCode: "member-code"}
+	if err := db.Create(operator).Error; err != nil {
+		t.Fatalf("create operator failed: %v", err)
+	}
+	if err := db.Create(member).Error; err != nil {
+		t.Fatalf("create member failed: %v", err)
+	}
+	if err := db.Create(&model.QuotaPoolAdmin{PoolId: pool.Id, UserId: operator.Id, Level: model.QuotaPoolAdminLevelV1}).Error; err != nil {
+		t.Fatalf("create operator admin failed: %v", err)
+	}
+
+	ctx, recorder := quotaPoolTestContext(t, http.MethodGet, "/api/quota_pool/self", nil, common.RoleCommonUser, operator.Id)
+
+	GetSelfQuotaPool(ctx)
+
+	response := decodeQuotaPoolResponse(t, recorder)
+	if response["success"] != true {
+		t.Fatalf("expected success response, got %#v", response)
+	}
+	data := response["data"].(map[string]interface{})
+	poolData := data["pool"].(map[string]interface{})
+	if poolData["member_count"].(float64) != 2 {
+		t.Fatalf("member_count = %v, want 2", poolData["member_count"])
+	}
+	if poolData["admin_count"].(float64) != 1 {
+		t.Fatalf("admin_count = %v, want 1", poolData["admin_count"])
 	}
 }
 

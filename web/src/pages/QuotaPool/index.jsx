@@ -4,17 +4,39 @@ import {
   Card,
   Form,
   Modal,
+  Popconfirm,
   Select,
   Space,
+  TabPane,
   Table,
+  Tabs,
   Tag,
   Typography,
 } from '@douyinfe/semi-ui';
-import { IconPlus, IconRefresh, IconUserAdd } from '@douyinfe/semi-icons';
+import {
+  IconDelete,
+  IconArrowLeft,
+  IconEdit,
+  IconEyeOpened,
+  IconPlus,
+  IconRefresh,
+  IconUserAdd,
+} from '@douyinfe/semi-icons';
 import { renderQuota, timestamp2string } from '../../helpers';
 import { useQuotaPoolsData } from '../../hooks/quota-pools/useQuotaPoolsData';
 
 const QUOTA_PER_UNIT = 500000;
+const TRANSACTION_TYPE_LABELS = {
+  initial_fund: '初始入池',
+  manual_refill: '临时额度',
+  monthly_refill: '月度扩容',
+  allocate_auto: '自动分配',
+  allocate_manual: '手动分配',
+  reclaim_user: '回收用户额度',
+};
+const ROLE_MEMBER = 0;
+const ROLE_POOL_ADMIN_V1 = 1;
+const ROLE_POOL_SUPER_ADMIN_V2 = 2;
 
 const QuotaPool = () => {
   const data = useQuotaPoolsData();
@@ -24,15 +46,25 @@ const QuotaPool = () => {
     selectedPool,
     setSelectedPool,
     members,
+    membersPage,
+    membersPageSize,
+    membersTotal,
+    handleMembersPageChange,
+    handleMembersPageSizeChange,
     transactions,
     candidates,
     loadCandidates,
     createPool,
     updatePool,
+    setPoolEnabled,
+    deletePool,
     refillPool,
     addMember,
+    moveMember,
     rechargeMember,
     grantAdmin,
+    revokeAdmin,
+    canUseGlobalApi,
     canConfigurePools,
     canManagePoolAdmins,
     canRefillPools,
@@ -41,6 +73,7 @@ const QuotaPool = () => {
   const [showConfig, setShowConfig] = useState(false);
   const [showRefill, setShowRefill] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
+  const [moveMemberRecord, setMoveMemberRecord] = useState(null);
 
   useEffect(() => {
     if (showAddMember) {
@@ -56,6 +89,204 @@ const QuotaPool = () => {
       })),
     [pools],
   );
+
+  const targetPoolOptions = useMemo(
+    () =>
+      pools
+        .filter(
+          (pool) =>
+            pool.id !== selectedPool?.id && (pool.is_default || pool.enabled),
+        )
+        .map((pool) => ({
+          label: pool.is_default ? t('默认额度池') : pool.name,
+          value: pool.is_default ? 0 : pool.id,
+        })),
+    [pools, selectedPool?.id, t],
+  );
+
+  const canOperateSelectedPool = selectedPool && !selectedPool.is_default;
+  const canUseActivePool = canOperateSelectedPool && selectedPool.enabled;
+  const canMoveMembers = canUseGlobalApi && canOperateSelectedPool;
+  const canRechargeMembers = canUseActivePool;
+  const canGrantV2Admins = canUseGlobalApi;
+
+  const renderPoolStatus = (pool) => {
+    if (pool.is_default) {
+      return <Tag color='blue'>{t('默认')}</Tag>;
+    }
+    return (
+      <Tag color={pool.enabled ? 'green' : 'red'}>
+        {pool.enabled ? t('已启用') : t('已禁用')}
+      </Tag>
+    );
+  };
+
+  const renderPoolQuota = (pool) =>
+    pool.is_default ? t('不限额') : renderQuota(pool.quota);
+
+  const renderRechargeRule = (pool) => {
+    if (pool.is_default) return t('系统默认');
+    if (pool.auto_recharge_amount < 0) return t('继承系统配置');
+    if (pool.auto_recharge_amount === 0) return t('关闭');
+    return renderQuota(pool.auto_recharge_amount);
+  };
+
+  const renderLimit = (value) => {
+    if (value < 0) return t('继承');
+    if (value === 0) return t('不限');
+    return value;
+  };
+
+  const renderTransactionType = (type) => t(TRANSACTION_TYPE_LABELS[type] || type);
+
+  const renderTransactionUser = (id, name) => {
+    if (!id || !name) {
+      return t('系统');
+    }
+    return `${name}(ID:${id})`;
+  };
+
+  const renderQuotaPoolRole = (level) => {
+    if (level === ROLE_POOL_SUPER_ADMIN_V2) return t('池超级管理员 v2');
+    if (level === ROLE_POOL_ADMIN_V1) return t('池管理员 v1');
+    return t('成员');
+  };
+
+  const adminRoleOptions = canGrantV2Admins
+    ? [
+        { label: t('成员'), value: ROLE_MEMBER },
+        { label: t('池管理员 v1'), value: ROLE_POOL_ADMIN_V1 },
+        { label: t('池超级管理员 v2'), value: ROLE_POOL_SUPER_ADMIN_V2 },
+      ]
+    : [
+        { label: t('成员'), value: ROLE_MEMBER },
+        { label: t('池管理员 v1'), value: ROLE_POOL_ADMIN_V1 },
+      ];
+
+  const canDeletePool = (pool) =>
+    canConfigurePools &&
+    pool &&
+    !pool.is_default &&
+    (pool.member_count || 0) === 0;
+
+  const openPoolDetail = (pool) => {
+    setSelectedPool(pool);
+  };
+
+  const closePoolDetail = () => {
+    setSelectedPool(null);
+  };
+
+  const poolColumns = [
+    {
+      title: t('名称'),
+      dataIndex: 'name',
+      render: (_, record) => (
+        <Space spacing={8}>
+          <Typography.Text strong>{record.name}</Typography.Text>
+          {renderPoolStatus(record)}
+        </Space>
+      ),
+    },
+    {
+      title: t('池余额'),
+      dataIndex: 'quota',
+      width: 130,
+      render: (_, record) => renderPoolQuota(record),
+    },
+    {
+      title: t('成员数'),
+      dataIndex: 'member_count',
+      width: 90,
+      render: (value) => value || 0,
+    },
+    {
+      title: t('管理员数'),
+      dataIndex: 'admin_count',
+      width: 100,
+      render: (value) => value || 0,
+    },
+    {
+      title: t('充值规则'),
+      dataIndex: 'auto_recharge_amount',
+      width: 150,
+      render: (_, record) => renderRechargeRule(record),
+    },
+    {
+      title: t('周次数'),
+      dataIndex: 'weekly_limit',
+      width: 90,
+      render: (value) => renderLimit(value),
+    },
+    {
+      title: t('月次数'),
+      dataIndex: 'monthly_limit',
+      width: 90,
+      render: (value) => renderLimit(value),
+    },
+    {
+      title: t('创建时间'),
+      dataIndex: 'created_at',
+      width: 170,
+      render: (value) => timestamp2string(value),
+    },
+    {
+      title: t('操作'),
+      dataIndex: 'operate',
+      width: 260,
+      fixed: 'right',
+      render: (_, record) => (
+        <Space spacing={6} wrap>
+          <Button
+            size='small'
+            icon={<IconEyeOpened />}
+            onClick={() => openPoolDetail(record)}
+          >
+            {t('查看')}
+          </Button>
+          {canConfigurePools && !record.is_default && (
+            <Button
+              size='small'
+              icon={<IconEdit />}
+              onClick={() => {
+                setSelectedPool(record);
+                setShowConfig(true);
+              }}
+            >
+              {t('配置')}
+            </Button>
+          )}
+          {canConfigurePools && !record.is_default && (
+            <Popconfirm
+              title={
+                record.enabled
+                  ? t('确定要禁用该额度池吗？')
+                  : t('确定要启用该额度池吗？')
+              }
+              onConfirm={() => setPoolEnabled(record.id, !record.enabled)}
+            >
+              <Button
+                size='small'
+                type={record.enabled ? 'warning' : 'primary'}
+              >
+                {record.enabled ? t('禁用') : t('启用')}
+              </Button>
+            </Popconfirm>
+          )}
+          {canDeletePool(record) && (
+            <Popconfirm
+              title={t('确定要删除该额度池吗？')}
+              onConfirm={() => deletePool(record.id)}
+            >
+              <Button size='small' type='danger' icon={<IconDelete />}>
+                {t('删除')}
+              </Button>
+            </Popconfirm>
+          )}
+        </Space>
+      ),
+    },
+  ];
 
   const memberColumns = [
     { title: t('ID'), dataIndex: 'id', width: 80 },
@@ -75,19 +306,60 @@ const QuotaPool = () => {
       ),
     },
     {
+      title: t('角色'),
+      dataIndex: 'quota_pool_admin_level',
+      width: 110,
+      render: (value) =>
+        value > 0 ? (
+          <Tag color={value === 2 ? 'purple' : 'blue'}>
+            {renderQuotaPoolRole(value)}
+          </Tag>
+        ) : (
+          <Tag color='grey'>{t('成员')}</Tag>
+        ),
+    },
+    {
       title: t('操作'),
       dataIndex: 'operate',
-      width: 120,
+      width: 280,
+      fixed: 'right',
       render: (_, record) => (
-        <Button size='small' onClick={() => rechargeMember(record.id)}>
-          {t('充值')}
-        </Button>
+        <Space spacing={6} wrap>
+          {canRechargeMembers && (
+            <Button size='small' onClick={() => rechargeMember(record.id)}>
+              {t('充值')}
+            </Button>
+          )}
+          {canMoveMembers && (
+            <Button size='small' onClick={() => setMoveMemberRecord(record)}>
+              {t('迁移')}
+            </Button>
+          )}
+          {canManagePoolAdmins &&
+            record.quota_pool_admin_level > 0 &&
+            (canUseGlobalApi || record.quota_pool_admin_level === 1) && (
+              <Popconfirm
+                title={t('确定要移除该用户的额度池管理员权限吗？')}
+                position='left'
+                onConfirm={() => revokeAdmin(record.id)}
+              >
+                <Button size='small' type='danger' theme='borderless'>
+                  {t('撤销')}
+                </Button>
+              </Popconfirm>
+            )}
+        </Space>
       ),
     },
   ];
 
   const transactionColumns = [
-    { title: t('类型'), dataIndex: 'type', width: 150 },
+    {
+      title: t('类型'),
+      dataIndex: 'type',
+      width: 120,
+      render: renderTransactionType,
+    },
     {
       title: t('金额'),
       dataIndex: 'amount',
@@ -103,8 +375,19 @@ const QuotaPool = () => {
       dataIndex: 'quota_after',
       render: (value) => renderQuota(value),
     },
-    { title: t('用户'), dataIndex: 'user_id', width: 90 },
-    { title: t('操作人'), dataIndex: 'operator_id', width: 90 },
+    {
+      title: t('用户'),
+      dataIndex: 'user_id',
+      width: 150,
+      render: (value, record) => renderTransactionUser(value, record.user_name),
+    },
+    {
+      title: t('操作人'),
+      dataIndex: 'operator_id',
+      width: 150,
+      render: (value, record) =>
+        renderTransactionUser(value, record.operator_name),
+    },
     {
       title: t('时间'),
       dataIndex: 'created_at',
@@ -115,107 +398,182 @@ const QuotaPool = () => {
   return (
     <div className='mt-[60px] px-2'>
       <div className='flex flex-col gap-3'>
-        <Card>
-          <div className='flex flex-col md:flex-row md:items-center justify-between gap-3'>
-            <Space>
-              <Typography.Text strong>{t('额度池')}</Typography.Text>
-              <Select
-                style={{ width: 240 }}
-                value={selectedPool?.id}
-                optionList={poolOptions}
-                onChange={(id) =>
-                  setSelectedPool(pools.find((pool) => pool.id === id))
-                }
+        {!selectedPool ? (
+          <Card>
+            <div className='flex flex-col gap-3'>
+              <div className='flex flex-col md:flex-row md:items-center justify-between gap-3'>
+                <div>
+                  <Typography.Title heading={4} style={{ margin: 0 }}>
+                    {t('额度池')}
+                  </Typography.Title>
+                  <Typography.Text type='secondary'>
+                    {t('管理额度池、池成员和池余额规则')}
+                  </Typography.Text>
+                </div>
+                {canConfigurePools && (
+                  <Button
+                    type='primary'
+                    icon={<IconPlus />}
+                    onClick={() => setShowCreate(true)}
+                  >
+                    {t('新建额度池')}
+                  </Button>
+                )}
+              </div>
+              <Table
+                size='small'
+                columns={poolColumns}
+                dataSource={pools}
+                rowKey='id'
+                loading={data.loading}
+                pagination={false}
               />
-              {selectedPool && (
-                <Tag color={selectedPool.enabled ? 'green' : 'red'}>
-                  {selectedPool.enabled ? t('已启用') : t('已禁用')}
-                </Tag>
-              )}
-            </Space>
-            <Space>
-              {canConfigurePools && (
-                <Button icon={<IconPlus />} onClick={() => setShowCreate(true)}>
-                  {t('新建')}
-                </Button>
-              )}
-              {canConfigurePools && selectedPool && !selectedPool.is_default && (
-                <Button onClick={() => setShowConfig(true)}>
-                  {t('配置')}
-                </Button>
-              )}
-              {canRefillPools && selectedPool && !selectedPool.is_default && (
-                <Button icon={<IconRefresh />} onClick={() => setShowRefill(true)}>
-                  {t('临时额度')}
-                </Button>
-              )}
-              {selectedPool && !selectedPool.is_default && (
-                <Button icon={<IconUserAdd />} onClick={() => setShowAddMember(true)}>
-                  {t('添加成员')}
-                </Button>
-              )}
-            </Space>
-          </div>
-        </Card>
+            </div>
+          </Card>
+        ) : (
+          <>
+            <Card>
+              <div className='flex flex-col md:flex-row md:items-center justify-between gap-3'>
+                <Space>
+                  <Button
+                    icon={<IconArrowLeft />}
+                    type='tertiary'
+                    onClick={closePoolDetail}
+                  >
+                    {t('返回列表')}
+                  </Button>
+                  <Typography.Text strong>{t('额度池')}</Typography.Text>
+                  <Select
+                    style={{ width: 240 }}
+                    value={selectedPool?.id}
+                    optionList={poolOptions}
+                    onChange={(id) =>
+                      setSelectedPool(pools.find((pool) => pool.id === id))
+                    }
+                  />
+                  {renderPoolStatus(selectedPool)}
+                </Space>
+                <Space>
+                  {canConfigurePools && !selectedPool.is_default && (
+                    <Button onClick={() => setShowConfig(true)}>
+                      {t('配置')}
+                    </Button>
+                  )}
+                  {canConfigurePools && canOperateSelectedPool && (
+                    <Popconfirm
+                      title={
+                        selectedPool.enabled
+                          ? t('确定要禁用该额度池吗？')
+                          : t('确定要启用该额度池吗？')
+                      }
+                      onConfirm={() =>
+                        setPoolEnabled(selectedPool.id, !selectedPool.enabled)
+                      }
+                    >
+                      <Button
+                        type={selectedPool.enabled ? 'warning' : 'primary'}
+                      >
+                        {selectedPool.enabled ? t('禁用') : t('启用')}
+                      </Button>
+                    </Popconfirm>
+                  )}
+                  {canRefillPools && canUseActivePool && (
+                    <Button
+                      icon={<IconRefresh />}
+                      onClick={() => setShowRefill(true)}
+                    >
+                      {t('临时额度')}
+                    </Button>
+                  )}
+                  {canUseActivePool && (
+                    <Button
+                      icon={<IconUserAdd />}
+                      onClick={() => setShowAddMember(true)}
+                    >
+                      {t('添加成员')}
+                    </Button>
+                  )}
+                  {canDeletePool(selectedPool) && (
+                    <Popconfirm
+                      title={t('确定要删除该额度池吗？')}
+                      onConfirm={() => deletePool(selectedPool.id)}
+                    >
+                      <Button type='danger' icon={<IconDelete />}>
+                        {t('删除')}
+                      </Button>
+                    </Popconfirm>
+                  )}
+                </Space>
+              </div>
+            </Card>
 
-        {selectedPool && (
-          <div className='grid grid-cols-1 md:grid-cols-4 gap-3'>
-            <Card title={t('池余额')}>
-              <Typography.Text>
-                {selectedPool.is_default
-                  ? t('不限额')
-                  : renderQuota(selectedPool.quota)}
-              </Typography.Text>
+            <div className='grid grid-cols-1 md:grid-cols-4 gap-3'>
+              <Card title={t('池余额')}>
+                <Typography.Text>
+                  {renderPoolQuota(selectedPool)}
+                </Typography.Text>
+              </Card>
+              <Card title={t('充值金额')}>
+                <Typography.Text>
+                  {renderRechargeRule(selectedPool)}
+                </Typography.Text>
+              </Card>
+              <Card title={t('周次数')}>
+                <Typography.Text>
+                  {renderLimit(selectedPool.weekly_limit)}
+                </Typography.Text>
+              </Card>
+              <Card title={t('月次数')}>
+                <Typography.Text>
+                  {renderLimit(selectedPool.monthly_limit)}
+                </Typography.Text>
+              </Card>
+            </div>
+
+            <Card>
+              <Tabs type='line' defaultActiveKey='members'>
+                <TabPane
+                  itemKey='members'
+                  tab={
+                    <span className='flex items-center gap-2'>
+                      {t('成员')}
+                      <Tag color='grey' shape='circle'>
+                        {membersTotal}
+                      </Tag>
+                    </span>
+                  }
+                >
+                  <Table
+                    size='small'
+                    columns={memberColumns}
+                    dataSource={members}
+                    rowKey='id'
+                    scroll={{ x: 'max-content' }}
+                    pagination={{
+                      currentPage: membersPage,
+                      pageSize: membersPageSize,
+                      total: membersTotal,
+                      showSizeChanger: true,
+                      pageSizeOptions: [10, 20, 50, 100],
+                      onPageChange: handleMembersPageChange,
+                      onPageSizeChange: handleMembersPageSizeChange,
+                    }}
+                  />
+                </TabPane>
+                <TabPane itemKey='transactions' tab={t('流水')}>
+                  <Table
+                    size='small'
+                    columns={transactionColumns}
+                    dataSource={transactions}
+                    rowKey='id'
+                    scroll={{ x: 'max-content' }}
+                    pagination={false}
+                  />
+                </TabPane>
+              </Tabs>
             </Card>
-            <Card title={t('充值金额')}>
-              <Typography.Text>
-                {selectedPool.auto_recharge_amount < 0
-                  ? t('继承系统配置')
-                  : selectedPool.auto_recharge_amount === 0
-                    ? t('关闭')
-                    : renderQuota(selectedPool.auto_recharge_amount)}
-              </Typography.Text>
-            </Card>
-            <Card title={t('周次数')}>
-              <Typography.Text>
-                {selectedPool.weekly_limit < 0
-                  ? t('继承')
-                  : selectedPool.weekly_limit === 0
-                    ? t('不限')
-                    : selectedPool.weekly_limit}
-              </Typography.Text>
-            </Card>
-            <Card title={t('月次数')}>
-              <Typography.Text>
-                {selectedPool.monthly_limit < 0
-                  ? t('继承')
-                  : selectedPool.monthly_limit === 0
-                    ? t('不限')
-                    : selectedPool.monthly_limit}
-              </Typography.Text>
-            </Card>
-          </div>
+          </>
         )}
-
-        <Card title={t('成员')}>
-          <Table
-            size='small'
-            columns={memberColumns}
-            dataSource={members}
-            rowKey='id'
-            pagination={false}
-          />
-        </Card>
-
-        <Card title={t('流水')}>
-          <Table
-            size='small'
-            columns={transactionColumns}
-            dataSource={transactions}
-            rowKey='id'
-            pagination={false}
-          />
-        </Card>
       </div>
 
       <Modal
@@ -230,7 +588,11 @@ const QuotaPool = () => {
             setShowCreate(false);
           }}
         >
-          <Form.Input field='name' label={t('名称')} rules={[{ required: true }]} />
+          <Form.Input
+            field='name'
+            label={t('名称')}
+            rules={[{ required: true }]}
+          />
           <Form.InputNumber
             field='base_quota'
             label={t('预付金额')}
@@ -269,12 +631,23 @@ const QuotaPool = () => {
           }}
         >
           <Form.Input field='name' label={t('名称')} />
-          <Form.InputNumber field='auto_recharge_amount' label={t('充值金额')} />
+          <Form.InputNumber
+            field='auto_recharge_amount'
+            label={t('充值金额')}
+          />
           <Form.InputNumber field='weekly_limit' label={t('周次数')} />
           <Form.InputNumber field='monthly_limit' label={t('月次数')} />
           <Form.Switch field='monthly_refill_enabled' label={t('月度扩容')} />
-          <Form.InputNumber field='monthly_refill_amount' label={t('月扩容金额')} />
-          <Form.InputNumber field='monthly_refill_day' label={t('扩容日期')} min={1} max={28} />
+          <Form.InputNumber
+            field='monthly_refill_amount'
+            label={t('月扩容金额')}
+          />
+          <Form.InputNumber
+            field='monthly_refill_day'
+            label={t('扩容日期')}
+            min={1}
+            max={28}
+          />
           <Button htmlType='submit'>{t('提交')}</Button>
         </Form>
       </Modal>
@@ -291,7 +664,12 @@ const QuotaPool = () => {
             setShowRefill(false);
           }}
         >
-          <Form.InputNumber field='amount' label={t('金额')} min={1} rules={[{ required: true }]} />
+          <Form.InputNumber
+            field='amount'
+            label={t('金额')}
+            min={1}
+            rules={[{ required: true }]}
+          />
           <Button htmlType='submit'>{t('提交')}</Button>
         </Form>
       </Modal>
@@ -314,27 +692,60 @@ const QuotaPool = () => {
           <Form.Select
             field='user_id'
             label={t('用户')}
+            placeholder={t('搜索用户 ID、用户名、显示名称或邮箱')}
+            style={{ width: '100%' }}
             optionList={candidates.map((user) => ({
-              label: `${user.id} ${user.username}`,
+              label: `${user.username}(ID:${user.id})`,
               value: user.id,
             }))}
             filter
             remote
+            showClear
             onSearch={(keyword) => loadCandidates(keyword)}
             rules={[{ required: true }]}
           />
           {canManagePoolAdmins && (
             <Form.Select
               field='admin_level'
-              label={t('管理员等级')}
-              optionList={[
-                { label: t('不任命'), value: 0 },
-                { label: 'v1', value: 1 },
-                { label: 'v2', value: 2 },
-              ]}
-              initValue={0}
+              label={t('角色')}
+              extraText={t(
+                '成员仅消耗本池额度；池管理员 v1 可查看本池、添加默认池用户并给成员充值；池超级管理员 v2 还可任命或撤销池管理员 v1。',
+              )}
+              style={{ width: '100%' }}
+              optionList={adminRoleOptions}
+              initValue={ROLE_MEMBER}
             />
           )}
+          <Button htmlType='submit'>{t('提交')}</Button>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={t('迁移成员')}
+        visible={!!moveMemberRecord}
+        onCancel={() => setMoveMemberRecord(null)}
+        footer={null}
+      >
+        <Form
+          onSubmit={async (values) => {
+            await moveMember(moveMemberRecord.id, values.pool_id);
+            setMoveMemberRecord(null);
+          }}
+        >
+          <Form.Slot label={t('用户')}>
+            <Typography.Text>
+              {moveMemberRecord?.id} {moveMemberRecord?.username}
+            </Typography.Text>
+          </Form.Slot>
+          <Form.Select
+            field='pool_id'
+            label={t('目标额度池')}
+            optionList={targetPoolOptions}
+            rules={[{ required: true }]}
+          />
+          <Typography.Paragraph type='secondary' spacing='extended'>
+            {t('迁移会清零用户当前额度，并按规则退回原池余额。')}
+          </Typography.Paragraph>
           <Button htmlType='submit'>{t('提交')}</Button>
         </Form>
       </Modal>

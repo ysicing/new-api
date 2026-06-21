@@ -3,6 +3,8 @@ package model
 import (
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -80,6 +82,12 @@ type QuotaPoolTransaction struct {
 	CreatedAt   int64  `json:"created_at" gorm:"autoCreateTime;column:created_at"`
 }
 
+type QuotaPoolTransactionItem struct {
+	QuotaPoolTransaction
+	UserName     string `json:"user_name"`
+	OperatorName string `json:"operator_name"`
+}
+
 type QuotaPoolAdminSummary struct {
 	PoolId int `json:"pool_id"`
 	Level  int `json:"level"`
@@ -109,6 +117,22 @@ type QuotaPoolListItem struct {
 	QuotaPool
 	MemberCount int64 `json:"member_count"`
 	AdminCount  int64 `json:"admin_count"`
+}
+
+type QuotaPoolMember struct {
+	Id                  int    `json:"id"`
+	Username            string `json:"username"`
+	DisplayName         string `json:"display_name"`
+	Role                int    `json:"role"`
+	Status              int    `json:"status"`
+	Email               string `json:"email"`
+	Group               string `json:"group"`
+	Quota               int    `json:"quota"`
+	UsedQuota           int    `json:"used_quota"`
+	QuotaPoolId         int    `json:"quota_pool_id"`
+	QuotaPoolAdminLevel int    `json:"quota_pool_admin_level"`
+	CreatedAt           int64  `json:"created_at"`
+	LastLoginAt         int64  `json:"last_login_at"`
 }
 
 func normalizeQuotaPoolId(poolId int) int {
@@ -178,38 +202,106 @@ func ListQuotaPools() ([]QuotaPoolListItem, error) {
 	}
 	items := make([]QuotaPoolListItem, 0, len(pools))
 	for _, pool := range pools {
-		item := QuotaPoolListItem{QuotaPool: pool}
-		if pool.IsDefault {
-			DB.Model(&User{}).Where("quota_pool_id = ?", QuotaPoolDefaultUserPoolId).Count(&item.MemberCount)
-		} else {
-			DB.Model(&User{}).Where("quota_pool_id = ?", pool.Id).Count(&item.MemberCount)
-			DB.Model(&QuotaPoolAdmin{}).Where("pool_id = ?", pool.Id).Count(&item.AdminCount)
-		}
+		item := buildQuotaPoolListItem(pool)
 		items = append(items, item)
 	}
 	return items, nil
 }
 
-func ListQuotaPoolTransactions(poolId int, pageInfo *common.PageInfo) ([]*QuotaPoolTransaction, int64, error) {
+func GetQuotaPoolListItemById(poolId int) (*QuotaPoolListItem, error) {
+	pool, err := GetQuotaPoolById(poolId)
+	if err != nil {
+		return nil, err
+	}
+	item := buildQuotaPoolListItem(*pool)
+	return &item, nil
+}
+
+func buildQuotaPoolListItem(pool QuotaPool) QuotaPoolListItem {
+	item := QuotaPoolListItem{QuotaPool: pool}
+	if pool.IsDefault {
+		DB.Model(&User{}).Where("quota_pool_id = ?", QuotaPoolDefaultUserPoolId).Count(&item.MemberCount)
+		return item
+	}
+	DB.Model(&User{}).Where("quota_pool_id = ?", pool.Id).Count(&item.MemberCount)
+	DB.Model(&QuotaPoolAdmin{}).Where("pool_id = ?", pool.Id).Count(&item.AdminCount)
+	return item
+}
+
+func ListQuotaPoolTransactions(poolId int, pageInfo *common.PageInfo) ([]*QuotaPoolTransactionItem, int64, error) {
 	var total int64
 	query := DB.Model(&QuotaPoolTransaction{}).Where("pool_id = ?", poolId)
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	var txs []*QuotaPoolTransaction
-	err := query.Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&txs).Error
-	return txs, total, err
+	if err := query.Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&txs).Error; err != nil {
+		return nil, 0, err
+	}
+	items, err := buildQuotaPoolTransactionItems(txs)
+	return items, total, err
 }
 
-func ListQuotaPoolMembers(poolId int, pageInfo *common.PageInfo) ([]*User, int64, error) {
+func buildQuotaPoolTransactionItems(txs []*QuotaPoolTransaction) ([]*QuotaPoolTransactionItem, error) {
+	userIds := make([]int, 0, len(txs)*2)
+	seen := map[int]bool{}
+	for _, tx := range txs {
+		for _, userId := range []int{tx.UserId, tx.OperatorId} {
+			if userId <= 0 || seen[userId] {
+				continue
+			}
+			seen[userId] = true
+			userIds = append(userIds, userId)
+		}
+	}
+
+	userNames := map[int]string{}
+	if len(userIds) > 0 {
+		var users []User
+		if err := DB.Select("id", "username").Where("id IN ?", userIds).Find(&users).Error; err != nil {
+			return nil, err
+		}
+		for _, user := range users {
+			userNames[user.Id] = user.Username
+		}
+	}
+
+	items := make([]*QuotaPoolTransactionItem, 0, len(txs))
+	for _, tx := range txs {
+		items = append(items, &QuotaPoolTransactionItem{
+			QuotaPoolTransaction: *tx,
+			UserName:             userNames[tx.UserId],
+			OperatorName:         userNames[tx.OperatorId],
+		})
+	}
+	return items, nil
+}
+
+func ListQuotaPoolMembers(poolId int, pageInfo *common.PageInfo) ([]*QuotaPoolMember, int64, error) {
 	var total int64
 	query := DB.Model(&User{}).Where("quota_pool_id = ?", poolId)
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	var users []*User
-	err := query.Select("Id", "Username", "DisplayName", "Role", "Status", "Email", "Group", "Quota", "UsedQuota", "QuotaPoolId", "CreatedAt", "LastLoginAt").
-		Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&users).Error
+	selectColumns := []string{
+		"users.id",
+		"users.username",
+		"users.display_name",
+		"users.role",
+		"users.status",
+		"users.email",
+		"users." + commonGroupCol + " AS " + commonGroupCol,
+		"users.quota",
+		"users.used_quota",
+		"users.quota_pool_id",
+		"COALESCE(quota_pool_admins.level, 0) AS quota_pool_admin_level",
+		"users.created_at",
+		"users.last_login_at",
+	}
+	var users []*QuotaPoolMember
+	err := query.Select(strings.Join(selectColumns, ", ")).
+		Joins("LEFT JOIN quota_pool_admins ON quota_pool_admins.user_id = users.id AND quota_pool_admins.pool_id = ?", poolId).
+		Order("users.id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&users).Error
 	return users, total, err
 }
 
@@ -217,7 +309,11 @@ func ListDefaultQuotaPoolCandidates(keyword string, pageInfo *common.PageInfo) (
 	query := DB.Model(&User{}).Where("quota_pool_id = ? AND role = ? AND status = ?", QuotaPoolDefaultUserPoolId, common.RoleCommonUser, common.UserStatusEnabled)
 	if keyword != "" {
 		like := "%" + keyword + "%"
-		query = query.Where("username LIKE ? OR email LIKE ? OR display_name LIKE ?", like, like, like)
+		if userId, err := strconv.Atoi(keyword); err == nil {
+			query = query.Where("id = ? OR username LIKE ? OR email LIKE ? OR display_name LIKE ?", userId, like, like, like)
+		} else {
+			query = query.Where("username LIKE ? OR email LIKE ? OR display_name LIKE ?", like, like, like)
+		}
 	}
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -241,10 +337,19 @@ func quotaPoolNameExists(tx *gorm.DB, name string, excludeId int) (bool, error) 
 	return count > 0, nil
 }
 
+func defaultQuotaPoolMonthlyRefillDay(now time.Time) int {
+	day := now.Day()
+	if day > 28 {
+		return 28
+	}
+	return day
+}
+
 func CreateQuotaPool(name string, baseQuota int, operatorId int) (*QuotaPool, error) {
 	if name == "" || baseQuota <= 0 {
 		return nil, ErrQuotaPoolInvalidAmount
 	}
+	monthlyRefillDay := defaultQuotaPoolMonthlyRefillDay(time.Now())
 	var pool *QuotaPool
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		exists, err := quotaPoolNameExists(tx, name, 0)
@@ -255,15 +360,17 @@ func CreateQuotaPool(name string, baseQuota int, operatorId int) (*QuotaPool, er
 			return ErrQuotaPoolNameExists
 		}
 		pool = &QuotaPool{
-			Name:               name,
-			Enabled:            true,
-			IsDefault:          false,
-			BaseQuota:          baseQuota,
-			Quota:              baseQuota,
-			AutoRechargeAmount: QuotaPoolAutoRechargeInherit,
-			WeeklyLimit:        QuotaPoolAutoRechargeInherit,
-			MonthlyLimit:       QuotaPoolAutoRechargeInherit,
-			MonthlyRefillDay:   1,
+			Name:                 name,
+			Enabled:              true,
+			IsDefault:            false,
+			BaseQuota:            baseQuota,
+			Quota:                baseQuota,
+			AutoRechargeAmount:   QuotaPoolAutoRechargeInherit,
+			WeeklyLimit:          QuotaPoolAutoRechargeInherit,
+			MonthlyLimit:         QuotaPoolAutoRechargeInherit,
+			MonthlyRefillEnabled: true,
+			MonthlyRefillAmount:  baseQuota,
+			MonthlyRefillDay:     monthlyRefillDay,
 		}
 		if err := tx.Create(pool).Error; err != nil {
 			return err
