@@ -129,23 +129,23 @@ const QuotaPool = () => {
     if (canUseGlobalApi) {
       if (currentLevel === ROLE_MEMBER) {
         return [
-          { label: t('设为管理员v1'), level: ROLE_POOL_ADMIN_V1 },
-          { label: t('设为超管v2'), level: ROLE_POOL_SUPER_ADMIN_V2 },
+          { label: t('设为管理员'), level: ROLE_POOL_ADMIN_V1 },
+          { label: t('设为超管'), level: ROLE_POOL_SUPER_ADMIN_V2 },
         ];
       }
       if (currentLevel === ROLE_POOL_ADMIN_V1) {
         return [
           { label: t('降为成员'), level: ROLE_MEMBER, danger: true },
-          { label: t('设为超管v2'), level: ROLE_POOL_SUPER_ADMIN_V2 },
+          { label: t('设为超管'), level: ROLE_POOL_SUPER_ADMIN_V2 },
         ];
       }
       return [
-        { label: t('降为管理员v1'), level: ROLE_POOL_ADMIN_V1 },
+        { label: t('降为管理员'), level: ROLE_POOL_ADMIN_V1 },
         { label: t('降为成员'), level: ROLE_MEMBER, danger: true },
       ];
     }
     if (currentLevel === ROLE_MEMBER) {
-      return [{ label: t('设为管理员v1'), level: ROLE_POOL_ADMIN_V1 }];
+      return [{ label: t('设为管理员'), level: ROLE_POOL_ADMIN_V1 }];
     }
     if (currentLevel === ROLE_POOL_ADMIN_V1) {
       return [{ label: t('降为成员'), level: ROLE_MEMBER, danger: true }];
@@ -202,8 +202,8 @@ const QuotaPool = () => {
   };
 
   const renderQuotaPoolRole = (level) => {
-    if (level === ROLE_POOL_SUPER_ADMIN_V2) return t('池超级管理员 v2');
-    if (level === ROLE_POOL_ADMIN_V1) return t('池管理员 v1');
+    if (level === ROLE_POOL_SUPER_ADMIN_V2) return t('池超管');
+    if (level === ROLE_POOL_ADMIN_V1) return t('池管理员');
     return t('成员');
   };
 
@@ -243,12 +243,12 @@ const QuotaPool = () => {
   const adminRoleOptions = canGrantV2Admins
     ? [
         { label: t('成员'), value: ROLE_MEMBER },
-        { label: t('池管理员 v1'), value: ROLE_POOL_ADMIN_V1 },
-        { label: t('池超级管理员 v2'), value: ROLE_POOL_SUPER_ADMIN_V2 },
+        { label: t('池管理员'), value: ROLE_POOL_ADMIN_V1 },
+        { label: t('池超管'), value: ROLE_POOL_SUPER_ADMIN_V2 },
       ]
     : [
         { label: t('成员'), value: ROLE_MEMBER },
-        { label: t('池管理员 v1'), value: ROLE_POOL_ADMIN_V1 },
+        { label: t('池管理员'), value: ROLE_POOL_ADMIN_V1 },
       ];
 
   const canDeletePool = (pool) =>
