@@ -95,8 +95,10 @@ const LoginForm = () => {
   const [discordLoading, setDiscordLoading] = useState(false);
   const [oidcLoading, setOidcLoading] = useState(false);
   const [linuxdoLoading, setLinuxdoLoading] = useState(false);
+  const [ldapLoading, setLdapLoading] = useState(false);
   const [emailLoginLoading, setEmailLoginLoading] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
+  const [loginMode, setLoginMode] = useState('password');
   const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
   const [otherLoginOptionsLoading, setOtherLoginOptionsLoading] =
     useState(false);
@@ -140,6 +142,7 @@ const LoginForm = () => {
       status.wechat_login ||
       status.linuxdo_oauth ||
       status.telegram_oauth ||
+      status.ldap_login ||
       hasCustomOAuthProviders,
   );
 
@@ -228,13 +231,12 @@ const LoginForm = () => {
     setLoginLoading(true);
     try {
       if (username && password) {
-        const res = await API.post(
-          `/api/user/login?turnstile=${turnstileToken}`,
-          {
-            username,
-            password,
-          },
-        );
+        const loginPath =
+          loginMode === 'ldap' ? '/api/user/ldap/login' : '/api/user/login';
+        const res = await API.post(`${loginPath}?turnstile=${turnstileToken}`, {
+          username,
+          password,
+        });
         const { success, message, data } = res.data;
         if (success) {
           // 检查是否需要2FA验证
@@ -404,9 +406,21 @@ const LoginForm = () => {
     }
   };
 
+  const handleLDAPLoginClick = () => {
+    if ((hasUserAgreement || hasPrivacyPolicy) && !agreedToTerms) {
+      showInfo(t('请先阅读并同意用户协议和隐私政策'));
+      return;
+    }
+    setLdapLoading(true);
+    setLoginMode('ldap');
+    setShowEmailLogin(true);
+    setLdapLoading(false);
+  };
+
   // 包装的邮箱登录选项点击处理
   const handleEmailLoginClick = () => {
     setEmailLoginLoading(true);
+    setLoginMode('password');
     setShowEmailLogin(true);
     setEmailLoginLoading(false);
   };
@@ -497,6 +511,7 @@ const LoginForm = () => {
   // 返回登录页面
   const handleBackToLogin = () => {
     setShowTwoFA(false);
+    setLoginMode('password');
     setInputs({ username: '', password: '', wechat_verification_code: '' });
   };
 
@@ -642,20 +657,39 @@ const LoginForm = () => {
                   </Button>
                 )}
 
-                <Divider margin='12px' align='center'>
-                  {t('或')}
-                </Divider>
+                {status.ldap_login && (
+                  <Button
+                    theme='outline'
+                    className='w-full h-12 flex items-center justify-center !rounded-full border border-gray-200 hover:bg-gray-50 transition-colors'
+                    type='tertiary'
+                    icon={<IconMail size='large' />}
+                    onClick={handleLDAPLoginClick}
+                    loading={ldapLoading}
+                  >
+                    <span className='ml-3'>{t('使用 LDAP 登录')}</span>
+                  </Button>
+                )}
 
-                <Button
-                  theme='solid'
-                  type='primary'
-                  className='w-full h-12 flex items-center justify-center bg-black text-white !rounded-full hover:bg-gray-800 transition-colors'
-                  icon={<IconMail size='large' />}
-                  onClick={handleEmailLoginClick}
-                  loading={emailLoginLoading}
-                >
-                  <span className='ml-3'>{t('使用 邮箱或用户名 登录')}</span>
-                </Button>
+                {status.password_login !== false && (
+                  <>
+                    <Divider margin='12px' align='center'>
+                      {t('或')}
+                    </Divider>
+
+                    <Button
+                      theme='solid'
+                      type='primary'
+                      className='w-full h-12 flex items-center justify-center bg-black text-white !rounded-full hover:bg-gray-800 transition-colors'
+                      icon={<IconMail size='large' />}
+                      onClick={handleEmailLoginClick}
+                      loading={emailLoginLoading}
+                    >
+                      <span className='ml-3'>
+                        {t('使用 邮箱或用户名 登录')}
+                      </span>
+                    </Button>
+                  </>
+                )}
               </div>
 
               {(hasUserAgreement || hasPrivacyPolicy) && (
@@ -814,7 +848,7 @@ const LoginForm = () => {
                       (hasUserAgreement || hasPrivacyPolicy) && !agreedToTerms
                     }
                   >
-                    {t('继续')}
+                    {loginMode === 'ldap' ? t('LDAP 登录') : t('继续')}
                   </Button>
 
                   <Button

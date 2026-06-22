@@ -24,6 +24,7 @@ import UsersActions from './UsersActions';
 import UsersFilters from './UsersFilters';
 import UsersDescription from './UsersDescription';
 import AddUserModal from './modals/AddUserModal';
+import SyncLDAPUserModal from './modals/SyncLDAPUserModal';
 import EditUserModal from './modals/EditUserModal';
 import { useUsersData } from '../../../hooks/users/useUsersData';
 import { useIsMobile } from '../../../hooks/common/useIsMobile';
@@ -36,10 +37,13 @@ const UsersPage = () => {
   const {
     // Modal state
     showAddUser,
+    showSyncLDAPUser,
     showEditUser,
     editingUser,
     setShowAddUser,
+    setShowSyncLDAPUser,
     closeAddUser,
+    closeSyncLDAPUser,
     closeEditUser,
     refresh,
 
@@ -53,6 +57,7 @@ const UsersPage = () => {
     groupOptions,
     loading,
     searching,
+    ldapLoginEnabled,
 
     // Description state
     compactMode,
@@ -68,6 +73,12 @@ const UsersPage = () => {
         refresh={refresh}
         visible={showAddUser}
         handleClose={closeAddUser}
+      />
+
+      <SyncLDAPUserModal
+        refresh={refresh}
+        visible={showSyncLDAPUser}
+        handleClose={closeSyncLDAPUser}
       />
 
       <EditUserModal
@@ -88,7 +99,12 @@ const UsersPage = () => {
         }
         actionsArea={
           <div className='flex flex-col md:flex-row justify-between items-center gap-2 w-full'>
-            <UsersActions setShowAddUser={setShowAddUser} t={t} />
+            <UsersActions
+              setShowAddUser={setShowAddUser}
+              setShowSyncLDAPUser={setShowSyncLDAPUser}
+              ldapLoginEnabled={ldapLoginEnabled}
+              t={t}
+            />
 
             <UsersFilters
               formInitValues={formInitValues}

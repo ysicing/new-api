@@ -30,6 +30,10 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
+type LDAPSyncRequest struct {
+	Username string `json:"username"`
+}
+
 func Login(c *gin.Context) {
 	if !common.PasswordLoginEnabled {
 		common.ApiErrorI18n(c, i18n.MsgUserPasswordLoginDisabled)
@@ -90,6 +94,86 @@ func Login(c *gin.Context) {
 	setupLogin(&user, c)
 }
 
+func LDAPLogin(c *gin.Context) {
+	var loginRequest LoginRequest
+	err := common.DecodeJson(c.Request.Body, &loginRequest)
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	username := strings.TrimSpace(loginRequest.Username)
+	password := loginRequest.Password
+	if username == "" || password == "" {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+
+	user, err := service.LoginWithLDAP(username, password)
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+
+	if model.IsTwoFAEnabled(user.Id) {
+		session := sessions.Default(c)
+		session.Set("pending_username", user.Username)
+		session.Set("pending_user_id", user.Id)
+		err := session.Save()
+		if err != nil {
+			common.ApiErrorI18n(c, i18n.MsgUserSessionSaveFailed)
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"message": i18n.T(c, i18n.MsgUserRequire2FA),
+			"success": true,
+			"data": map[string]interface{}{
+				"require_2fa": true,
+			},
+		})
+		return
+	}
+
+	setupLogin(user, c)
+}
+
+func SyncLDAPUser(c *gin.Context) {
+	var req LDAPSyncRequest
+	err := common.DecodeJson(c.Request.Body, &req)
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	username := strings.TrimSpace(req.Username)
+	if username == "" {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+
+	user, err := service.SyncLDAPUser(username)
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+
+	adminInfo := map[string]interface{}{
+		"admin_id":       c.GetInt("id"),
+		"admin_username": c.GetString("username"),
+	}
+	model.RecordLogWithAdminInfo(user.Id, model.LogTypeManage,
+		fmt.Sprintf("管理员同步 LDAP 用户 %s", username), adminInfo)
+	common.ApiSuccess(c, gin.H{
+		"id":           user.Id,
+		"username":     user.Username,
+		"display_name": user.DisplayName,
+		"department":   user.Department,
+		"ldap_id":      user.LDAPId,
+		"email":        user.Email,
+		"role":         user.Role,
+		"status":       user.Status,
+	})
+}
+
 // setup session & cookies and then return user info
 func setupLogin(user *model.User, c *gin.Context) {
 	model.UpdateUserLastLoginAt(user.Id)
@@ -108,6 +192,7 @@ func setupLogin(user *model.User, c *gin.Context) {
 		"id":           user.Id,
 		"username":     user.Username,
 		"display_name": user.DisplayName,
+		"department":   user.Department,
 		"role":         user.Role,
 		"status":       user.Status,
 		"group":        user.Group,
@@ -406,12 +491,14 @@ func GetSelf(c *gin.Context) {
 		"id":                user.Id,
 		"username":          user.Username,
 		"display_name":      user.DisplayName,
+		"department":        user.Department,
 		"role":              user.Role,
 		"status":            user.Status,
 		"email":             user.Email,
 		"github_id":         user.GitHubId,
 		"discord_id":        user.DiscordId,
 		"oidc_id":           user.OidcId,
+		"ldap_id":           user.LDAPId,
 		"wechat_id":         user.WeChatId,
 		"telegram_id":       user.TelegramId,
 		"group":             user.Group,

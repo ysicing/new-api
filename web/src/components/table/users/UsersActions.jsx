@@ -19,18 +19,42 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React from 'react';
 import { Button } from '@douyinfe/semi-ui';
+import { IconRefresh, IconUserAdd } from '@douyinfe/semi-icons';
 
-const UsersActions = ({ setShowAddUser, t }) => {
-  // Add new user
+const UsersActions = ({
+  setShowAddUser,
+  setShowSyncLDAPUser,
+  ldapLoginEnabled,
+  t,
+}) => {
   const handleAddUser = () => {
     setShowAddUser(true);
   };
 
+  const handleSyncLDAPUser = () => {
+    setShowSyncLDAPUser(true);
+  };
+
   return (
     <div className='flex gap-2 w-full md:w-auto order-2 md:order-1'>
-      <Button className='w-full md:w-auto' onClick={handleAddUser} size='small'>
+      <Button
+        className='w-full md:w-auto'
+        icon={<IconUserAdd />}
+        onClick={handleAddUser}
+        size='small'
+      >
         {t('添加用户')}
       </Button>
+      {ldapLoginEnabled && (
+        <Button
+          className='w-full md:w-auto'
+          icon={<IconRefresh />}
+          onClick={handleSyncLDAPUser}
+          size='small'
+        >
+          {t('同步 LDAP 用户')}
+        </Button>
+      )}
     </div>
   );
 };

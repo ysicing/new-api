@@ -75,11 +75,13 @@ func GetOptions(c *gin.Context) {
 	common.OptionMapRWMutex.Lock()
 	for k, v := range common.OptionMap {
 		value := common.Interface2String(v)
+		lowerKey := strings.ToLower(k)
 		isSensitiveKey := strings.HasSuffix(k, "Token") ||
 			strings.HasSuffix(k, "Secret") ||
 			strings.HasSuffix(k, "Key") ||
 			strings.HasSuffix(k, "secret") ||
-			strings.HasSuffix(k, "api_key")
+			strings.HasSuffix(k, "api_key") ||
+			strings.HasSuffix(lowerKey, "password")
 		if isSensitiveKey && !isVisiblePublicKeyOption(k) {
 			continue
 		}
@@ -154,6 +156,15 @@ func UpdateOption(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "无法启用 OIDC 登录，请先填入 OIDC Client Id 以及 OIDC Client Secret！",
+			})
+			return
+		}
+	case "ldap.enabled":
+		ldapSettings := system_setting.GetLDAPSettings()
+		if option.Value == "true" && (ldapSettings.URL == "" || ldapSettings.BaseDN == "" || ldapSettings.UID == "") {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "无法启用 LDAP 登录，请先填入 LDAP 地址、Base DN 和用户属性！",
 			})
 			return
 		}

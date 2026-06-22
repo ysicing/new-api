@@ -63,6 +63,15 @@ const SystemSetting = () => {
     'oidc.authorization_endpoint': '',
     'oidc.token_endpoint': '',
     'oidc.user_info_endpoint': '',
+    'ldap.enabled': '',
+    'ldap.ldap_url': '',
+    'ldap.ldap_search_dn': '',
+    'ldap.ldap_search_password': '',
+    'ldap.ldap_base_dn': '',
+    'ldap.ldap_filter': '',
+    'ldap.ldap_uid': 'uid',
+    'ldap.ldap_scope': 3,
+    'ldap.ldap_connection_timeout': 30,
     Notice: '',
     SMTPServer: '',
     SMTPPort: '',
@@ -187,6 +196,7 @@ const SystemSetting = () => {
           case 'LinuxDOOAuthEnabled':
           case 'discord.enabled':
           case 'oidc.enabled':
+          case 'ldap.enabled':
           case 'passkey.enabled':
           case 'passkey.allow_insecure_origin':
           case 'WorkerAllowHttpImageRequestEnabled':
@@ -205,6 +215,13 @@ const SystemSetting = () => {
           case 'passkey.user_verification':
             // 确保有默认值
             item.value = item.value || 'preferred';
+            break;
+          case 'ldap.ldap_scope':
+          case 'ldap.ldap_connection_timeout':
+            item.value = item.value ? parseInt(item.value, 10) : undefined;
+            break;
+          case 'ldap.ldap_uid':
+            item.value = item.value || 'uid';
             break;
           case 'Price':
           case 'MinTopUp':
@@ -572,6 +589,40 @@ const SystemSetting = () => {
       options.push({
         key: 'oidc.user_info_endpoint',
         value: inputs['oidc.user_info_endpoint'],
+      });
+    }
+
+    if (options.length > 0) {
+      await updateOptions(options);
+    }
+  };
+
+  const submitLDAPSettings = async () => {
+    const options = [];
+    const fields = [
+      'ldap.ldap_url',
+      'ldap.ldap_search_dn',
+      'ldap.ldap_base_dn',
+      'ldap.ldap_filter',
+      'ldap.ldap_uid',
+      'ldap.ldap_scope',
+      'ldap.ldap_connection_timeout',
+    ];
+
+    fields.forEach((field) => {
+      if (originInputs[field] !== inputs[field]) {
+        options.push({ key: field, value: inputs[field] ?? '' });
+      }
+    });
+
+    if (
+      originInputs['ldap.ldap_search_password'] !==
+        inputs['ldap.ldap_search_password'] &&
+      inputs['ldap.ldap_search_password'] !== ''
+    ) {
+      options.push({
+        key: 'ldap.ldap_search_password',
+        value: inputs['ldap.ldap_search_password'],
       });
     }
 
@@ -1091,6 +1142,15 @@ const SystemSetting = () => {
                       >
                         {t('允许通过 OIDC 进行登录')}
                       </Form.Checkbox>
+                      <Form.Checkbox
+                        field="['ldap.enabled']"
+                        noLabel
+                        onChange={(e) =>
+                          handleCheckboxChange('ldap.enabled', e)
+                        }
+                      >
+                        {t('允许通过 LDAP 进行登录')}
+                      </Form.Checkbox>
                     </Col>
                   </Row>
                 </Form.Section>
@@ -1429,6 +1489,101 @@ const SystemSetting = () => {
                 </Form.Section>
               </Card>
 
+              <Card>
+                <Form.Section text={t('配置 LDAP')}>
+                  <Text>
+                    {t('用以支持通过 LDAP / Active Directory 进行登录')}
+                  </Text>
+                  <Banner
+                    type='info'
+                    description={t(
+                      'LDAP 用户首次登录会自动创建本地账号；若邮箱匹配已有账号，则会归一到已有账号',
+                    )}
+                    style={{ marginBottom: 20, marginTop: 16 }}
+                  />
+                  <Row
+                    gutter={{ xs: 8, sm: 16, md: 24, lg: 24, xl: 24, xxl: 24 }}
+                  >
+                    <Col xs={24} sm={24} md={12} lg={12} xl={12}>
+                      <Form.Input
+                        field="['ldap.ldap_url']"
+                        label={t('LDAP 地址')}
+                        placeholder='ldap://ldap.example.com:389'
+                      />
+                    </Col>
+                    <Col xs={24} sm={24} md={12} lg={12} xl={12}>
+                      <Form.Input
+                        field="['ldap.ldap_base_dn']"
+                        label={t('Base DN')}
+                        placeholder='ou=users,dc=example,dc=com'
+                      />
+                    </Col>
+                  </Row>
+                  <Row
+                    gutter={{ xs: 8, sm: 16, md: 24, lg: 24, xl: 24, xxl: 24 }}
+                  >
+                    <Col xs={24} sm={24} md={12} lg={12} xl={12}>
+                      <Form.Input
+                        field="['ldap.ldap_search_dn']"
+                        label={t('Search DN')}
+                        placeholder='cn=ldapsearch,ou=special,dc=example,dc=com'
+                      />
+                    </Col>
+                    <Col xs={24} sm={24} md={12} lg={12} xl={12}>
+                      <Form.Input
+                        field="['ldap.ldap_search_password']"
+                        label={t('Search Password')}
+                        type='password'
+                        placeholder={t('敏感信息不会发送到前端显示')}
+                      />
+                    </Col>
+                  </Row>
+                  <Row
+                    gutter={{ xs: 8, sm: 16, md: 24, lg: 24, xl: 24, xxl: 24 }}
+                  >
+                    <Col xs={24} sm={24} md={12} lg={12} xl={12}>
+                      <Form.Input
+                        field="['ldap.ldap_filter']"
+                        label={t('LDAP Filter')}
+                        placeholder='(objectClass=person)'
+                      />
+                    </Col>
+                    <Col xs={24} sm={24} md={12} lg={12} xl={12}>
+                      <Form.Input
+                        field="['ldap.ldap_uid']"
+                        label={t('用户属性')}
+                        placeholder='uid 或 sAMAccountName'
+                      />
+                    </Col>
+                  </Row>
+                  <Row
+                    gutter={{ xs: 8, sm: 16, md: 24, lg: 24, xl: 24, xxl: 24 }}
+                  >
+                    <Col xs={24} sm={24} md={12} lg={12} xl={12}>
+                      <Form.Select
+                        field="['ldap.ldap_scope']"
+                        label={t('搜索范围')}
+                        optionList={[
+                          { label: t('Base Object'), value: 1 },
+                          { label: t('Single Level'), value: 2 },
+                          { label: t('Whole Subtree'), value: 3 },
+                        ]}
+                      />
+                    </Col>
+                    <Col xs={24} sm={24} md={12} lg={12} xl={12}>
+                      <Form.InputNumber
+                        field="['ldap.ldap_connection_timeout']"
+                        label={t('连接超时（秒）')}
+                        min={1}
+                        max={300}
+                      />
+                    </Col>
+                  </Row>
+                  <Button onClick={submitLDAPSettings}>
+                    {t('保存 LDAP 设置')}
+                  </Button>
+                </Form.Section>
+              </Card>
               <Card>
                 <Form.Section text={t('配置 GitHub OAuth App')}>
                   <Text>{t('用以支持通过 GitHub 进行登录注册')}</Text>

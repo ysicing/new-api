@@ -89,6 +89,7 @@ const UserBindingManagementModal = ({
           github_id: userData.github_id || '',
           discord_id: userData.discord_id || '',
           oidc_id: userData.oidc_id || '',
+          ldap_id: userData.ldap_id || '',
           wechat_id: userData.wechat_id || '',
           telegram_id: userData.telegram_id || '',
           linux_do_id: userData.linux_do_id || '',
@@ -235,6 +236,19 @@ const UserBindingManagementModal = ({
       name: 'OIDC',
       enabled: Boolean(statusInfo.oidc_enabled),
       value: getBuiltInBindingValue('oidc_id'),
+      icon: (
+        <IconLink
+          size='default'
+          className='text-slate-600 dark:text-slate-300'
+        />
+      ),
+    },
+    {
+      key: 'ldap',
+      field: 'ldap_id',
+      name: 'LDAP',
+      enabled: Boolean(statusInfo.ldap_login),
+      value: getBuiltInBindingValue('ldap_id'),
       icon: (
         <IconLink
           size='default'

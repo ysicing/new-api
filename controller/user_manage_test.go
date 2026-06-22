@@ -160,6 +160,48 @@ func TestManageUserAdminCannotDisableAdmin(t *testing.T) {
 	}
 }
 
+func TestAdminClearLDAPBinding(t *testing.T) {
+	db := setupUserManageTestDB(t)
+	user := model.User{
+		Username:  "ldap-user",
+		Password:  "password",
+		Email:     "ldap@example.com",
+		LDAPId:    "ldap-user",
+		Role:      common.RoleCommonUser,
+		Status:    common.UserStatusEnabled,
+		AffCode:   "ldap-code",
+		CreatedAt: 1,
+	}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/user/%d/bindings/ldap", user.Id), nil)
+	ctx.Params = gin.Params{
+		{Key: "id", Value: fmt.Sprint(user.Id)},
+		{Key: "binding_type", Value: "ldap"},
+	}
+	ctx.Set("id", 999)
+	ctx.Set("role", common.RoleAdminUser)
+	ctx.Set("username", "admin-user")
+
+	AdminClearUserBinding(ctx)
+	response := decodeManageUserResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected success, got %+v", response)
+	}
+
+	var updated model.User
+	if err := db.First(&updated, user.Id).Error; err != nil {
+		t.Fatalf("failed to load updated user: %v", err)
+	}
+	if updated.LDAPId != "" {
+		t.Fatalf("expected ldap binding cleared, got %q", updated.LDAPId)
+	}
+}
+
 func TestSetupLoginReturnsQuotaPoolAdminSummary(t *testing.T) {
 	db := setupUserManageTestDB(t)
 	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 100, Quota: 100, MonthlyRefillDay: 1}

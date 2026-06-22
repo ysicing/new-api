@@ -17,14 +17,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { useTranslation } from 'react-i18next';
 import { API, showError, showSuccess } from '../../helpers';
 import { ITEMS_PER_PAGE } from '../../constants';
 import { useTableCompactMode } from '../common/useTableCompactMode';
+import { StatusContext } from '../../context/Status';
 
 export const useUsersData = () => {
   const { t } = useTranslation();
+  const [statusState] = useContext(StatusContext);
   const [compactMode, setCompactMode] = useTableCompactMode('users');
 
   // State management
@@ -38,6 +40,7 @@ export const useUsersData = () => {
 
   // Modal states
   const [showAddUser, setShowAddUser] = useState(false);
+  const [showSyncLDAPUser, setShowSyncLDAPUser] = useState(false);
   const [showEditUser, setShowEditUser] = useState(false);
   const [editingUser, setEditingUser] = useState({
     id: undefined,
@@ -262,6 +265,10 @@ export const useUsersData = () => {
     setShowAddUser(false);
   };
 
+  const closeSyncLDAPUser = () => {
+    setShowSyncLDAPUser(false);
+  };
+
   const closeEditUser = () => {
     setShowEditUser(false);
     setEditingUser({
@@ -291,9 +298,11 @@ export const useUsersData = () => {
 
     // Modal state
     showAddUser,
+    showSyncLDAPUser,
     showEditUser,
     editingUser,
     setShowAddUser,
+    setShowSyncLDAPUser,
     setShowEditUser,
     setEditingUser,
 
@@ -317,8 +326,10 @@ export const useUsersData = () => {
     handleRow,
     refresh,
     closeAddUser,
+    closeSyncLDAPUser,
     closeEditUser,
     getFormValues,
+    ldapLoginEnabled: statusState?.status?.ldap_login === true,
 
     // Translation
     t,
