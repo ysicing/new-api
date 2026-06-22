@@ -35,10 +35,7 @@ export const useQuotaPoolsData = () => {
   const [candidates, setCandidates] = useState([]);
   const [stats, setStats] = useState({
     usage: [],
-    recharge: [],
     total_usage: 0,
-    total_refill: 0,
-    total_allocate: 0,
   });
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsPeriod, setStatsPeriod] = useState('week');
@@ -130,10 +127,7 @@ export const useQuotaPoolsData = () => {
     if (!selectedPoolId) {
       setStats({
         usage: [],
-        recharge: [],
         total_usage: 0,
-        total_refill: 0,
-        total_allocate: 0,
       });
       return;
     }
@@ -147,10 +141,7 @@ export const useQuotaPoolsData = () => {
       if (success) {
         setStats({
           usage: data?.usage || [],
-          recharge: data?.recharge || [],
           total_usage: data?.total_usage || 0,
-          total_refill: data?.total_refill || 0,
-          total_allocate: data?.total_allocate || 0,
         });
       } else {
         showError(message);

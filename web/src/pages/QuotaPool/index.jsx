@@ -508,26 +508,6 @@ const QuotaPool = () => {
     },
   ];
 
-  const rechargeStatColumns = [
-    {
-      title: t('类型'),
-      dataIndex: 'type',
-      width: 160,
-      render: renderTransactionType,
-    },
-    {
-      title: t('次数'),
-      dataIndex: 'count',
-      width: 120,
-    },
-    {
-      title: t('金额'),
-      dataIndex: 'amount',
-      width: 160,
-      render: (value) => renderQuota(value),
-    },
-  ];
-
   return (
     <div className='mt-[60px] px-2'>
       <div className='flex flex-col gap-3'>
@@ -735,40 +715,18 @@ const QuotaPool = () => {
                           {renderQuota(stats.total_usage || 0)}
                         </Typography.Text>
                       </Card>
-                      <Card title={t('充值统计')}>
-                        <Typography.Text strong>
-                          {renderQuota(stats.total_refill || 0)}
-                        </Typography.Text>
-                      </Card>
-                      <Card title={t('分配统计')}>
-                        <Typography.Text strong>
-                          {renderQuota(stats.total_allocate || 0)}
-                        </Typography.Text>
-                      </Card>
                     </div>
-                    <div className='grid grid-cols-1 xl:grid-cols-2 gap-3'>
-                      <Card title={t('使用统计')}>
-                        <Table
-                          size='small'
-                          columns={usageStatColumns}
-                          dataSource={stats.usage || []}
-                          rowKey='user_id'
-                          loading={statsLoading}
-                          pagination={false}
-                          scroll={{ x: 'max-content' }}
-                        />
-                      </Card>
-                      <Card title={t('充值统计')}>
-                        <Table
-                          size='small'
-                          columns={rechargeStatColumns}
-                          dataSource={stats.recharge || []}
-                          rowKey='type'
-                          loading={statsLoading}
-                          pagination={false}
-                        />
-                      </Card>
-                    </div>
+                    <Card title={t('使用统计')}>
+                      <Table
+                        size='small'
+                        columns={usageStatColumns}
+                        dataSource={stats.usage || []}
+                        rowKey='user_id'
+                        loading={statsLoading}
+                        pagination={false}
+                        scroll={{ x: 'max-content' }}
+                      />
+                    </Card>
                   </div>
                 </TabPane>
               </Tabs>
