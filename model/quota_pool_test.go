@@ -417,6 +417,36 @@ func TestListQuotaPoolMembersAndCandidatesOmitAccessToken(t *testing.T) {
 	}
 }
 
+func TestListDefaultQuotaPoolCandidatesIncludesSystemAdmin(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	commonUser := createQuotaPoolTestUser(t, db, 1, 10, QuotaPoolDefaultUserPoolId)
+	systemAdmin := createQuotaPoolTestUser(t, db, 2, 10, QuotaPoolDefaultUserPoolId)
+	rootUser := createQuotaPoolTestUser(t, db, 3, 10, QuotaPoolDefaultUserPoolId)
+	if err := db.Model(&User{}).Where("id = ?", systemAdmin.Id).Update("role", common.RoleAdminUser).Error; err != nil {
+		t.Fatalf("update system admin role failed: %v", err)
+	}
+	if err := db.Model(&User{}).Where("id = ?", rootUser.Id).Update("role", common.RoleRootUser).Error; err != nil {
+		t.Fatalf("update root role failed: %v", err)
+	}
+
+	candidates, _, err := ListDefaultQuotaPoolCandidates("", &common.PageInfo{Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("list candidates failed: %v", err)
+	}
+	gotIds := map[int]bool{}
+	for _, candidate := range candidates {
+		gotIds[candidate.Id] = true
+	}
+	if !gotIds[commonUser.Id] || !gotIds[systemAdmin.Id] {
+		t.Fatalf("expected common user and system admin candidates, got %#v", candidates)
+	}
+	if gotIds[rootUser.Id] {
+		t.Fatalf("root user should not be a quota pool candidate: %#v", candidates)
+	}
+}
+
 func TestListQuotaPoolTransactionsIncludesUserNames(t *testing.T) {
 	db, cleanup := setupQuotaPoolTestDB(t)
 	defer cleanup()

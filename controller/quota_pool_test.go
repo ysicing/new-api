@@ -524,6 +524,47 @@ func TestAddQuotaPoolMemberInitialRechargeUsesAutoRechargeLimits(t *testing.T) {
 	}
 }
 
+func TestAddQuotaPoolMemberDefaultsSystemAdminToV2(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	pool := &model.QuotaPool{Name: "team-admin-member", Enabled: true, BaseQuota: 1000, Quota: 1000, MonthlyRefillDay: 1}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	user := &model.User{
+		Username: "system-admin-member",
+		Password: "password",
+		Role:     common.RoleAdminUser,
+		Status:   common.UserStatusEnabled,
+		Quota:    123,
+		AffCode:  "system-admin-member-code",
+	}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("create system admin user failed: %v", err)
+	}
+
+	addCtx, addRecorder := quotaPoolTestContext(t, http.MethodPost, fmt.Sprintf("/api/quota_pool/%d/members", pool.Id), quotaPoolMemberRequest{
+		UserId: user.Id,
+	}, common.RoleAdminUser, 99)
+	addCtx.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", pool.Id)}}
+	AddQuotaPoolMember(addCtx)
+	if response := decodeQuotaPoolResponse(t, addRecorder); response["success"] != true {
+		t.Fatalf("expected add system admin success, got %#v", response)
+	}
+
+	var gotUser model.User
+	_ = db.First(&gotUser, user.Id).Error
+	if gotUser.QuotaPoolId != pool.Id {
+		t.Fatalf("user quota_pool_id = %d, want %d", gotUser.QuotaPoolId, pool.Id)
+	}
+	var admin model.QuotaPoolAdmin
+	if err := db.First(&admin, "user_id = ?", user.Id).Error; err != nil {
+		t.Fatalf("load quota pool admin failed: %v", err)
+	}
+	if admin.Level != model.QuotaPoolAdminLevelV2 {
+		t.Fatalf("admin level = %d, want v2", admin.Level)
+	}
+}
+
 func TestRechargeQuotaPoolMemberRejectsNonMember(t *testing.T) {
 	db := setupQuotaPoolControllerTestDB(t)
 	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 1000, Quota: 1000, AutoRechargeAmount: 100, MonthlyRefillDay: 1}

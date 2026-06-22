@@ -129,23 +129,23 @@ const QuotaPool = () => {
     if (canUseGlobalApi) {
       if (currentLevel === ROLE_MEMBER) {
         return [
-          { label: t('设为v1'), level: ROLE_POOL_ADMIN_V1 },
-          { label: t('设为v2'), level: ROLE_POOL_SUPER_ADMIN_V2 },
+          { label: t('设为管理员v1'), level: ROLE_POOL_ADMIN_V1 },
+          { label: t('设为超管v2'), level: ROLE_POOL_SUPER_ADMIN_V2 },
         ];
       }
       if (currentLevel === ROLE_POOL_ADMIN_V1) {
         return [
           { label: t('降为成员'), level: ROLE_MEMBER, danger: true },
-          { label: t('设为v2'), level: ROLE_POOL_SUPER_ADMIN_V2 },
+          { label: t('设为超管v2'), level: ROLE_POOL_SUPER_ADMIN_V2 },
         ];
       }
       return [
-        { label: t('降为v1'), level: ROLE_POOL_ADMIN_V1 },
+        { label: t('降为管理员v1'), level: ROLE_POOL_ADMIN_V1 },
         { label: t('降为成员'), level: ROLE_MEMBER, danger: true },
       ];
     }
     if (currentLevel === ROLE_MEMBER) {
-      return [{ label: t('设为v1'), level: ROLE_POOL_ADMIN_V1 }];
+      return [{ label: t('设为管理员v1'), level: ROLE_POOL_ADMIN_V1 }];
     }
     if (currentLevel === ROLE_POOL_ADMIN_V1) {
       return [{ label: t('降为成员'), level: ROLE_MEMBER, danger: true }];
@@ -414,7 +414,7 @@ const QuotaPool = () => {
     {
       title: t('操作'),
       dataIndex: 'operate',
-      width: 360,
+      width: 440,
       fixed: 'right',
       render: (_, record) => (
         <Space spacing={6} wrap>

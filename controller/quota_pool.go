@@ -407,8 +407,8 @@ func addUserToQuotaPool(c *gin.Context, poolId int, userId int, initialRecharge 
 		common.ApiError(c, err)
 		return
 	}
-	if user.Role != common.RoleCommonUser {
-		common.ApiError(c, errors.New("只能添加普通用户到额度池"))
+	if !model.IsQuotaPoolMemberRole(user.Role) {
+		common.ApiError(c, errors.New("只能添加普通用户或系统子管理员到额度池"))
 		return
 	}
 	if user.Status != common.UserStatusEnabled {
@@ -428,6 +428,13 @@ func addUserToQuotaPool(c *gin.Context, poolId int, userId int, initialRecharge 
 		model.RecordQuotaPoolTransaction(result.Change.PoolId, model.QuotaPoolTransactionReclaimUser, result.Change.Amount, result.Change.QuotaBefore, result.Change.QuotaAfter, userId, c.GetInt("id"))
 	}
 	recordQuotaPoolMemberManageLog(c, poolId, userId, fmt.Sprintf("%s额度池(ID:%d)", logAction, poolId))
+	if user.Role == common.RoleAdminUser && poolId != model.QuotaPoolDefaultUserPoolId {
+		if err := model.GrantQuotaPoolAdmin(poolId, userId, model.QuotaPoolAdminLevelV2); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		recordQuotaPoolMemberManageLog(c, poolId, userId, fmt.Sprintf("任命用户为%s", quotaPoolAdminLevelName(model.QuotaPoolAdminLevelV2)))
+	}
 	warning := ""
 	if initialRecharge && poolId != model.QuotaPoolDefaultUserPoolId {
 		result := service.TryAutoRechargeUserById(userId)
@@ -582,8 +589,8 @@ func GrantQuotaPoolAdmin(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if user.Role != common.RoleCommonUser {
-		common.ApiError(c, errors.New("只能任命普通用户为额度池管理员"))
+	if !model.IsQuotaPoolMemberRole(user.Role) {
+		common.ApiError(c, errors.New("只能任命普通用户或系统子管理员为额度池管理员"))
 		return
 	}
 	if user.QuotaPoolId == model.QuotaPoolDefaultUserPoolId {
@@ -763,8 +770,8 @@ func GrantSelfQuotaPoolAdmin(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if user.Role != common.RoleCommonUser {
-		common.ApiError(c, errors.New("只能任命普通用户为额度池管理员"))
+	if !model.IsQuotaPoolMemberRole(user.Role) {
+		common.ApiError(c, errors.New("只能任命普通用户或系统子管理员为额度池管理员"))
 		return
 	}
 	if user.QuotaPoolId == model.QuotaPoolDefaultUserPoolId {

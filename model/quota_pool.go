@@ -175,6 +175,10 @@ func normalizeQuotaPoolId(poolId int) int {
 	return poolId
 }
 
+func IsQuotaPoolMemberRole(role int) bool {
+	return role == common.RoleCommonUser || role == common.RoleAdminUser
+}
+
 func newDefaultQuotaPool() *QuotaPool {
 	return &QuotaPool{
 		Name:               "系统默认额度池",
@@ -384,7 +388,7 @@ func ListQuotaPoolMembers(poolId int, pageInfo *common.PageInfo) ([]*QuotaPoolMe
 }
 
 func ListDefaultQuotaPoolCandidates(keyword string, pageInfo *common.PageInfo) ([]*QuotaPoolCandidate, int64, error) {
-	query := DB.Model(&User{}).Where("quota_pool_id = ? AND role = ? AND status = ?", QuotaPoolDefaultUserPoolId, common.RoleCommonUser, common.UserStatusEnabled)
+	query := DB.Model(&User{}).Where("quota_pool_id = ? AND role IN ? AND status = ?", QuotaPoolDefaultUserPoolId, []int{common.RoleCommonUser, common.RoleAdminUser}, common.UserStatusEnabled)
 	if keyword != "" {
 		like := "%" + keyword + "%"
 		if userId, err := strconv.Atoi(keyword); err == nil {
@@ -823,8 +827,8 @@ func GrantQuotaPoolAdmin(poolId int, userId int, level int) error {
 		if err := tx.First(user, "id = ?", userId).Error; err != nil {
 			return err
 		}
-		if user.Role != common.RoleCommonUser {
-			return errors.New("只能任命普通用户为额度池管理员")
+		if !IsQuotaPoolMemberRole(user.Role) {
+			return errors.New("只能任命普通用户或系统子管理员为额度池管理员")
 		}
 		if normalizeQuotaPoolId(user.QuotaPoolId) != poolId {
 			return errors.New("用户不是该额度池成员")
