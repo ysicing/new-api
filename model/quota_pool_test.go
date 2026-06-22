@@ -138,6 +138,99 @@ func TestCreateQuotaPoolDefaultsMonthlyRefill(t *testing.T) {
 	}
 }
 
+func TestListQuotaPoolsDoesNotCreateDefaultPool(t *testing.T) {
+	_, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool, err := CreateQuotaPool("team-list-default", 1000, 1)
+	if err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	items, err := ListQuotaPools()
+	if err != nil {
+		t.Fatalf("list quota pools failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("pool count = %d, want 1", len(items))
+	}
+	if items[0].Id != pool.Id || items[0].IsDefault {
+		t.Fatalf("only existing non-default pool should be listed, got %+v", items)
+	}
+}
+
+func TestSyncDefaultQuotaPoolCreatesDefaultPool(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool, err := SyncDefaultQuotaPool()
+	if err != nil {
+		t.Fatalf("sync default pool failed: %v", err)
+	}
+	if pool.Name != "系统默认额度池" || !pool.Enabled || !pool.IsDefault {
+		t.Fatalf("unexpected default pool: %+v", pool)
+	}
+	if pool.BaseQuota != QuotaPoolUnlimitedQuota || pool.Quota != QuotaPoolUnlimitedQuota {
+		t.Fatalf("default quota = %d/%d, want unlimited", pool.Quota, pool.BaseQuota)
+	}
+
+	var defaultCount int64
+	_ = db.Model(&QuotaPool{}).Where("is_default = ?", true).Count(&defaultCount).Error
+	if defaultCount != 1 {
+		t.Fatalf("default pool count = %d, want 1", defaultCount)
+	}
+
+	syncedAgain, err := SyncDefaultQuotaPool()
+	if err != nil {
+		t.Fatalf("sync default pool again failed: %v", err)
+	}
+	if syncedAgain.Id != pool.Id {
+		t.Fatalf("sync default pool again id = %d, want %d", syncedAgain.Id, pool.Id)
+	}
+}
+
+func TestListQuotaPoolsBackfillsBaseQuotaFromFundingTransactions(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 1000)
+	if err := db.Model(&QuotaPool{}).Where("id = ?", pool.Id).Update("base_quota", 1000).Error; err != nil {
+		t.Fatalf("reset base quota failed: %v", err)
+	}
+	for _, tx := range []QuotaPoolTransaction{
+		{PoolId: pool.Id, Type: QuotaPoolTransactionInitialFund, Amount: 1000},
+		{PoolId: pool.Id, Type: QuotaPoolTransactionManualRefill, Amount: 500},
+		{PoolId: pool.Id, Type: QuotaPoolTransactionMonthlyRefill, Amount: 300},
+		{PoolId: pool.Id, Type: QuotaPoolTransactionAllocateManual, Amount: -200},
+	} {
+		if err := db.Create(&tx).Error; err != nil {
+			t.Fatalf("create transaction failed: %v", err)
+		}
+	}
+
+	items, err := ListQuotaPools()
+	if err != nil {
+		t.Fatalf("list quota pools failed: %v", err)
+	}
+	var got *QuotaPoolListItem
+	for i := range items {
+		if items[i].Id == pool.Id {
+			got = &items[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatalf("pool not found in list: %+v", items)
+	}
+	if got.BaseQuota != 1800 {
+		t.Fatalf("listed base quota = %d, want 1800", got.BaseQuota)
+	}
+	var updated QuotaPool
+	_ = db.First(&updated, pool.Id).Error
+	if updated.BaseQuota != 1800 {
+		t.Fatalf("stored base quota = %d, want 1800", updated.BaseQuota)
+	}
+}
+
 func TestTransferQuotaFromPoolToUserDebitsPoolAndCreditsUser(t *testing.T) {
 	db, cleanup := setupQuotaPoolTestDB(t)
 	defer cleanup()
@@ -566,5 +659,35 @@ func TestAddQuotaPoolManualRefillLimitsAmountAndMonthlyCount(t *testing.T) {
 	_ = db.First(&gotPool, pool.Id).Error
 	if gotPool.Quota != 2000 {
 		t.Fatalf("pool quota = %d, want 2000", gotPool.Quota)
+	}
+	if gotPool.BaseQuota != 2000 {
+		t.Fatalf("pool base quota = %d, want 2000", gotPool.BaseQuota)
+	}
+}
+
+func TestAddQuotaPoolManualRefillBackfillsBaseQuotaBeforeLimit(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 1000)
+	for _, tx := range []QuotaPoolTransaction{
+		{PoolId: pool.Id, Type: QuotaPoolTransactionInitialFund, Amount: 1000},
+		{PoolId: pool.Id, Type: QuotaPoolTransactionMonthlyRefill, Amount: 1000},
+	} {
+		if err := db.Create(&tx).Error; err != nil {
+			t.Fatalf("create transaction failed: %v", err)
+		}
+	}
+	if err := db.Model(&QuotaPool{}).Where("id = ?", pool.Id).Updates(map[string]interface{}{"base_quota": 1000, "quota": 2000}).Error; err != nil {
+		t.Fatalf("prepare legacy pool failed: %v", err)
+	}
+
+	if _, err := AddQuotaPoolManualRefill(pool.Id, 900, 99); err != nil {
+		t.Fatalf("refill should use backfilled base quota: %v", err)
+	}
+	var gotPool QuotaPool
+	_ = db.First(&gotPool, pool.Id).Error
+	if gotPool.BaseQuota != 2900 {
+		t.Fatalf("pool base quota = %d, want 2900", gotPool.BaseQuota)
 	}
 }

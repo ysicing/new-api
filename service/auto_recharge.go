@@ -140,6 +140,7 @@ func refillMonthlyQuotaPools() {
 					pool.Id, true, true, 0, day, currentMonth).
 				Updates(map[string]interface{}{
 					"quota":             gorm.Expr("quota + ?", pool.MonthlyRefillAmount),
+					"base_quota":        gorm.Expr("base_quota + ?", pool.MonthlyRefillAmount),
 					"last_refill_month": currentMonth,
 				})
 			if result.Error != nil {
@@ -206,7 +207,7 @@ func tryAutoRechargeUser(
 	}
 
 	var pool *model.QuotaPool
-	if common.QuotaPoolEnabled {
+	if common.QuotaPoolEnabled && user.QuotaPoolId != model.QuotaPoolDefaultUserPoolId {
 		var err error
 		pool, err = model.GetQuotaPoolById(user.QuotaPoolId)
 		if err != nil {

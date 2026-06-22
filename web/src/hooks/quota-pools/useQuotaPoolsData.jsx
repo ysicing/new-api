@@ -226,6 +226,17 @@ export const useQuotaPoolsData = () => {
     }
   };
 
+  const syncDefaultPool = async () => {
+    const res = await API.post('/api/quota_pool/sync_default');
+    const { success, message } = res.data;
+    if (success) {
+      showSuccess(t('操作成功完成！'));
+      await loadPools();
+    } else {
+      showError(message);
+    }
+  };
+
   const updatePool = async (poolId, values) => {
     const res = await API.put(`/api/quota_pool/${poolId}`, values);
     const { success, message } = res.data;
@@ -369,6 +380,7 @@ export const useQuotaPoolsData = () => {
     candidates,
     loadCandidates,
     createPool,
+    syncDefaultPool,
     updatePool,
     setPoolEnabled,
     deletePool,

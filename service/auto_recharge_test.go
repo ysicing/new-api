@@ -415,6 +415,9 @@ func TestRefillMonthlyQuotaPoolsCatchesUpCurrentMonth(t *testing.T) {
 	if got.Quota != 130 {
 		t.Fatalf("pool quota = %d, want 130", got.Quota)
 	}
+	if got.BaseQuota != 130 {
+		t.Fatalf("pool base quota = %d, want 130", got.BaseQuota)
+	}
 	if got.LastRefillMonth != currentMonth {
 		t.Fatalf("last_refill_month = %d, want %d", got.LastRefillMonth, currentMonth)
 	}

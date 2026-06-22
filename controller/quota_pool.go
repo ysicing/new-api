@@ -173,6 +173,18 @@ func CreateQuotaPool(c *gin.Context) {
 	common.ApiSuccess(c, pool)
 }
 
+func SyncDefaultQuotaPool(c *gin.Context) {
+	if !requireQuotaPoolEnabled(c) {
+		return
+	}
+	pool, err := model.SyncDefaultQuotaPool()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, pool)
+}
+
 func GetQuotaPool(c *gin.Context) {
 	if !requireQuotaPoolEnabled(c) {
 		return

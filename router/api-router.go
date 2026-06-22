@@ -341,6 +341,7 @@ func SetApiRouter(router *gin.Engine) {
 		quotaPoolRootRoute.Use(middleware.RootAuth())
 		{
 			quotaPoolRootRoute.POST("/", controller.CreateQuotaPool)
+			quotaPoolRootRoute.POST("/sync_default", controller.SyncDefaultQuotaPool)
 			quotaPoolRootRoute.PUT("/:id", controller.UpdateQuotaPool)
 			quotaPoolRootRoute.POST("/:id/enable", controller.EnableQuotaPool)
 			quotaPoolRootRoute.POST("/:id/disable", controller.DisableQuotaPool)

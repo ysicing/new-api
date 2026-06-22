@@ -62,6 +62,7 @@ const QuotaPool = () => {
     candidates,
     loadCandidates,
     createPool,
+    syncDefaultPool,
     updatePool,
     setPoolEnabled,
     deletePool,
@@ -118,6 +119,7 @@ const QuotaPool = () => {
   const canMoveMembers = canUseGlobalApi && canOperateSelectedPool;
   const canRechargeMembers = canUseActivePool;
   const canGrantV2Admins = canUseGlobalApi;
+  const hasDefaultPool = pools.some((pool) => pool.is_default);
 
   const getMemberRoleActions = (record) => {
     if (!canManagePoolAdmins) {
@@ -170,8 +172,12 @@ const QuotaPool = () => {
     );
   };
 
-  const renderPoolQuota = (pool) =>
-    pool.is_default ? t('不限额') : renderQuota(pool.quota);
+  const renderPoolQuota = (pool) => {
+    if (pool.is_default) {
+      return `${t('不限额')} / ${t('不限额')}`;
+    }
+    return `${renderQuota(pool.quota)} / ${renderQuota(pool.base_quota)}`;
+  };
 
   const renderRechargeRule = (pool) => {
     if (pool.is_default) return t('系统默认');
@@ -274,9 +280,9 @@ const QuotaPool = () => {
       ),
     },
     {
-      title: t('池余额'),
+      title: t('可用额度/总额度'),
       dataIndex: 'quota',
-      width: 130,
+      width: 170,
       render: (_, record) => renderPoolQuota(record),
     },
     {
@@ -538,13 +544,20 @@ const QuotaPool = () => {
                   </Typography.Text>
                 </div>
                 {canConfigurePools && (
-                  <Button
-                    type='primary'
-                    icon={<IconPlus />}
-                    onClick={() => setShowCreate(true)}
-                  >
-                    {t('新建额度池')}
-                  </Button>
+                  <Space>
+                    {!hasDefaultPool && (
+                      <Button icon={<IconRefresh />} onClick={syncDefaultPool}>
+                        {t('同步系统池')}
+                      </Button>
+                    )}
+                    <Button
+                      type='primary'
+                      icon={<IconPlus />}
+                      onClick={() => setShowCreate(true)}
+                    >
+                      {t('新建额度池')}
+                    </Button>
+                  </Space>
                 )}
               </div>
               <Table
@@ -635,7 +648,7 @@ const QuotaPool = () => {
             </Card>
 
             <div className='grid grid-cols-1 md:grid-cols-4 gap-3'>
-              <Card title={t('池余额')}>
+              <Card title={t('可用额度/总额度')}>
                 <Typography.Text>
                   {renderPoolQuota(selectedPool)}
                 </Typography.Text>

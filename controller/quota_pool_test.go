@@ -159,6 +159,38 @@ func TestCreateQuotaPoolCreatesInitialFundTransaction(t *testing.T) {
 	}
 }
 
+func TestSyncDefaultQuotaPoolCreatesDefaultOnce(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	ctx, recorder := quotaPoolTestContext(t, http.MethodPost, "/api/quota_pool/sync_default", nil, common.RoleRootUser, 99)
+
+	SyncDefaultQuotaPool(ctx)
+
+	response := decodeQuotaPoolResponse(t, recorder)
+	if response["success"] != true {
+		t.Fatalf("expected success response, got %#v", response)
+	}
+	var count int64
+	if err := db.Model(&model.QuotaPool{}).Where("is_default = ?", true).Count(&count).Error; err != nil {
+		t.Fatalf("count default pool failed: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("default pool count = %d, want 1", count)
+	}
+
+	ctx, recorder = quotaPoolTestContext(t, http.MethodPost, "/api/quota_pool/sync_default", nil, common.RoleRootUser, 99)
+	SyncDefaultQuotaPool(ctx)
+	response = decodeQuotaPoolResponse(t, recorder)
+	if response["success"] != true {
+		t.Fatalf("expected second sync success response, got %#v", response)
+	}
+	if err := db.Model(&model.QuotaPool{}).Where("is_default = ?", true).Count(&count).Error; err != nil {
+		t.Fatalf("count default pool after second sync failed: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("default pool count after second sync = %d, want 1", count)
+	}
+}
+
 func TestGrantSelfQuotaPoolAdminRejectsV2Grant(t *testing.T) {
 	db := setupQuotaPoolControllerTestDB(t)
 	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 100, Quota: 100, MonthlyRefillDay: 1}

@@ -175,16 +175,8 @@ func normalizeQuotaPoolId(poolId int) int {
 	return poolId
 }
 
-func EnsureDefaultQuotaPool() (*QuotaPool, error) {
-	pool := &QuotaPool{}
-	err := DB.Where("is_default = ?", true).First(pool).Error
-	if err == nil {
-		return pool, nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, err
-	}
-	pool = &QuotaPool{
+func newDefaultQuotaPool() *QuotaPool {
+	return &QuotaPool{
 		Name:               "系统默认额度池",
 		Enabled:            true,
 		IsDefault:          true,
@@ -195,10 +187,58 @@ func EnsureDefaultQuotaPool() (*QuotaPool, error) {
 		MonthlyLimit:       QuotaPoolAutoRechargeInherit,
 		MonthlyRefillDay:   1,
 	}
+}
+
+func GetDefaultQuotaPool() (*QuotaPool, error) {
+	pool := &QuotaPool{}
+	if err := DB.Where("is_default = ?", true).Order("id asc").First(pool).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrQuotaPoolNotFound
+		}
+		return nil, err
+	}
+	return pool, nil
+}
+
+func SyncDefaultQuotaPool() (*QuotaPool, error) {
+	pool, err := GetDefaultQuotaPool()
+	if err == nil {
+		return pool, nil
+	}
+	if !errors.Is(err, ErrQuotaPoolNotFound) {
+		return nil, err
+	}
+	pool = newDefaultQuotaPool()
 	if err := DB.Create(pool).Error; err != nil {
 		return nil, err
 	}
 	return pool, nil
+}
+
+func fundingTransactionTypes() []string {
+	return []string{
+		QuotaPoolTransactionInitialFund,
+		QuotaPoolTransactionManualRefill,
+		QuotaPoolTransactionMonthlyRefill,
+	}
+}
+
+func backfillQuotaPoolBaseQuota(tx *gorm.DB, pool *QuotaPool) error {
+	if pool == nil || pool.IsDefault {
+		return nil
+	}
+	var total int64
+	if err := tx.Model(&QuotaPoolTransaction{}).
+		Where("pool_id = ? AND type IN ?", pool.Id, fundingTransactionTypes()).
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&total).Error; err != nil {
+		return err
+	}
+	if int(total) <= pool.BaseQuota {
+		return nil
+	}
+	pool.BaseQuota = int(total)
+	return tx.Model(&QuotaPool{}).Where("id = ?", pool.Id).Update("base_quota", pool.BaseQuota).Error
 }
 
 func GetQuotaPoolAdminSummary(userId int) (*QuotaPoolAdminSummary, error) {
@@ -216,7 +256,7 @@ func GetQuotaPoolAdminSummary(userId int) (*QuotaPoolAdminSummary, error) {
 func GetQuotaPoolById(poolId int) (*QuotaPool, error) {
 	poolId = normalizeQuotaPoolId(poolId)
 	if poolId == QuotaPoolDefaultUserPoolId {
-		return EnsureDefaultQuotaPool()
+		return GetDefaultQuotaPool()
 	}
 	pool := &QuotaPool{}
 	if err := DB.First(pool, "id = ?", poolId).Error; err != nil {
@@ -232,6 +272,11 @@ func ListQuotaPools() ([]QuotaPoolListItem, error) {
 	var pools []QuotaPool
 	if err := DB.Order("is_default desc, id desc").Find(&pools).Error; err != nil {
 		return nil, err
+	}
+	for i := range pools {
+		if err := backfillQuotaPoolBaseQuota(DB, &pools[i]); err != nil {
+			return nil, err
+		}
 	}
 	items := make([]QuotaPoolListItem, 0, len(pools))
 	for _, pool := range pools {
@@ -852,6 +897,9 @@ func AddQuotaPoolManualRefill(poolId int, amount int, operatorId int) (*QuotaPoo
 		if !pool.Enabled {
 			return ErrQuotaPoolDisabled
 		}
+		if err := backfillQuotaPoolBaseQuota(tx, pool); err != nil {
+			return err
+		}
 		if pool.BaseQuota <= 0 || amount*2 > pool.BaseQuota {
 			return ErrQuotaPoolRefillLimited
 		}
@@ -865,7 +913,10 @@ func AddQuotaPoolManualRefill(poolId int, amount int, operatorId int) (*QuotaPoo
 			return ErrQuotaPoolRefillLimited
 		}
 		before := pool.Quota
-		if err := tx.Model(&QuotaPool{}).Where("id = ?", poolId).Update("quota", gorm.Expr("quota + ?", amount)).Error; err != nil {
+		if err := tx.Model(&QuotaPool{}).Where("id = ?", poolId).Updates(map[string]interface{}{
+			"quota":      gorm.Expr("quota + ?", amount),
+			"base_quota": gorm.Expr("base_quota + ?", amount),
+		}).Error; err != nil {
 			return err
 		}
 		after := before + amount
