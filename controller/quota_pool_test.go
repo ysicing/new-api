@@ -305,6 +305,98 @@ func TestRevokeSelfQuotaPoolAdminRejectsV2Target(t *testing.T) {
 	}
 }
 
+func TestGrantAndRevokeQuotaPoolAdminWriteManageLogs(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 100, Quota: 100, MonthlyRefillDay: 1}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	target := &model.User{Id: 2, Username: "target", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id, AffCode: "target-code"}
+	if err := db.Create(target).Error; err != nil {
+		t.Fatalf("create target failed: %v", err)
+	}
+
+	grantCtx, grantRecorder := quotaPoolTestContext(t, http.MethodPost, fmt.Sprintf("/api/quota_pool/%d/admins", pool.Id), quotaPoolAdminRequest{
+		UserId: target.Id,
+		Level:  model.QuotaPoolAdminLevelV2,
+	}, common.RoleAdminUser, 99)
+	grantCtx.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", pool.Id)}}
+	GrantQuotaPoolAdmin(grantCtx)
+	if response := decodeQuotaPoolResponse(t, grantRecorder); response["success"] != true {
+		t.Fatalf("expected grant success, got %#v", response)
+	}
+
+	revokeCtx, revokeRecorder := quotaPoolTestContext(t, http.MethodDelete, fmt.Sprintf("/api/quota_pool/%d/admins/%d", pool.Id, target.Id), nil, common.RoleAdminUser, 99)
+	revokeCtx.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", pool.Id)}, {Key: "user_id", Value: fmt.Sprintf("%d", target.Id)}}
+	RevokeQuotaPoolAdmin(revokeCtx)
+	if response := decodeQuotaPoolResponse(t, revokeRecorder); response["success"] != true {
+		t.Fatalf("expected revoke success, got %#v", response)
+	}
+
+	var logs []model.Log
+	if err := db.Where("user_id = ? AND type = ?", target.Id, model.LogTypeManage).Order("id asc").Find(&logs).Error; err != nil {
+		t.Fatalf("load manage logs failed: %v", err)
+	}
+	if len(logs) != 2 {
+		t.Fatalf("expected two manage logs, got %d", len(logs))
+	}
+	if !strings.Contains(logs[0].Content, "任命") || !strings.Contains(logs[0].Content, "池超级管理员 v2") {
+		t.Fatalf("unexpected grant log: %q", logs[0].Content)
+	}
+	if !strings.Contains(logs[1].Content, "撤销额度池管理员") {
+		t.Fatalf("unexpected revoke log: %q", logs[1].Content)
+	}
+}
+
+func TestSelfQuotaPoolAdminGrantAndRevokeWriteManageLogs(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 100, Quota: 100, MonthlyRefillDay: 1}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	operator := &model.User{Id: 1, Username: "operator", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id, AffCode: "operator-code"}
+	target := &model.User{Id: 2, Username: "target", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id, AffCode: "target-code"}
+	if err := db.Create(operator).Error; err != nil {
+		t.Fatalf("create operator failed: %v", err)
+	}
+	if err := db.Create(target).Error; err != nil {
+		t.Fatalf("create target failed: %v", err)
+	}
+	if err := db.Create(&model.QuotaPoolAdmin{PoolId: pool.Id, UserId: operator.Id, Level: model.QuotaPoolAdminLevelV2}).Error; err != nil {
+		t.Fatalf("create operator admin failed: %v", err)
+	}
+
+	grantCtx, grantRecorder := quotaPoolTestContext(t, http.MethodPost, "/api/quota_pool/self/admins", quotaPoolAdminRequest{
+		UserId: target.Id,
+		Level:  model.QuotaPoolAdminLevelV1,
+	}, common.RoleCommonUser, operator.Id)
+	GrantSelfQuotaPoolAdmin(grantCtx)
+	if response := decodeQuotaPoolResponse(t, grantRecorder); response["success"] != true {
+		t.Fatalf("expected self grant success, got %#v", response)
+	}
+
+	revokeCtx, revokeRecorder := quotaPoolTestContext(t, http.MethodDelete, fmt.Sprintf("/api/quota_pool/self/admins/%d", target.Id), nil, common.RoleCommonUser, operator.Id)
+	revokeCtx.Params = gin.Params{{Key: "user_id", Value: fmt.Sprintf("%d", target.Id)}}
+	RevokeSelfQuotaPoolAdmin(revokeCtx)
+	if response := decodeQuotaPoolResponse(t, revokeRecorder); response["success"] != true {
+		t.Fatalf("expected self revoke success, got %#v", response)
+	}
+
+	var logs []model.Log
+	if err := db.Where("user_id = ? AND type = ?", target.Id, model.LogTypeManage).Order("id asc").Find(&logs).Error; err != nil {
+		t.Fatalf("load manage logs failed: %v", err)
+	}
+	if len(logs) != 2 {
+		t.Fatalf("expected two manage logs, got %d", len(logs))
+	}
+	if !strings.Contains(logs[0].Content, "任命") || !strings.Contains(logs[0].Content, "池管理员 v1") {
+		t.Fatalf("unexpected self grant log: %q", logs[0].Content)
+	}
+	if !strings.Contains(logs[1].Content, "撤销额度池管理员") {
+		t.Fatalf("unexpected self revoke log: %q", logs[1].Content)
+	}
+}
+
 func TestDeleteQuotaPoolRejectsPoolWithMembers(t *testing.T) {
 	db := setupQuotaPoolControllerTestDB(t)
 	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 100, Quota: 100, MonthlyRefillDay: 1}

@@ -72,6 +72,28 @@ func quotaPoolStatsRange(c *gin.Context) (int64, int64) {
 	return start.Unix(), now.Unix()
 }
 
+func quotaPoolAdminLevelName(level int) string {
+	if level == model.QuotaPoolAdminLevelV2 {
+		return "池超级管理员 v2"
+	}
+	if level == model.QuotaPoolAdminLevelV1 {
+		return "池管理员 v1"
+	}
+	return "成员"
+}
+
+func quotaPoolAdminLogInfo(c *gin.Context, poolId int) map[string]interface{} {
+	return map[string]interface{}{
+		"admin_id":       c.GetInt("id"),
+		"admin_username": c.GetString("username"),
+		"quota_pool_id":  poolId,
+	}
+}
+
+func recordQuotaPoolMemberManageLog(c *gin.Context, poolId int, userId int, content string) {
+	model.RecordLogWithAdminInfo(userId, model.LogTypeManage, content, quotaPoolAdminLogInfo(c, poolId))
+}
+
 func parseQuotaPoolId(c *gin.Context) (int, bool) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id < 0 {
@@ -367,7 +389,7 @@ func GetQuotaPoolCandidates(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{"items": items, "total": total})
 }
 
-func addUserToQuotaPool(c *gin.Context, poolId int, userId int, initialRecharge bool) {
+func addUserToQuotaPool(c *gin.Context, poolId int, userId int, initialRecharge bool, logAction string) {
 	user := &model.User{}
 	if err := model.DB.First(user, "id = ?", userId).Error; err != nil {
 		common.ApiError(c, err)
@@ -393,6 +415,7 @@ func addUserToQuotaPool(c *gin.Context, poolId int, userId int, initialRecharge 
 	if result.Reclaimed {
 		model.RecordQuotaPoolTransaction(result.Change.PoolId, model.QuotaPoolTransactionReclaimUser, result.Change.Amount, result.Change.QuotaBefore, result.Change.QuotaAfter, userId, c.GetInt("id"))
 	}
+	recordQuotaPoolMemberManageLog(c, poolId, userId, fmt.Sprintf("%s额度池(ID:%d)", logAction, poolId))
 	warning := ""
 	if initialRecharge && poolId != model.QuotaPoolDefaultUserPoolId {
 		result := service.TryAutoRechargeUserById(userId)
@@ -415,6 +438,7 @@ func moveUserToQuotaPoolForController(c *gin.Context, poolId int, userId int, in
 	if result.Reclaimed {
 		model.RecordQuotaPoolTransaction(result.Change.PoolId, model.QuotaPoolTransactionReclaimUser, result.Change.Amount, result.Change.QuotaBefore, result.Change.QuotaAfter, userId, c.GetInt("id"))
 	}
+	recordQuotaPoolMemberManageLog(c, poolId, userId, fmt.Sprintf("将用户迁移到额度池(ID:%d)", poolId))
 	if initialRecharge && poolId != model.QuotaPoolDefaultUserPoolId {
 		result := service.TryAutoRechargeUserById(userId)
 		if !result.Recharged {
@@ -441,7 +465,7 @@ func AddQuotaPoolMember(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	addUserToQuotaPool(c, id, req.UserId, true)
+	addUserToQuotaPool(c, id, req.UserId, true, "将用户加入")
 }
 
 func MoveUserQuotaPool(c *gin.Context) {
@@ -458,7 +482,7 @@ func MoveUserQuotaPool(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	addUserToQuotaPool(c, req.PoolId, userId, req.PoolId != model.QuotaPoolDefaultUserPoolId)
+	addUserToQuotaPool(c, req.PoolId, userId, req.PoolId != model.QuotaPoolDefaultUserPoolId, "将用户迁移到")
 }
 
 func quotaPoolRechargeAmount(poolId int) (int, error) {
@@ -560,6 +584,7 @@ func GrantQuotaPoolAdmin(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	recordQuotaPoolMemberManageLog(c, id, req.UserId, fmt.Sprintf("任命用户为%s", quotaPoolAdminLevelName(req.Level)))
 	common.ApiSuccess(c, nil)
 }
 
@@ -580,6 +605,7 @@ func RevokeQuotaPoolAdmin(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	recordQuotaPoolMemberManageLog(c, id, userId, "撤销额度池管理员权限")
 	common.ApiSuccess(c, nil)
 }
 
@@ -680,7 +706,7 @@ func AddSelfQuotaPoolMember(c *gin.Context) {
 		common.ApiError(c, errors.New("池管理员只能添加默认池用户"))
 		return
 	}
-	addUserToQuotaPool(c, admin.PoolId, req.UserId, true)
+	addUserToQuotaPool(c, admin.PoolId, req.UserId, true, "将用户加入")
 }
 
 func RechargeSelfQuotaPoolMember(c *gin.Context) {
@@ -742,6 +768,7 @@ func GrantSelfQuotaPoolAdmin(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	recordQuotaPoolMemberManageLog(c, admin.PoolId, req.UserId, fmt.Sprintf("任命用户为%s", quotaPoolAdminLevelName(model.QuotaPoolAdminLevelV1)))
 	common.ApiSuccess(c, nil)
 }
 
@@ -771,5 +798,6 @@ func RevokeSelfQuotaPoolAdmin(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	recordQuotaPoolMemberManageLog(c, admin.PoolId, userId, "撤销额度池管理员权限")
 	common.ApiSuccess(c, nil)
 }

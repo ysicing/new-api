@@ -119,6 +119,46 @@ const QuotaPool = () => {
   const canRechargeMembers = canUseActivePool;
   const canGrantV2Admins = canUseGlobalApi;
 
+  const getMemberRoleActions = (record) => {
+    if (!canManagePoolAdmins) {
+      return [];
+    }
+    const currentLevel = record.quota_pool_admin_level || ROLE_MEMBER;
+    if (canUseGlobalApi) {
+      if (currentLevel === ROLE_MEMBER) {
+        return [
+          { label: t('设为v1'), level: ROLE_POOL_ADMIN_V1 },
+          { label: t('设为v2'), level: ROLE_POOL_SUPER_ADMIN_V2 },
+        ];
+      }
+      if (currentLevel === ROLE_POOL_ADMIN_V1) {
+        return [
+          { label: t('降为成员'), level: ROLE_MEMBER, danger: true },
+          { label: t('设为v2'), level: ROLE_POOL_SUPER_ADMIN_V2 },
+        ];
+      }
+      return [
+        { label: t('降为v1'), level: ROLE_POOL_ADMIN_V1 },
+        { label: t('降为成员'), level: ROLE_MEMBER, danger: true },
+      ];
+    }
+    if (currentLevel === ROLE_MEMBER) {
+      return [{ label: t('设为v1'), level: ROLE_POOL_ADMIN_V1 }];
+    }
+    if (currentLevel === ROLE_POOL_ADMIN_V1) {
+      return [{ label: t('降为成员'), level: ROLE_MEMBER, danger: true }];
+    }
+    return [];
+  };
+
+  const updateMemberRole = async (userId, level) => {
+    if (level === ROLE_MEMBER) {
+      await revokeAdmin(userId);
+      return;
+    }
+    await grantAdmin(userId, level);
+  };
+
   const renderPoolStatus = (pool) => {
     if (pool.is_default) {
       return <Tag color='blue'>{t('默认')}</Tag>;
@@ -368,7 +408,7 @@ const QuotaPool = () => {
     {
       title: t('操作'),
       dataIndex: 'operate',
-      width: 280,
+      width: 360,
       fixed: 'right',
       render: (_, record) => (
         <Space spacing={6} wrap>
@@ -382,19 +422,22 @@ const QuotaPool = () => {
               {t('迁移')}
             </Button>
           )}
-          {canManagePoolAdmins &&
-            record.quota_pool_admin_level > 0 &&
-            (canUseGlobalApi || record.quota_pool_admin_level === 1) && (
-              <Popconfirm
-                title={t('确定要移除该用户的额度池管理员权限吗？')}
-                position='left'
-                onConfirm={() => revokeAdmin(record.id)}
+          {getMemberRoleActions(record).map((action) => (
+            <Popconfirm
+              key={`${record.id}-${action.level}`}
+              title={t('确定要调整该用户的额度池角色吗？')}
+              position='left'
+              onConfirm={() => updateMemberRole(record.id, action.level)}
+            >
+              <Button
+                size='small'
+                type={action.danger ? 'danger' : 'tertiary'}
+                theme='borderless'
               >
-                <Button size='small' type='danger' theme='borderless'>
-                  {t('撤销')}
-                </Button>
-              </Popconfirm>
-            )}
+                {action.label}
+              </Button>
+            </Popconfirm>
+          ))}
         </Space>
       ),
     },
