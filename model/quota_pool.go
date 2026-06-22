@@ -135,6 +135,13 @@ type QuotaPoolMember struct {
 	LastLoginAt         int64  `json:"last_login_at"`
 }
 
+type QuotaPoolCandidate struct {
+	Id          int    `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
+}
+
 type QuotaPoolUsageStat struct {
 	UserId        int    `json:"user_id" gorm:"column:user_id"`
 	Username      string `json:"username" gorm:"column:username"`
@@ -331,7 +338,7 @@ func ListQuotaPoolMembers(poolId int, pageInfo *common.PageInfo) ([]*QuotaPoolMe
 	return users, total, err
 }
 
-func ListDefaultQuotaPoolCandidates(keyword string, pageInfo *common.PageInfo) ([]*User, int64, error) {
+func ListDefaultQuotaPoolCandidates(keyword string, pageInfo *common.PageInfo) ([]*QuotaPoolCandidate, int64, error) {
 	query := DB.Model(&User{}).Where("quota_pool_id = ? AND role = ? AND status = ?", QuotaPoolDefaultUserPoolId, common.RoleCommonUser, common.UserStatusEnabled)
 	if keyword != "" {
 		like := "%" + keyword + "%"
@@ -345,8 +352,14 @@ func ListDefaultQuotaPoolCandidates(keyword string, pageInfo *common.PageInfo) (
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	var users []*User
-	err := query.Select("Id", "Username", "DisplayName", "Role", "Status", "Email", "Group", "Quota", "UsedQuota", "QuotaPoolId", "CreatedAt", "LastLoginAt").
+	var users []*QuotaPoolCandidate
+	selectColumns := []string{
+		"id",
+		"username",
+		"display_name",
+		"email",
+	}
+	err := query.Select(strings.Join(selectColumns, ", ")).
 		Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&users).Error
 	return users, total, err
 }

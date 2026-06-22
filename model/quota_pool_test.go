@@ -26,6 +26,7 @@ func setupQuotaPoolTestDB(t *testing.T) (*gorm.DB, func()) {
 	common.UsingSQLite = true
 	common.UsingMySQL = false
 	common.UsingPostgreSQL = false
+	initCol()
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -48,6 +49,7 @@ func setupQuotaPoolTestDB(t *testing.T) (*gorm.DB, func()) {
 		common.UsingSQLite = oldUsingSQLite
 		common.UsingMySQL = oldUsingMySQL
 		common.UsingPostgreSQL = oldUsingPostgreSQL
+		initCol()
 	}
 	return db, cleanup
 }
@@ -297,8 +299,21 @@ func TestListQuotaPoolMembersAndCandidatesOmitAccessToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list candidates failed: %v", err)
 	}
-	if len(candidates) != 1 || candidates[0].AccessToken != nil {
-		t.Fatalf("expected candidate access token omitted, got %#v", candidates)
+	if len(candidates) != 1 {
+		t.Fatalf("expected one candidate, got %#v", candidates)
+	}
+	candidateJSON, err := common.Marshal(candidates[0])
+	if err != nil {
+		t.Fatalf("marshal candidate failed: %v", err)
+	}
+	candidateJSONText := string(candidateJSON)
+	if strings.Contains(candidateJSONText, "access_token") || strings.Contains(candidateJSONText, candidateToken) {
+		t.Fatalf("expected candidate access token omitted, got %s", candidateJSONText)
+	}
+	for _, field := range []string{"role", "status", "group", "quota", "used_quota", "quota_pool_id", "created_at", "last_login_at"} {
+		if strings.Contains(candidateJSONText, `"`+field+`"`) {
+			t.Fatalf("expected candidate field %s omitted, got %s", field, candidateJSONText)
+		}
 	}
 	candidatesById, _, err := ListDefaultQuotaPoolCandidates(fmt.Sprintf("%d", candidate.Id), &common.PageInfo{Page: 1, PageSize: 10})
 	if err != nil {

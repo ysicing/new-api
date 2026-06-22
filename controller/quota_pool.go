@@ -52,12 +52,7 @@ func quotaAmountToInternal(amount float64) int {
 }
 
 func quotaPoolPageInfo(c *gin.Context) *common.PageInfo {
-	page, _ := strconv.Atoi(c.Query("p"))
-	pageSize, _ := strconv.Atoi(c.Query("page_size"))
-	if page <= 0 {
-		page = 1
-	}
-	return &common.PageInfo{Page: page, PageSize: pageSize}
+	return common.GetPageQuery(c)
 }
 
 func quotaPoolStatsRange(c *gin.Context) (int64, int64) {
