@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -155,6 +156,42 @@ func TestListQuotaPoolsDoesNotCreateDefaultPool(t *testing.T) {
 	}
 	if items[0].Id != pool.Id || items[0].IsDefault {
 		t.Fatalf("only existing non-default pool should be listed, got %+v", items)
+	}
+}
+
+func TestListQuotaPoolsIncludesSystemAutoRechargeDefaults(t *testing.T) {
+	_, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+	cfg := operation_setting.GetAutoRechargeSetting()
+	original := *cfg
+	defer func() {
+		*cfg = original
+	}()
+	cfg.Enabled = true
+	cfg.Interval = 15
+	cfg.Threshold = 7
+	cfg.Amount = 3
+	cfg.WeeklyLimit = 5
+	cfg.MonthlyLimit = 9
+
+	if _, err := CreateQuotaPool("team-system-defaults", 1000, 1); err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	items, err := ListQuotaPools()
+	if err != nil {
+		t.Fatalf("list quota pools failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("pool count = %d, want 1", len(items))
+	}
+	defaults := items[0].SystemAutoRecharge
+	if !defaults.Enabled ||
+		defaults.Interval != 15 ||
+		defaults.Threshold != int(7*common.QuotaPerUnit) ||
+		defaults.Amount != int(3*common.QuotaPerUnit) ||
+		defaults.WeeklyLimit != 5 ||
+		defaults.MonthlyLimit != 9 {
+		t.Fatalf("unexpected system auto recharge defaults: %+v", defaults)
 	}
 }
 

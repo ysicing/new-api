@@ -179,17 +179,92 @@ const QuotaPool = () => {
     return `${renderQuota(pool.quota)} / ${renderQuota(pool.base_quota)}`;
   };
 
+  const renderInheritedValue = (value) => (
+    <span className='inline-flex flex-wrap items-baseline gap-1'>
+      <span>{value}</span>
+      <span className='text-xs text-slate-500'>（{t('全局配置')}）</span>
+    </span>
+  );
+
+  const renderSystemConfigValue = (value) => (
+    <span className='inline-flex flex-wrap items-baseline gap-1'>
+      <span>{value}</span>
+      <span className='text-xs text-slate-500'>（{t('全局配置')}）</span>
+    </span>
+  );
+
   const renderRechargeRule = (pool) => {
     if (pool.is_default) return t('系统默认');
-    if (pool.auto_recharge_amount < 0) return t('继承系统配置');
+    if (pool.auto_recharge_amount < 0) {
+      const systemConfig = pool.system_auto_recharge || {};
+      const systemValue =
+        systemConfig.enabled && systemConfig.amount > 0
+          ? renderQuota(systemConfig.amount)
+          : t('关闭');
+      return renderInheritedValue(systemValue);
+    }
     if (pool.auto_recharge_amount === 0) return t('关闭');
     return renderQuota(pool.auto_recharge_amount);
   };
 
-  const renderLimit = (value) => {
-    if (value < 0) return t('继承');
+  const renderLimit = (value, systemValue) => {
+    if (value < 0) {
+      const inheritedValue =
+        typeof systemValue === 'number'
+          ? systemValue === 0
+            ? t('不限')
+            : systemValue
+          : t('全局配置');
+      return renderInheritedValue(inheritedValue);
+    }
     if (value === 0) return t('不限');
     return value;
+  };
+
+  const isAutoRechargeClosed = (pool) => {
+    const systemConfig = pool?.system_auto_recharge || {};
+    if (!pool || !systemConfig.enabled) return true;
+    if (pool.auto_recharge_amount === 0) return true;
+    return pool.auto_recharge_amount < 0 && (systemConfig.amount || 0) <= 0;
+  };
+
+  const renderAutoRechargeRuleSummary = (pool) => {
+    const systemConfig = pool?.system_auto_recharge || {};
+    if (pool?.is_default) {
+      return (
+        <Typography.Text type='secondary'>
+          {t('全局自动充值规则')}
+        </Typography.Text>
+      );
+    }
+    if (!systemConfig.enabled) {
+      return (
+        <Typography.Text type='secondary'>
+          {t('系统自动充值已关闭。')}
+        </Typography.Text>
+      );
+    }
+    if (pool.auto_recharge_amount === 0) {
+      return (
+        <Typography.Text type='secondary'>
+          {t('该额度池已关闭自动充值。')}
+        </Typography.Text>
+      );
+    }
+
+    const interval = systemConfig.interval > 0 ? systemConfig.interval : 30;
+    const threshold =
+      typeof systemConfig.threshold === 'number'
+        ? renderQuota(systemConfig.threshold)
+        : '-';
+    return (
+      <span className='inline-flex flex-wrap items-baseline gap-x-1 gap-y-0.5'>
+        <span>{t('每 {{interval}} 分钟检查', { interval })}</span>
+        <span>{t('低于')}</span>
+        {renderSystemConfigValue(threshold)}
+        <span>{t('触发')}</span>
+      </span>
+    );
   };
 
   const renderTransactionType = (type) => t(TRANSACTION_TYPE_LABELS[type] || type);
@@ -304,16 +379,22 @@ const QuotaPool = () => {
       render: (_, record) => renderRechargeRule(record),
     },
     {
-      title: t('周次数'),
+      title: t('周自动充值次数'),
       dataIndex: 'weekly_limit',
-      width: 90,
-      render: (value) => renderLimit(value),
+      width: 140,
+      render: (value, record) =>
+        isAutoRechargeClosed(record)
+          ? '-'
+          : renderLimit(value, record.system_auto_recharge?.weekly_limit),
     },
     {
-      title: t('月次数'),
+      title: t('月自动充值次数'),
       dataIndex: 'monthly_limit',
-      width: 90,
-      render: (value) => renderLimit(value),
+      width: 140,
+      render: (value, record) =>
+        isAutoRechargeClosed(record)
+          ? '-'
+          : renderLimit(value, record.system_auto_recharge?.monthly_limit),
     },
     {
       title: t('创建时间'),
@@ -627,7 +708,13 @@ const QuotaPool = () => {
               </div>
             </Card>
 
-            <div className='grid grid-cols-1 md:grid-cols-4 gap-3'>
+            <div
+              className={`grid grid-cols-1 md:grid-cols-2 ${
+                isAutoRechargeClosed(selectedPool)
+                  ? 'xl:grid-cols-3'
+                  : 'xl:grid-cols-5'
+              } gap-3`}
+            >
               <Card title={t('可用额度/总额度')}>
                 <Typography.Text>
                   {renderPoolQuota(selectedPool)}
@@ -638,14 +725,29 @@ const QuotaPool = () => {
                   {renderRechargeRule(selectedPool)}
                 </Typography.Text>
               </Card>
-              <Card title={t('周次数')}>
+              {!isAutoRechargeClosed(selectedPool) && (
+                <>
+                  <Card title={t('周自动充值次数')}>
+                    <Typography.Text>
+                      {renderLimit(
+                        selectedPool.weekly_limit,
+                        selectedPool.system_auto_recharge?.weekly_limit,
+                      )}
+                    </Typography.Text>
+                  </Card>
+                  <Card title={t('月自动充值次数')}>
+                    <Typography.Text>
+                      {renderLimit(
+                        selectedPool.monthly_limit,
+                        selectedPool.system_auto_recharge?.monthly_limit,
+                      )}
+                    </Typography.Text>
+                  </Card>
+                </>
+              )}
+              <Card title={t('充值说明')}>
                 <Typography.Text>
-                  {renderLimit(selectedPool.weekly_limit)}
-                </Typography.Text>
-              </Card>
-              <Card title={t('月次数')}>
-                <Typography.Text>
-                  {renderLimit(selectedPool.monthly_limit)}
+                  {renderAutoRechargeRuleSummary(selectedPool)}
                 </Typography.Text>
               </Card>
             </div>
@@ -794,8 +896,8 @@ const QuotaPool = () => {
             field='auto_recharge_amount'
             label={t('充值金额')}
           />
-          <Form.InputNumber field='weekly_limit' label={t('周次数')} />
-          <Form.InputNumber field='monthly_limit' label={t('月次数')} />
+          <Form.InputNumber field='weekly_limit' label={t('周自动充值次数')} />
+          <Form.InputNumber field='monthly_limit' label={t('月自动充值次数')} />
           <Form.Switch field='monthly_refill_enabled' label={t('月度扩容')} />
           <Form.InputNumber
             field='monthly_refill_amount'

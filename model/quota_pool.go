@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -93,6 +94,15 @@ type QuotaPoolAdminSummary struct {
 	Level  int `json:"level"`
 }
 
+type QuotaPoolSystemAutoRecharge struct {
+	Enabled      bool `json:"enabled"`
+	Interval     int  `json:"interval"`
+	Threshold    int  `json:"threshold"`
+	Amount       int  `json:"amount"`
+	WeeklyLimit  int  `json:"weekly_limit"`
+	MonthlyLimit int  `json:"monthly_limit"`
+}
+
 type QuotaPoolBalanceChange struct {
 	PoolId      int
 	Amount      int
@@ -115,8 +125,9 @@ type QuotaPoolMoveResult struct {
 
 type QuotaPoolListItem struct {
 	QuotaPool
-	MemberCount int64 `json:"member_count"`
-	AdminCount  int64 `json:"admin_count"`
+	MemberCount        int64                       `json:"member_count"`
+	AdminCount         int64                       `json:"admin_count"`
+	SystemAutoRecharge QuotaPoolSystemAutoRecharge `json:"system_auto_recharge"`
 }
 
 type QuotaPoolMember struct {
@@ -300,7 +311,7 @@ func GetQuotaPoolListItemById(poolId int) (*QuotaPoolListItem, error) {
 }
 
 func buildQuotaPoolListItem(pool QuotaPool) QuotaPoolListItem {
-	item := QuotaPoolListItem{QuotaPool: pool}
+	item := QuotaPoolListItem{QuotaPool: pool, SystemAutoRecharge: systemAutoRechargeForQuotaPool()}
 	if pool.IsDefault {
 		DB.Model(&User{}).Where("quota_pool_id = ?", QuotaPoolDefaultUserPoolId).Count(&item.MemberCount)
 		return item
@@ -308,6 +319,18 @@ func buildQuotaPoolListItem(pool QuotaPool) QuotaPoolListItem {
 	DB.Model(&User{}).Where("quota_pool_id = ?", pool.Id).Count(&item.MemberCount)
 	DB.Model(&QuotaPoolAdmin{}).Where("pool_id = ?", pool.Id).Count(&item.AdminCount)
 	return item
+}
+
+func systemAutoRechargeForQuotaPool() QuotaPoolSystemAutoRecharge {
+	cfg := operation_setting.GetAutoRechargeSetting()
+	return QuotaPoolSystemAutoRecharge{
+		Enabled:      cfg.Enabled,
+		Interval:     cfg.Interval,
+		Threshold:    int(float64(cfg.Threshold) * common.QuotaPerUnit),
+		Amount:       int(float64(cfg.Amount) * common.QuotaPerUnit),
+		WeeklyLimit:  cfg.WeeklyLimit,
+		MonthlyLimit: cfg.MonthlyLimit,
+	}
 }
 
 func ListQuotaPoolTransactions(poolId int, pageInfo *common.PageInfo) ([]*QuotaPoolTransactionItem, int64, error) {
