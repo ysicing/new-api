@@ -99,6 +99,7 @@ const LoginForm = () => {
   const [emailLoginLoading, setEmailLoginLoading] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginMode, setLoginMode] = useState('password');
+  const [expandedFromMode, setExpandedFromMode] = useState(null);
   const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
   const [otherLoginOptionsLoading, setOtherLoginOptionsLoading] =
     useState(false);
@@ -112,6 +113,7 @@ const LoginForm = () => {
   const [githubButtonState, setGithubButtonState] = useState('idle');
   const [githubButtonDisabled, setGithubButtonDisabled] = useState(false);
   const githubTimeoutRef = useRef(null);
+  const defaultLoginInitializedRef = useRef(false);
   const githubButtonText = t(githubButtonTextKeyByState[githubButtonState]);
   const [customOAuthLoading, setCustomOAuthLoading] = useState({});
 
@@ -135,16 +137,24 @@ const LoginForm = () => {
   }, [statusState?.status]);
   const hasCustomOAuthProviders =
     (status.custom_oauth_providers || []).length > 0;
-  const hasOAuthLoginOptions = Boolean(
+  const hasThirdPartyLoginOptions = Boolean(
     status.github_oauth ||
       status.discord_oauth ||
       status.oidc_enabled ||
       status.wechat_login ||
       status.linuxdo_oauth ||
       status.telegram_oauth ||
-      status.ldap_login ||
       hasCustomOAuthProviders,
   );
+  const hasOAuthLoginOptions = Boolean(
+    hasThirdPartyLoginOptions || status.ldap_login,
+  );
+  const hasAdditionalLoginOptions = Boolean(
+    hasThirdPartyLoginOptions ||
+      (loginMode !== 'ldap' && status.ldap_login) ||
+      (loginMode !== 'password' && status.password_login !== false),
+  );
+  const loginTitle = status.ldap_login ? t('登录') : t('登 录');
 
   useEffect(() => {
     if (status?.turnstile_check) {
@@ -155,6 +165,20 @@ const LoginForm = () => {
     // 从 status 获取用户协议和隐私政策的启用状态
     setHasUserAgreement(status?.user_agreement_enabled || false);
     setHasPrivacyPolicy(status?.privacy_policy_enabled || false);
+  }, [status]);
+
+  useEffect(() => {
+    if (
+      defaultLoginInitializedRef.current ||
+      Object.keys(status).length === 0
+    ) {
+      return;
+    }
+    defaultLoginInitializedRef.current = true;
+    if (status.ldap_login) {
+      setLoginMode('ldap');
+      setShowEmailLogin(true);
+    }
   }, [status]);
 
   useEffect(() => {
@@ -413,6 +437,7 @@ const LoginForm = () => {
     }
     setLdapLoading(true);
     setLoginMode('ldap');
+    setExpandedFromMode(null);
     setShowEmailLogin(true);
     setLdapLoading(false);
   };
@@ -421,6 +446,7 @@ const LoginForm = () => {
   const handleEmailLoginClick = () => {
     setEmailLoginLoading(true);
     setLoginMode('password');
+    setExpandedFromMode(null);
     setShowEmailLogin(true);
     setEmailLoginLoading(false);
   };
@@ -495,6 +521,7 @@ const LoginForm = () => {
   // 包装的其他登录选项点击处理
   const handleOtherLoginOptionsClick = () => {
     setOtherLoginOptionsLoading(true);
+    setExpandedFromMode(loginMode);
     setShowEmailLogin(false);
     setOtherLoginOptionsLoading(false);
   };
@@ -512,6 +539,7 @@ const LoginForm = () => {
   const handleBackToLogin = () => {
     setShowTwoFA(false);
     setLoginMode('password');
+    setExpandedFromMode(null);
     setInputs({ username: '', password: '', wechat_verification_code: '' });
   };
 
@@ -529,7 +557,7 @@ const LoginForm = () => {
           <Card className='border-0 !rounded-2xl overflow-hidden'>
             <div className='flex justify-center pt-6 pb-2'>
               <Title heading={3} className='text-gray-800 dark:text-gray-200'>
-                {t('登 录')}
+                {loginTitle}
               </Title>
             </div>
             <div className='px-2 py-8'>
@@ -644,20 +672,22 @@ const LoginForm = () => {
                   </div>
                 )}
 
-                {status.passkey_login && passkeySupported && (
-                  <Button
-                    theme='outline'
-                    className='w-full h-12 flex items-center justify-center !rounded-full border border-gray-200 hover:bg-gray-50 transition-colors'
-                    type='tertiary'
-                    icon={<IconKey size='large' />}
-                    onClick={handlePasskeyLogin}
-                    loading={passkeyLoading}
-                  >
-                    <span className='ml-3'>{t('使用 Passkey 登录')}</span>
-                  </Button>
-                )}
+                {status.passkey_login &&
+                  passkeySupported &&
+                  expandedFromMode === null && (
+                    <Button
+                      theme='outline'
+                      className='w-full h-12 flex items-center justify-center !rounded-full border border-gray-200 hover:bg-gray-50 transition-colors'
+                      type='tertiary'
+                      icon={<IconKey size='large' />}
+                      onClick={handlePasskeyLogin}
+                      loading={passkeyLoading}
+                    >
+                      <span className='ml-3'>{t('使用 Passkey 登录')}</span>
+                    </Button>
+                  )}
 
-                {status.ldap_login && (
+                {status.ldap_login && expandedFromMode !== 'ldap' && (
                   <Button
                     theme='outline'
                     className='w-full h-12 flex items-center justify-center !rounded-full border border-gray-200 hover:bg-gray-50 transition-colors'
@@ -670,26 +700,27 @@ const LoginForm = () => {
                   </Button>
                 )}
 
-                {status.password_login !== false && (
-                  <>
-                    <Divider margin='12px' align='center'>
-                      {t('或')}
-                    </Divider>
+                {status.password_login !== false &&
+                  expandedFromMode !== 'password' && (
+                    <>
+                      <Divider margin='12px' align='center'>
+                        {t('或')}
+                      </Divider>
 
-                    <Button
-                      theme='solid'
-                      type='primary'
-                      className='w-full h-12 flex items-center justify-center bg-black text-white !rounded-full hover:bg-gray-800 transition-colors'
-                      icon={<IconMail size='large' />}
-                      onClick={handleEmailLoginClick}
-                      loading={emailLoginLoading}
-                    >
-                      <span className='ml-3'>
-                        {t('使用 邮箱或用户名 登录')}
-                      </span>
-                    </Button>
-                  </>
-                )}
+                      <Button
+                        theme='solid'
+                        type='primary'
+                        className='w-full h-12 flex items-center justify-center bg-black text-white !rounded-full hover:bg-gray-800 transition-colors'
+                        icon={<IconMail size='large' />}
+                        onClick={handleEmailLoginClick}
+                        loading={emailLoginLoading}
+                      >
+                        <span className='ml-3'>
+                          {t('系统内置管理账号登录')}
+                        </span>
+                      </Button>
+                    </>
+                  )}
               </div>
 
               {(hasUserAgreement || hasPrivacyPolicy) && (
@@ -762,7 +793,7 @@ const LoginForm = () => {
           <Card className='border-0 !rounded-2xl overflow-hidden'>
             <div className='flex justify-center pt-6 pb-2'>
               <Title heading={3} className='text-gray-800 dark:text-gray-200'>
-                {t('登 录')}
+                {loginTitle}
               </Title>
             </div>
             <div className='px-2 py-8'>
@@ -863,7 +894,7 @@ const LoginForm = () => {
                 </div>
               </Form>
 
-              {hasOAuthLoginOptions && (
+              {hasAdditionalLoginOptions && (
                 <>
                   <Divider margin='12px' align='center'>
                     {t('或')}
@@ -992,8 +1023,7 @@ const LoginForm = () => {
         style={{ top: '50%', left: '-120px' }}
       />
       <div className='w-full max-w-sm mt-[60px]'>
-        {showEmailLogin ||
-        !hasOAuthLoginOptions
+        {showEmailLogin || !hasOAuthLoginOptions
           ? renderEmailLoginForm()
           : renderOAuthOptions()}
         {renderWeChatLoginModal()}
