@@ -654,8 +654,21 @@ func GetUserModels(c *gin.Context) {
 }
 
 func UpdateUser(c *gin.Context) {
+	var requestData map[string]interface{}
+	err := common.DecodeJson(c.Request.Body, &requestData)
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+
+	requestDataBytes, err := common.Marshal(requestData)
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+
 	var updatedUser model.User
-	err := common.DecodeJson(c.Request.Body, &updatedUser)
+	err = common.Unmarshal(requestDataBytes, &updatedUser)
 	if err != nil || updatedUser.Id == 0 {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
@@ -681,10 +694,11 @@ func UpdateUser(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgUserCannotCreateHigherLevel)
 		return
 	}
-	if originUser.Quota != updatedUser.Quota {
+	if _, quotaProvided := requestData["quota"]; quotaProvided && originUser.Quota != updatedUser.Quota {
 		common.ApiErrorMsg(c, "不支持直接调整用户额度，请使用充值按钮")
 		return
 	}
+	updatedUser.Quota = originUser.Quota
 	if updatedUser.Password == "$I_LOVE_U" {
 		updatedUser.Password = "" // rollback to what it should be
 	}

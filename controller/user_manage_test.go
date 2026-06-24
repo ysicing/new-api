@@ -248,6 +248,47 @@ func TestSetupLoginReturnsQuotaPoolAdminSummary(t *testing.T) {
 	}
 }
 
+func TestUpdateUserAllowsOmittedQuotaWhenEditingProfile(t *testing.T) {
+	db := setupUserManageTestDB(t)
+	target := &model.User{
+		Username: "target-user",
+		Password: "password",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+		Quota:    100,
+		Group:    "default",
+	}
+	if err := db.Create(target).Error; err != nil {
+		t.Fatalf("failed to create target user: %v", err)
+	}
+
+	ctx, recorder := newManageUserContext(t, map[string]interface{}{
+		"id":           target.Id,
+		"username":     "renamed-user",
+		"role":         common.RoleCommonUser,
+		"status":       common.UserStatusEnabled,
+		"group":        "default",
+		"display_name": "Renamed User",
+	}, common.RoleAdminUser, 99)
+	UpdateUser(ctx)
+
+	response := decodeManageUserResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected profile update without quota to succeed, got %s", recorder.Body.String())
+	}
+
+	var updated model.User
+	if err := db.First(&updated, target.Id).Error; err != nil {
+		t.Fatalf("failed to reload target user: %v", err)
+	}
+	if updated.Username != "renamed-user" {
+		t.Fatalf("expected username to be updated, got %q", updated.Username)
+	}
+	if updated.Quota != target.Quota {
+		t.Fatalf("expected target quota to remain %d, got %d", target.Quota, updated.Quota)
+	}
+}
+
 func TestUpdateUserAdminCannotEditQuota(t *testing.T) {
 	db := setupUserManageTestDB(t)
 	target := &model.User{
