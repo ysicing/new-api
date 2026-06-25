@@ -22,6 +22,7 @@ type quotaPoolCreateRequest struct {
 
 type quotaPoolUpdateRequest struct {
 	Name                 *string  `json:"name"`
+	BaseQuota            *float64 `json:"base_quota"`
 	AutoRechargeAmount   *float64 `json:"auto_recharge_amount"`
 	WeeklyLimit          *int     `json:"weekly_limit"`
 	MonthlyLimit         *int     `json:"monthly_limit"`
@@ -49,6 +50,18 @@ type quotaPoolAdminRequest struct {
 
 func quotaAmountToInternal(amount float64) int {
 	return int(amount * common.QuotaPerUnit)
+}
+
+func quotaPoolAutoRechargeAmountUpdate(amount float64) (int, error) {
+	if amount < 0 {
+		return model.QuotaPoolAutoRechargeInherit, nil
+	}
+	amountQuota := quotaAmountToInternal(amount)
+	systemAmountQuota := quotaAmountToInternal(float64(operation_setting.GetAutoRechargeSetting().Amount))
+	if amountQuota > 0 && systemAmountQuota > 0 && amountQuota < systemAmountQuota {
+		return 0, errors.New("自动充值额度小于系统默认充值额度")
+	}
+	return amountQuota, nil
 }
 
 func quotaPoolPageInfo(c *gin.Context) *common.PageInfo {
@@ -218,12 +231,20 @@ func UpdateQuotaPool(c *gin.Context) {
 	if req.Name != nil {
 		updates["name"] = *req.Name
 	}
-	if req.AutoRechargeAmount != nil {
-		if *req.AutoRechargeAmount < 0 {
-			updates["auto_recharge_amount"] = model.QuotaPoolAutoRechargeInherit
-		} else {
-			updates["auto_recharge_amount"] = quotaAmountToInternal(*req.AutoRechargeAmount)
+	if req.BaseQuota != nil {
+		if *req.BaseQuota <= 0 {
+			common.ApiError(c, errors.New("额度池总额度必须大于 0"))
+			return
 		}
+		updates["base_quota"] = quotaAmountToInternal(*req.BaseQuota)
+	}
+	if req.AutoRechargeAmount != nil {
+		amount, err := quotaPoolAutoRechargeAmountUpdate(*req.AutoRechargeAmount)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		updates["auto_recharge_amount"] = amount
 	}
 	if req.WeeklyLimit != nil {
 		updates["weekly_limit"] = *req.WeeklyLimit
@@ -267,9 +288,13 @@ func UpdateQuotaPool(c *gin.Context) {
 			return
 		}
 	}
-	if err := model.UpdateQuotaPoolConfig(id, updates); err != nil {
+	change, err := model.UpdateQuotaPoolConfig(id, updates, c.GetInt("id"))
+	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	if change != nil && change.Amount != 0 {
+		model.RecordLogWithAdminInfo(c.GetInt("id"), model.LogTypeManage, fmt.Sprintf("调整额度池(ID:%d)总额度，额度池余额从 %s 变为 %s", id, logger.LogQuota(change.QuotaBefore), logger.LogQuota(change.QuotaAfter)), quotaPoolAdminLogInfo(c, id))
 	}
 	common.ApiSuccess(c, nil)
 }
@@ -289,11 +314,12 @@ func UpdateSelfQuotaPool(c *gin.Context) {
 	}
 	updates := map[string]interface{}{}
 	if req.AutoRechargeAmount != nil {
-		if *req.AutoRechargeAmount < 0 {
-			updates["auto_recharge_amount"] = model.QuotaPoolAutoRechargeInherit
-		} else {
-			updates["auto_recharge_amount"] = quotaAmountToInternal(*req.AutoRechargeAmount)
+		amount, err := quotaPoolAutoRechargeAmountUpdate(*req.AutoRechargeAmount)
+		if err != nil {
+			common.ApiError(c, err)
+			return
 		}
+		updates["auto_recharge_amount"] = amount
 	}
 	if req.WeeklyLimit != nil {
 		updates["weekly_limit"] = *req.WeeklyLimit
@@ -301,7 +327,7 @@ func UpdateSelfQuotaPool(c *gin.Context) {
 	if req.MonthlyLimit != nil {
 		updates["monthly_limit"] = *req.MonthlyLimit
 	}
-	if err := model.UpdateQuotaPoolConfig(admin.PoolId, updates); err != nil {
+	if _, err := model.UpdateQuotaPoolConfig(admin.PoolId, updates, c.GetInt("id")); err != nil {
 		common.ApiError(c, err)
 		return
 	}

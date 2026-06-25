@@ -284,7 +284,8 @@ func TestUpdateSelfQuotaPoolOnlyUpdatesRechargeRules(t *testing.T) {
 		t.Fatalf("create operator admin failed: %v", err)
 	}
 	name := "renamed"
-	autoRechargeAmount := float64(6)
+	autoRechargeAmount := float64(300)
+	baseQuota := float64(9)
 	weeklyLimit := 3
 	monthlyLimit := 4
 	monthlyRefillEnabled := true
@@ -292,6 +293,7 @@ func TestUpdateSelfQuotaPoolOnlyUpdatesRechargeRules(t *testing.T) {
 	monthlyRefillDay := 7
 	ctx, recorder := quotaPoolTestContext(t, http.MethodPut, "/api/quota_pool/self", quotaPoolUpdateRequest{
 		Name:                 &name,
+		BaseQuota:            &baseQuota,
 		AutoRechargeAmount:   &autoRechargeAmount,
 		WeeklyLimit:          &weeklyLimit,
 		MonthlyLimit:         &monthlyLimit,
@@ -310,11 +312,54 @@ func TestUpdateSelfQuotaPoolOnlyUpdatesRechargeRules(t *testing.T) {
 	if err := db.First(&got, pool.Id).Error; err != nil {
 		t.Fatalf("load pool failed: %v", err)
 	}
-	if got.AutoRechargeAmount != 6*unit || got.WeeklyLimit != 3 || got.MonthlyLimit != 4 {
+	if got.AutoRechargeAmount != 300*unit || got.WeeklyLimit != 3 || got.MonthlyLimit != 4 {
 		t.Fatalf("recharge rules not updated: %+v", got)
 	}
-	if got.Name != "team" || got.MonthlyRefillEnabled || got.MonthlyRefillAmount != 100 || got.MonthlyRefillDay != 1 {
+	if got.Name != "team" || got.BaseQuota != 1000 || got.Quota != 1000 || got.MonthlyRefillEnabled || got.MonthlyRefillAmount != 100 || got.MonthlyRefillDay != 1 {
 		t.Fatalf("self update should not change protected fields: %+v", got)
+	}
+}
+
+func TestUpdateSelfQuotaPoolRejectsAutoRechargeAmountBelowSystemDefault(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	cfg := operation_setting.GetAutoRechargeSetting()
+	originalAmount := cfg.Amount
+	defer func() {
+		cfg.Amount = originalAmount
+	}()
+	cfg.Amount = 200
+
+	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 1000, Quota: 1000, AutoRechargeAmount: model.QuotaPoolAutoRechargeInherit, MonthlyRefillDay: 1}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	operator := &model.User{Id: 1, Username: "operator", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id, AffCode: "operator-code"}
+	if err := db.Create(operator).Error; err != nil {
+		t.Fatalf("create operator failed: %v", err)
+	}
+	if err := db.Create(&model.QuotaPoolAdmin{PoolId: pool.Id, UserId: operator.Id, Level: model.QuotaPoolAdminLevelV1}).Error; err != nil {
+		t.Fatalf("create operator admin failed: %v", err)
+	}
+	autoRechargeAmount := float64(100)
+	ctx, recorder := quotaPoolTestContext(t, http.MethodPut, "/api/quota_pool/self", quotaPoolUpdateRequest{
+		AutoRechargeAmount: &autoRechargeAmount,
+	}, common.RoleCommonUser, operator.Id)
+
+	UpdateSelfQuotaPool(ctx)
+
+	response := decodeQuotaPoolResponse(t, recorder)
+	if response["success"] == true {
+		t.Fatalf("expected update to be rejected")
+	}
+	if !strings.Contains(response["message"].(string), "自动充值额度小于系统默认充值额度") {
+		t.Fatalf("unexpected message: %s", response["message"].(string))
+	}
+	var got model.QuotaPool
+	if err := db.First(&got, pool.Id).Error; err != nil {
+		t.Fatalf("load pool failed: %v", err)
+	}
+	if got.AutoRechargeAmount != model.QuotaPoolAutoRechargeInherit {
+		t.Fatalf("auto recharge amount should be unchanged, got %d", got.AutoRechargeAmount)
 	}
 }
 
@@ -768,6 +813,109 @@ func TestReclaimQuotaPoolMemberRejectsWhenResultWouldTriggerAutoRecharge(t *test
 	_ = db.First(&gotUser, user.Id).Error
 	if gotUser.Quota != 5*unit {
 		t.Fatalf("user quota = %d, want %d", gotUser.Quota, 5*unit)
+	}
+}
+
+func TestUpdateQuotaPoolCanAdjustBaseQuota(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	unit := int(common.QuotaPerUnit)
+	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 10 * unit, Quota: 4 * unit, MonthlyRefillDay: 1}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	baseQuota := float64(12)
+	ctx, recorder := quotaPoolTestContext(t, http.MethodPut, fmt.Sprintf("/api/quota_pool/%d", pool.Id), quotaPoolUpdateRequest{
+		BaseQuota: &baseQuota,
+	}, common.RoleRootUser, 99)
+	ctx.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", pool.Id)}}
+
+	UpdateQuotaPool(ctx)
+
+	response := decodeQuotaPoolResponse(t, recorder)
+	if response["success"] != true {
+		t.Fatalf("expected success response, got %#v", response)
+	}
+	var got model.QuotaPool
+	if err := db.First(&got, pool.Id).Error; err != nil {
+		t.Fatalf("load pool failed: %v", err)
+	}
+	if got.BaseQuota != 12*unit || got.Quota != 6*unit {
+		t.Fatalf("pool quota = %d/%d, want %d/%d", got.Quota, got.BaseQuota, 6*unit, 12*unit)
+	}
+	var tx model.QuotaPoolTransaction
+	if err := db.First(&tx, "pool_id = ? AND type = ?", pool.Id, model.QuotaPoolTransactionAdjustBase).Error; err != nil {
+		t.Fatalf("load adjust transaction failed: %v", err)
+	}
+	if tx.Amount != 2*unit || tx.QuotaBefore != 4*unit || tx.QuotaAfter != 6*unit || tx.OperatorId != 99 {
+		t.Fatalf("unexpected adjust transaction: %+v", tx)
+	}
+}
+
+func TestUpdateQuotaPoolRejectsBaseQuotaBelowAllocatedQuota(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	unit := int(common.QuotaPerUnit)
+	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 1000 * unit, Quota: 300 * unit, MonthlyRefillDay: 1}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	baseQuota := float64(600)
+	ctx, recorder := quotaPoolTestContext(t, http.MethodPut, fmt.Sprintf("/api/quota_pool/%d", pool.Id), quotaPoolUpdateRequest{
+		BaseQuota: &baseQuota,
+	}, common.RoleRootUser, 99)
+	ctx.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", pool.Id)}}
+
+	UpdateQuotaPool(ctx)
+
+	response := decodeQuotaPoolResponse(t, recorder)
+	if response["success"] == true {
+		t.Fatalf("expected base quota decrease to fail")
+	}
+	if !strings.Contains(response["message"].(string), "最多减少") || !strings.Contains(response["message"].(string), "300.000000") {
+		t.Fatalf("unexpected message: %s", response["message"].(string))
+	}
+	var got model.QuotaPool
+	if err := db.First(&got, pool.Id).Error; err != nil {
+		t.Fatalf("load pool failed: %v", err)
+	}
+	if got.BaseQuota != 1000*unit || got.Quota != 300*unit {
+		t.Fatalf("pool should be unchanged, got %d/%d", got.Quota, got.BaseQuota)
+	}
+}
+
+func TestUpdateQuotaPoolRejectsAutoRechargeAmountBelowSystemDefault(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	cfg := operation_setting.GetAutoRechargeSetting()
+	originalAmount := cfg.Amount
+	defer func() {
+		cfg.Amount = originalAmount
+	}()
+	cfg.Amount = 200
+
+	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 1000, Quota: 1000, AutoRechargeAmount: model.QuotaPoolAutoRechargeInherit, MonthlyRefillDay: 1}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	autoRechargeAmount := float64(100)
+	ctx, recorder := quotaPoolTestContext(t, http.MethodPut, fmt.Sprintf("/api/quota_pool/%d", pool.Id), quotaPoolUpdateRequest{
+		AutoRechargeAmount: &autoRechargeAmount,
+	}, common.RoleRootUser, 99)
+	ctx.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", pool.Id)}}
+
+	UpdateQuotaPool(ctx)
+
+	response := decodeQuotaPoolResponse(t, recorder)
+	if response["success"] == true {
+		t.Fatalf("expected update to be rejected")
+	}
+	if !strings.Contains(response["message"].(string), "自动充值额度小于系统默认充值额度") {
+		t.Fatalf("unexpected message: %s", response["message"].(string))
+	}
+	var got model.QuotaPool
+	if err := db.First(&got, pool.Id).Error; err != nil {
+		t.Fatalf("load pool failed: %v", err)
+	}
+	if got.AutoRechargeAmount != model.QuotaPoolAutoRechargeInherit {
+		t.Fatalf("auto recharge amount should be unchanged, got %d", got.AutoRechargeAmount)
 	}
 }
 

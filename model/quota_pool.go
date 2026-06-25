@@ -30,6 +30,7 @@ const (
 	QuotaPoolTransactionAllocateAuto   = "allocate_auto"
 	QuotaPoolTransactionAllocateManual = "allocate_manual"
 	QuotaPoolTransactionReclaimUser    = "reclaim_user"
+	QuotaPoolTransactionAdjustBase     = "adjust_base_quota"
 )
 
 var (
@@ -42,9 +43,22 @@ var (
 	ErrQuotaPoolReclaimTriggersAuto   = errors.New("扣减后会触发自动充值")
 	ErrQuotaPoolNameExists            = errors.New("额度池名称已存在")
 	ErrQuotaPoolRefillLimited         = errors.New("额度池临时额度超出限制")
+	ErrQuotaPoolAdjustLimited         = errors.New("下调后额度池可用额度不能小于 0")
 	ErrQuotaPoolMemberMismatch        = errors.New("用户不属于该额度池")
 	ErrQuotaPoolSamePool              = errors.New("用户已在该额度池")
 )
+
+type quotaPoolAdjustLimitedError struct {
+	maxReduction int
+}
+
+func (e quotaPoolAdjustLimitedError) Error() string {
+	return fmt.Sprintf("可用额度不够，最多减少%s", logger.LogQuota(e.maxReduction))
+}
+
+func (e quotaPoolAdjustLimitedError) Unwrap() error {
+	return ErrQuotaPoolAdjustLimited
+}
 
 type QuotaPool struct {
 	Id                   int            `json:"id"`
@@ -232,32 +246,6 @@ func SyncDefaultQuotaPool() (*QuotaPool, error) {
 	return pool, nil
 }
 
-func fundingTransactionTypes() []string {
-	return []string{
-		QuotaPoolTransactionInitialFund,
-		QuotaPoolTransactionManualRefill,
-		QuotaPoolTransactionMonthlyRefill,
-	}
-}
-
-func backfillQuotaPoolBaseQuota(tx *gorm.DB, pool *QuotaPool) error {
-	if pool == nil || pool.IsDefault {
-		return nil
-	}
-	var total int64
-	if err := tx.Model(&QuotaPoolTransaction{}).
-		Where("pool_id = ? AND type IN ?", pool.Id, fundingTransactionTypes()).
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&total).Error; err != nil {
-		return err
-	}
-	if int(total) <= pool.BaseQuota {
-		return nil
-	}
-	pool.BaseQuota = int(total)
-	return tx.Model(&QuotaPool{}).Where("id = ?", pool.Id).Update("base_quota", pool.BaseQuota).Error
-}
-
 func GetQuotaPoolAdminSummary(userId int) (*QuotaPoolAdminSummary, error) {
 	var admin QuotaPoolAdmin
 	err := DB.Where("user_id = ?", userId).First(&admin).Error
@@ -289,11 +277,6 @@ func ListQuotaPools() ([]QuotaPoolListItem, error) {
 	var pools []QuotaPool
 	if err := DB.Order("is_default desc, id desc").Find(&pools).Error; err != nil {
 		return nil, err
-	}
-	for i := range pools {
-		if err := backfillQuotaPoolBaseQuota(DB, &pools[i]); err != nil {
-			return nil, err
-		}
 	}
 	items := make([]QuotaPoolListItem, 0, len(pools))
 	for _, pool := range pools {
@@ -599,13 +582,14 @@ func CreateQuotaPool(name string, baseQuota int, operatorId int) (*QuotaPool, er
 	return pool, nil
 }
 
-func UpdateQuotaPoolConfig(poolId int, updates map[string]interface{}) error {
+func UpdateQuotaPoolConfig(poolId int, updates map[string]interface{}, operatorId int) (*QuotaPoolBalanceChange, error) {
 	if poolId == QuotaPoolDefaultUserPoolId {
-		return ErrQuotaPoolDefaultReadonly
+		return nil, ErrQuotaPoolDefaultReadonly
 	}
-	return DB.Transaction(func(tx *gorm.DB) error {
+	var change *QuotaPoolBalanceChange
+	err := DB.Transaction(func(tx *gorm.DB) error {
 		pool := &QuotaPool{}
-		if err := tx.First(pool, "id = ?", poolId).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(pool, "id = ?", poolId).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrQuotaPoolNotFound
 			}
@@ -623,8 +607,42 @@ func UpdateQuotaPoolConfig(poolId int, updates map[string]interface{}) error {
 				return ErrQuotaPoolNameExists
 			}
 		}
-		return tx.Model(&QuotaPool{}).Where("id = ?", poolId).Updates(updates).Error
+		if baseQuota, ok := updates["base_quota"].(int); ok {
+			if baseQuota <= 0 {
+				return ErrQuotaPoolInvalidAmount
+			}
+			delta := baseQuota - pool.BaseQuota
+			quotaAfter := pool.Quota + delta
+			if quotaAfter < 0 {
+				return quotaPoolAdjustLimitedError{maxReduction: pool.Quota}
+			}
+			updates["quota"] = quotaAfter
+			change = &QuotaPoolBalanceChange{
+				PoolId:      poolId,
+				Amount:      delta,
+				QuotaBefore: pool.Quota,
+				QuotaAfter:  quotaAfter,
+			}
+		}
+		if err := tx.Model(&QuotaPool{}).Where("id = ?", poolId).Updates(updates).Error; err != nil {
+			return err
+		}
+		if change != nil && change.Amount != 0 {
+			return tx.Create(&QuotaPoolTransaction{
+				PoolId:      poolId,
+				Type:        QuotaPoolTransactionAdjustBase,
+				Amount:      change.Amount,
+				QuotaBefore: change.QuotaBefore,
+				QuotaAfter:  change.QuotaAfter,
+				OperatorId:  operatorId,
+			}).Error
+		}
+		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	return change, nil
 }
 
 func SetQuotaPoolEnabled(poolId int, enabled bool) error {
@@ -990,9 +1008,6 @@ func AddQuotaPoolManualRefill(poolId int, amount int, operatorId int) (*QuotaPoo
 		}
 		if !pool.Enabled {
 			return ErrQuotaPoolDisabled
-		}
-		if err := backfillQuotaPoolBaseQuota(tx, pool); err != nil {
-			return err
 		}
 		if pool.BaseQuota <= 0 || amount*2 > pool.BaseQuota {
 			return ErrQuotaPoolRefillLimited

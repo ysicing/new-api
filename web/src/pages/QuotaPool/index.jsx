@@ -37,6 +37,7 @@ const TRANSACTION_TYPE_LABELS = {
   allocate_auto: '自动分配',
   allocate_manual: '手动分配',
   reclaim_user: '回收用户额度',
+  adjust_base_quota: '调整总额度',
 };
 const ROLE_MEMBER = 0;
 const ROLE_POOL_ADMIN_V1 = 1;
@@ -916,6 +917,10 @@ const QuotaPool = () => {
         <Form
           initValues={{
             name: selectedPool?.name,
+            base_quota:
+              selectedPool?.base_quota > 0
+                ? selectedPool.base_quota / QUOTA_PER_UNIT
+                : 0,
             auto_recharge_amount:
               selectedPool?.auto_recharge_amount > 0
                 ? selectedPool.auto_recharge_amount / QUOTA_PER_UNIT
@@ -942,6 +947,17 @@ const QuotaPool = () => {
           }}
         >
           {canConfigurePools && <Form.Input field='name' label={t('名称')} />}
+          {canConfigurePools && (
+            <Form.InputNumber
+              field='base_quota'
+              label={t('总额度')}
+              min={1}
+              rules={[{ required: true }]}
+              extraText={t(
+                '调整总额度会按差额同步调整额度池可用额度；下调后可用额度不能小于 0。',
+              )}
+            />
+          )}
           <Form.InputNumber
             field='auto_recharge_amount'
             label={t('充值金额')}
