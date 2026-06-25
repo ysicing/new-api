@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Card,
+  Dropdown,
   Form,
   Modal,
   Popconfirm,
@@ -20,6 +21,7 @@ import {
   IconArrowLeft,
   IconEdit,
   IconEyeOpened,
+  IconMore,
   IconPlus,
   IconRefresh,
   IconUserAdd,
@@ -161,6 +163,13 @@ const QuotaPool = () => {
       return;
     }
     await grantAdmin(userId, level);
+  };
+
+  const confirmUpdateMemberRole = (record, level) => {
+    Modal.confirm({
+      title: t('确定要调整该用户的额度池角色吗？'),
+      onOk: () => updateMemberRole(record.id, level),
+    });
   };
 
   const renderPoolStatus = (pool) => {
@@ -498,48 +507,61 @@ const QuotaPool = () => {
     {
       title: t('操作'),
       dataIndex: 'operate',
-      width: 440,
+      width: 150,
       fixed: 'right',
-      render: (_, record) => (
-        <Space spacing={6} wrap>
-          {canRechargeMembers && (
-            <Button size='small' onClick={() => rechargeMember(record.id)}>
-              {t('充值')}
-            </Button>
-          )}
-          {canReclaimMembers && (
-            <Button
-              size='small'
+      render: (_, record) => {
+        const dropdownItems = [];
+        if (canReclaimMembers) {
+          dropdownItems.push(
+            <Dropdown.Item
+              key='reclaim'
               type='danger'
-              theme='borderless'
               onClick={() => reclaimMember(record.id)}
             >
-              {t('减少额度')}
-            </Button>
-          )}
-          {canMoveMembers && (
-            <Button size='small' onClick={() => setMoveMemberRecord(record)}>
-              {t('迁移')}
-            </Button>
-          )}
-          {getMemberRoleActions(record).map((action) => (
-            <Popconfirm
-              key={`${record.id}-${action.level}`}
-              title={t('确定要调整该用户的额度池角色吗？')}
-              position='left'
-              onConfirm={() => updateMemberRole(record.id, action.level)}
+              {t('降额')}
+            </Dropdown.Item>,
+          );
+        }
+        if (canMoveMembers) {
+          dropdownItems.push(
+            <Dropdown.Item
+              key='move'
+              onClick={() => setMoveMemberRecord(record)}
             >
-              <Button
-                size='small'
-                type={action.danger ? 'danger' : 'tertiary'}
-                theme='borderless'
-              >
-                {action.label}
+              {t('迁移')}
+            </Dropdown.Item>,
+          );
+        }
+        getMemberRoleActions(record).forEach((action) => {
+          dropdownItems.push(
+            <Dropdown.Item
+              key={`role-${record.id}-${action.level}`}
+              type={action.danger ? 'danger' : undefined}
+              onClick={() => confirmUpdateMemberRole(record, action.level)}
+            >
+              {action.label}
+            </Dropdown.Item>,
+          );
+        });
+        return (
+          <Space spacing={6}>
+            {canRechargeMembers && (
+              <Button size='small' onClick={() => rechargeMember(record.id)}>
+                {t('充值')}
               </Button>
-            </Popconfirm>
-          ))}
-        </Space>
-      ),
+            )}
+            {dropdownItems.length > 0 && (
+              <Dropdown
+                trigger='click'
+                position='bottomRight'
+                render={<Dropdown.Menu>{dropdownItems}</Dropdown.Menu>}
+              >
+                <Button size='small' type='tertiary' icon={<IconMore />} />
+              </Dropdown>
+            )}
+          </Space>
+        );
+      },
     },
   ];
 
