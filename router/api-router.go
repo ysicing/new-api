@@ -336,6 +336,7 @@ func SetApiRouter(router *gin.Engine) {
 			quotaPoolRoute.POST("/:id/members", controller.AddQuotaPoolMember)
 			quotaPoolRoute.PUT("/users/:user_id", controller.MoveUserQuotaPool)
 			quotaPoolRoute.POST("/:id/members/:user_id/recharge", controller.RechargeQuotaPoolMember)
+			quotaPoolRoute.POST("/:id/members/:user_id/reclaim", controller.ReclaimQuotaPoolMember)
 			quotaPoolRoute.POST("/:id/admins", controller.GrantQuotaPoolAdmin)
 			quotaPoolRoute.DELETE("/:id/admins/:user_id", controller.RevokeQuotaPoolAdmin)
 		}
@@ -359,6 +360,7 @@ func SetApiRouter(router *gin.Engine) {
 			quotaPoolSelfRoute.GET("/candidates", controller.GetSelfQuotaPoolCandidates)
 			quotaPoolSelfRoute.POST("/members", controller.AddSelfQuotaPoolMember)
 			quotaPoolSelfRoute.POST("/members/:user_id/recharge", controller.RechargeSelfQuotaPoolMember)
+			quotaPoolSelfRoute.POST("/members/:user_id/reclaim", controller.ReclaimSelfQuotaPoolMember)
 			quotaPoolSelfRoute.POST("/admins", controller.GrantSelfQuotaPoolAdmin)
 			quotaPoolSelfRoute.DELETE("/admins/:user_id", controller.RevokeSelfQuotaPoolAdmin)
 		}

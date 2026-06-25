@@ -391,6 +391,88 @@ func TestTransferQuotaFromPoolToUserRejectsNonMember(t *testing.T) {
 	}
 }
 
+func TestReclaimQuotaFromUserToPoolCreditsPoolAndDebitsUser(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 1000)
+	user := createQuotaPoolTestUser(t, db, 1, 300, pool.Id)
+
+	result, err := ReclaimQuotaFromUserToPool(pool.Id, user.Id, 200, 50)
+	if err != nil {
+		t.Fatalf("reclaim failed: %v", err)
+	}
+	if !result.PoolChanged {
+		t.Fatalf("expected non-default pool to be changed")
+	}
+	if result.Change.QuotaBefore != 1000 || result.Change.QuotaAfter != 1200 || result.Change.Amount != 200 {
+		t.Fatalf("unexpected change: %+v", result.Change)
+	}
+
+	var gotPool QuotaPool
+	if err := db.First(&gotPool, pool.Id).Error; err != nil {
+		t.Fatalf("load pool failed: %v", err)
+	}
+	if gotPool.Quota != 1200 {
+		t.Fatalf("pool quota = %d, want 1200", gotPool.Quota)
+	}
+	var gotUser User
+	if err := db.First(&gotUser, user.Id).Error; err != nil {
+		t.Fatalf("load user failed: %v", err)
+	}
+	if gotUser.Quota != 100 {
+		t.Fatalf("user quota = %d, want 100", gotUser.Quota)
+	}
+}
+
+func TestReclaimQuotaFromUserToPoolRejectsInsufficientUserQuota(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 1000)
+	user := createQuotaPoolTestUser(t, db, 1, 100, pool.Id)
+
+	_, err := ReclaimQuotaFromUserToPool(pool.Id, user.Id, 200, 0)
+	if !errors.Is(err, ErrQuotaPoolInsufficientUserQuota) {
+		t.Fatalf("expected insufficient user quota error, got %v", err)
+	}
+
+	var gotPool QuotaPool
+	_ = db.First(&gotPool, pool.Id).Error
+	if gotPool.Quota != 1000 {
+		t.Fatalf("pool quota = %d, want 1000", gotPool.Quota)
+	}
+	var gotUser User
+	_ = db.First(&gotUser, user.Id).Error
+	if gotUser.Quota != 100 {
+		t.Fatalf("user quota = %d, want 100", gotUser.Quota)
+	}
+}
+
+func TestReclaimQuotaFromUserToPoolRejectsAutoRechargeThreshold(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 1000)
+	user := createQuotaPoolTestUser(t, db, 1, 300, pool.Id)
+
+	_, err := ReclaimQuotaFromUserToPool(pool.Id, user.Id, 200, 100)
+	if !errors.Is(err, ErrQuotaPoolReclaimTriggersAuto) {
+		t.Fatalf("expected auto recharge threshold error, got %v", err)
+	}
+
+	var gotPool QuotaPool
+	_ = db.First(&gotPool, pool.Id).Error
+	if gotPool.Quota != 1000 {
+		t.Fatalf("pool quota = %d, want 1000", gotPool.Quota)
+	}
+	var gotUser User
+	_ = db.First(&gotUser, user.Id).Error
+	if gotUser.Quota != 300 {
+		t.Fatalf("user quota = %d, want 300", gotUser.Quota)
+	}
+}
+
 func TestListQuotaPoolMembersAndCandidatesOmitAccessToken(t *testing.T) {
 	db, cleanup := setupQuotaPoolTestDB(t)
 	defer cleanup()

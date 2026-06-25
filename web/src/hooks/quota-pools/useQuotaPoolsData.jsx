@@ -322,6 +322,21 @@ export const useQuotaPoolsData = () => {
     }
   };
 
+  const reclaimMember = async (userId) => {
+    const url = canUseGlobalApi
+      ? `/api/quota_pool/${selectedPoolId}/members/${userId}/reclaim`
+      : `/api/quota_pool/self/members/${userId}/reclaim`;
+    const res = await API.post(url);
+    const { success, message } = res.data;
+    if (success) {
+      showSuccess(t('操作成功完成！'));
+      await loadPools();
+      await refreshDetail();
+    } else {
+      showError(message);
+    }
+  };
+
   const grantAdmin = async (userId, level) => {
     const url = canUseGlobalApi
       ? `/api/quota_pool/${selectedPoolId}/admins`
@@ -379,6 +394,7 @@ export const useQuotaPoolsData = () => {
     addMember,
     moveMember,
     rechargeMember,
+    reclaimMember,
     grantAdmin,
     revokeAdmin,
     canUseGlobalApi,

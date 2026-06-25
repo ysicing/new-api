@@ -33,15 +33,17 @@ const (
 )
 
 var (
-	ErrQuotaPoolNotFound          = errors.New("额度池不存在")
-	ErrQuotaPoolDisabled          = errors.New("额度池已禁用")
-	ErrQuotaPoolDefaultReadonly   = errors.New("默认额度池不支持该操作")
-	ErrQuotaPoolInvalidAmount     = errors.New("额度池金额无效")
-	ErrQuotaPoolInsufficientQuota = errors.New("额度池余额不足")
-	ErrQuotaPoolNameExists        = errors.New("额度池名称已存在")
-	ErrQuotaPoolRefillLimited     = errors.New("额度池临时额度超出限制")
-	ErrQuotaPoolMemberMismatch    = errors.New("用户不属于该额度池")
-	ErrQuotaPoolSamePool          = errors.New("用户已在该额度池")
+	ErrQuotaPoolNotFound              = errors.New("额度池不存在")
+	ErrQuotaPoolDisabled              = errors.New("额度池已禁用")
+	ErrQuotaPoolDefaultReadonly       = errors.New("默认额度池不支持该操作")
+	ErrQuotaPoolInvalidAmount         = errors.New("额度池金额无效")
+	ErrQuotaPoolInsufficientQuota     = errors.New("额度池余额不足")
+	ErrQuotaPoolInsufficientUserQuota = errors.New("用户额度不足")
+	ErrQuotaPoolReclaimTriggersAuto   = errors.New("扣减后会触发自动充值")
+	ErrQuotaPoolNameExists            = errors.New("额度池名称已存在")
+	ErrQuotaPoolRefillLimited         = errors.New("额度池临时额度超出限制")
+	ErrQuotaPoolMemberMismatch        = errors.New("用户不属于该额度池")
+	ErrQuotaPoolSamePool              = errors.New("用户已在该额度池")
 )
 
 type QuotaPool struct {
@@ -728,6 +730,71 @@ func TransferQuotaFromPoolToUser(poolId int, userId int, amount int) (*QuotaPool
 			Amount:      -amount,
 			QuotaBefore: before,
 			QuotaAfter:  before - amount,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	gopoolUpdateUserQuotaCache(userId)
+	return result, nil
+}
+
+func ReclaimQuotaFromUserToPool(poolId int, userId int, amount int, autoRechargeThresholdQuota int) (*QuotaPoolTransferResult, error) {
+	if amount <= 0 {
+		return nil, ErrQuotaPoolInvalidAmount
+	}
+	poolId = normalizeQuotaPoolId(poolId)
+	if poolId == QuotaPoolDefaultUserPoolId {
+		return nil, ErrQuotaPoolDefaultReadonly
+	}
+
+	result := &QuotaPoolTransferResult{PoolChanged: true}
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		pool := &QuotaPool{}
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(pool, "id = ?", poolId).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrQuotaPoolNotFound
+			}
+			return err
+		}
+		if pool.IsDefault {
+			return ErrQuotaPoolDefaultReadonly
+		}
+		if !pool.Enabled {
+			return ErrQuotaPoolDisabled
+		}
+		user := &User{}
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(user, "id = ?", userId).Error; err != nil {
+			return err
+		}
+		if normalizeQuotaPoolId(user.QuotaPoolId) != poolId {
+			return ErrQuotaPoolMemberMismatch
+		}
+		if user.Quota < amount {
+			return ErrQuotaPoolInsufficientUserQuota
+		}
+		if autoRechargeThresholdQuota >= 0 && user.Quota-amount <= autoRechargeThresholdQuota {
+			return ErrQuotaPoolReclaimTriggersAuto
+		}
+		before := pool.Quota
+		debitResult := tx.Model(&User{}).
+			Where("id = ? AND quota >= ?", userId, amount).
+			Update("quota", gorm.Expr("quota - ?", amount))
+		if debitResult.Error != nil {
+			return debitResult.Error
+		}
+		if debitResult.RowsAffected == 0 {
+			return ErrQuotaPoolInsufficientUserQuota
+		}
+		if err := tx.Model(&QuotaPool{}).Where("id = ?", poolId).Update("quota", gorm.Expr("quota + ?", amount)).Error; err != nil {
+			return err
+		}
+		result.Change = QuotaPoolBalanceChange{
+			PoolId:      poolId,
+			Amount:      amount,
+			QuotaBefore: before,
+			QuotaAfter:  before + amount,
 		}
 		return nil
 	})

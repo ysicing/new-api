@@ -522,6 +522,14 @@ func quotaPoolRechargeAmount(poolId int) (int, error) {
 	return pool.AutoRechargeAmount, nil
 }
 
+func quotaPoolAutoRechargeThreshold() int {
+	cfg := operation_setting.GetAutoRechargeSetting()
+	if cfg == nil || !cfg.Enabled || cfg.Threshold < 0 {
+		return -1
+	}
+	return int(float64(cfg.Threshold) * common.QuotaPerUnit)
+}
+
 func rechargeQuotaPoolMember(c *gin.Context, poolId int, userId int) error {
 	if poolId == model.QuotaPoolDefaultUserPoolId {
 		return model.ErrQuotaPoolDefaultReadonly
@@ -547,6 +555,26 @@ func rechargeQuotaPoolMember(c *gin.Context, poolId int, userId int) error {
 	return nil
 }
 
+func reclaimQuotaPoolMember(c *gin.Context, poolId int, userId int) error {
+	if poolId == model.QuotaPoolDefaultUserPoolId {
+		return model.ErrQuotaPoolDefaultReadonly
+	}
+	amount, err := quotaPoolRechargeAmount(poolId)
+	if err != nil {
+		return err
+	}
+	transfer, err := model.ReclaimQuotaFromUserToPool(poolId, userId, amount, quotaPoolAutoRechargeThreshold())
+	if err != nil {
+		return err
+	}
+	content := fmt.Sprintf("额度池管理员(ID:%d)减少%s临时额度", c.GetInt("id"), logger.LogQuota(amount))
+	recordQuotaPoolMemberManageLog(c, poolId, userId, content)
+	if transfer != nil && transfer.PoolChanged {
+		model.RecordQuotaPoolTransaction(poolId, model.QuotaPoolTransactionReclaimUser, transfer.Change.Amount, transfer.Change.QuotaBefore, transfer.Change.QuotaAfter, userId, c.GetInt("id"))
+	}
+	return nil
+}
+
 func RechargeQuotaPoolMember(c *gin.Context) {
 	if !requireQuotaPoolEnabled(c) {
 		return
@@ -561,6 +589,26 @@ func RechargeQuotaPoolMember(c *gin.Context) {
 		return
 	}
 	if err := rechargeQuotaPoolMember(c, id, userId); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, nil)
+}
+
+func ReclaimQuotaPoolMember(c *gin.Context) {
+	if !requireQuotaPoolEnabled(c) {
+		return
+	}
+	id, ok := parseQuotaPoolId(c)
+	if !ok {
+		return
+	}
+	userId, err := strconv.Atoi(c.Param("user_id"))
+	if err != nil {
+		common.ApiError(c, errors.New("用户 ID 无效"))
+		return
+	}
+	if err := reclaimQuotaPoolMember(c, id, userId); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -742,6 +790,26 @@ func RechargeSelfQuotaPoolMember(c *gin.Context) {
 		return
 	}
 	if err := rechargeQuotaPoolMember(c, admin.PoolId, userId); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, nil)
+}
+
+func ReclaimSelfQuotaPoolMember(c *gin.Context) {
+	if !requireQuotaPoolEnabled(c) {
+		return
+	}
+	admin, ok := requireQuotaPoolAdmin(c, model.QuotaPoolAdminLevelV1)
+	if !ok {
+		return
+	}
+	userId, err := strconv.Atoi(c.Param("user_id"))
+	if err != nil {
+		common.ApiError(c, errors.New("用户 ID 无效"))
+		return
+	}
+	if err := reclaimQuotaPoolMember(c, admin.PoolId, userId); err != nil {
 		common.ApiError(c, err)
 		return
 	}

@@ -617,6 +617,100 @@ func TestRechargeQuotaPoolMemberRejectsDefaultPool(t *testing.T) {
 	}
 }
 
+func TestReclaimQuotaPoolMemberCreditsPoolAndDebitsUser(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	cfg := operation_setting.GetAutoRechargeSetting()
+	originalEnabled := cfg.Enabled
+	originalThreshold := cfg.Threshold
+	defer func() {
+		cfg.Enabled = originalEnabled
+		cfg.Threshold = originalThreshold
+	}()
+	cfg.Enabled = true
+	cfg.Threshold = 1
+
+	unit := int(common.QuotaPerUnit)
+	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 10 * unit, Quota: 8 * unit, AutoRechargeAmount: 2 * unit, MonthlyRefillDay: 1}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	user := &model.User{Username: "member", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Quota: 5 * unit, QuotaPoolId: pool.Id, AffCode: "member-code"}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("create user failed: %v", err)
+	}
+	ctx, recorder := quotaPoolTestContext(t, http.MethodPost, fmt.Sprintf("/api/quota_pool/%d/members/%d/reclaim", pool.Id, user.Id), nil, common.RoleAdminUser, 99)
+	ctx.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", pool.Id)}, {Key: "user_id", Value: fmt.Sprintf("%d", user.Id)}}
+
+	ReclaimQuotaPoolMember(ctx)
+
+	response := decodeQuotaPoolResponse(t, recorder)
+	if response["success"] != true {
+		t.Fatalf("expected reclaim to succeed, got %#v", response)
+	}
+	var gotPool model.QuotaPool
+	_ = db.First(&gotPool, pool.Id).Error
+	if gotPool.Quota != 10*unit {
+		t.Fatalf("pool quota = %d, want %d", gotPool.Quota, 10*unit)
+	}
+	var gotUser model.User
+	_ = db.First(&gotUser, user.Id).Error
+	if gotUser.Quota != 3*unit {
+		t.Fatalf("user quota = %d, want %d", gotUser.Quota, 3*unit)
+	}
+	var tx model.QuotaPoolTransaction
+	if err := db.First(&tx, "pool_id = ? AND type = ?", pool.Id, model.QuotaPoolTransactionReclaimUser).Error; err != nil {
+		t.Fatalf("load reclaim transaction failed: %v", err)
+	}
+	if tx.Amount != 2*unit || tx.QuotaBefore != 8*unit || tx.QuotaAfter != 10*unit || tx.UserId != user.Id || tx.OperatorId != 99 {
+		t.Fatalf("unexpected reclaim transaction: %+v", tx)
+	}
+}
+
+func TestReclaimQuotaPoolMemberRejectsWhenResultWouldTriggerAutoRecharge(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	cfg := operation_setting.GetAutoRechargeSetting()
+	originalEnabled := cfg.Enabled
+	originalThreshold := cfg.Threshold
+	defer func() {
+		cfg.Enabled = originalEnabled
+		cfg.Threshold = originalThreshold
+	}()
+	cfg.Enabled = true
+	cfg.Threshold = 3
+
+	unit := int(common.QuotaPerUnit)
+	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 10 * unit, Quota: 8 * unit, AutoRechargeAmount: 2 * unit, MonthlyRefillDay: 1}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	user := &model.User{Username: "member", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Quota: 5 * unit, QuotaPoolId: pool.Id, AffCode: "member-code"}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("create user failed: %v", err)
+	}
+	ctx, recorder := quotaPoolTestContext(t, http.MethodPost, fmt.Sprintf("/api/quota_pool/%d/members/%d/reclaim", pool.Id, user.Id), nil, common.RoleAdminUser, 99)
+	ctx.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", pool.Id)}, {Key: "user_id", Value: fmt.Sprintf("%d", user.Id)}}
+
+	ReclaimQuotaPoolMember(ctx)
+
+	response := decodeQuotaPoolResponse(t, recorder)
+	if response["success"] == true {
+		t.Fatalf("expected reclaim to be rejected")
+	}
+	if !strings.Contains(response["message"].(string), "扣减后会触发自动充值") {
+		t.Fatalf("unexpected response: %#v", response)
+	}
+	var gotPool model.QuotaPool
+	_ = db.First(&gotPool, pool.Id).Error
+	if gotPool.Quota != 8*unit {
+		t.Fatalf("pool quota = %d, want %d", gotPool.Quota, 8*unit)
+	}
+	var gotUser model.User
+	_ = db.First(&gotUser, user.Id).Error
+	if gotUser.Quota != 5*unit {
+		t.Fatalf("user quota = %d, want %d", gotUser.Quota, 5*unit)
+	}
+}
+
 func TestUpdateQuotaPoolRejectsEnabledMonthlyRefillWithoutAmount(t *testing.T) {
 	db := setupQuotaPoolControllerTestDB(t)
 	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 1000, Quota: 1000, MonthlyRefillDay: 1}

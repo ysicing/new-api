@@ -70,6 +70,7 @@ const QuotaPool = () => {
     addMember,
     moveMember,
     rechargeMember,
+    reclaimMember,
     grantAdmin,
     revokeAdmin,
     canUseGlobalApi,
@@ -118,6 +119,7 @@ const QuotaPool = () => {
   const canUseActivePool = canOperateSelectedPool && selectedPool.enabled;
   const canMoveMembers = canUseGlobalApi && canOperateSelectedPool;
   const canRechargeMembers = canUseActivePool;
+  const canReclaimMembers = canUseActivePool;
   const canGrantV2Admins = canUseGlobalApi;
   const hasDefaultPool = pools.some((pool) => pool.is_default);
 
@@ -267,7 +269,8 @@ const QuotaPool = () => {
     );
   };
 
-  const renderTransactionType = (type) => t(TRANSACTION_TYPE_LABELS[type] || type);
+  const renderTransactionType = (type) =>
+    t(TRANSACTION_TYPE_LABELS[type] || type);
 
   const renderTransactionUser = (id, name) => {
     if (!id || !name) {
@@ -502,6 +505,16 @@ const QuotaPool = () => {
           {canRechargeMembers && (
             <Button size='small' onClick={() => rechargeMember(record.id)}>
               {t('充值')}
+            </Button>
+          )}
+          {canReclaimMembers && (
+            <Button
+              size='small'
+              type='danger'
+              theme='borderless'
+              onClick={() => reclaimMember(record.id)}
+            >
+              {t('减少额度')}
             </Button>
           )}
           {canMoveMembers && (
