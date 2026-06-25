@@ -77,8 +77,10 @@ const QuotaPool = () => {
     revokeAdmin,
     canUseGlobalApi,
     canConfigurePools,
+    canConfigureRechargeRules,
     canManagePoolAdmins,
     canRefillPools,
+    quotaPoolAdmin,
   } = data;
   const [showCreate, setShowCreate] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
@@ -122,6 +124,12 @@ const QuotaPool = () => {
   const canMoveMembers = canUseGlobalApi && canOperateSelectedPool;
   const canRechargeMembers = canUseActivePool;
   const canReclaimMembers = canUseActivePool;
+  const canConfigurePoolRules = (pool) =>
+    !!pool &&
+    !pool.is_default &&
+    (canConfigurePools ||
+      (canConfigureRechargeRules && quotaPoolAdmin?.pool_id === pool.id));
+  const canConfigureSelectedPool = canConfigurePoolRules(selectedPool);
   const canGrantV2Admins = canUseGlobalApi;
   const hasDefaultPool = pools.some((pool) => pool.is_default);
 
@@ -430,7 +438,7 @@ const QuotaPool = () => {
               {t('查看')}
             </Button>
           )}
-          {canConfigurePools && !record.is_default && (
+          {canConfigurePoolRules(record) && (
             <Button
               size='small'
               icon={<IconEdit />}
@@ -690,7 +698,7 @@ const QuotaPool = () => {
                   {renderPoolStatus(selectedPool)}
                 </Space>
                 <Space>
-                  {canConfigurePools && !selectedPool.is_default && (
+                  {canConfigureSelectedPool && (
                     <Button onClick={() => setShowConfig(true)}>
                       {t('配置')}
                     </Button>
@@ -922,28 +930,57 @@ const QuotaPool = () => {
             monthly_refill_day: selectedPool?.monthly_refill_day || 1,
           }}
           onSubmit={async (values) => {
-            await updatePool(selectedPool.id, values);
+            const submitValues = canConfigurePools
+              ? values
+              : {
+                  auto_recharge_amount: values.auto_recharge_amount,
+                  weekly_limit: values.weekly_limit,
+                  monthly_limit: values.monthly_limit,
+                };
+            await updatePool(selectedPool.id, submitValues);
             setShowConfig(false);
           }}
         >
-          <Form.Input field='name' label={t('名称')} />
+          {canConfigurePools && <Form.Input field='name' label={t('名称')} />}
           <Form.InputNumber
             field='auto_recharge_amount'
             label={t('充值金额')}
-          />
-          <Form.InputNumber field='weekly_limit' label={t('周自动充值次数')} />
-          <Form.InputNumber field='monthly_limit' label={t('月自动充值次数')} />
-          <Form.Switch field='monthly_refill_enabled' label={t('月度扩容')} />
-          <Form.InputNumber
-            field='monthly_refill_amount'
-            label={t('月扩容金额')}
+            extraText={t(
+              '特殊值：-1 继承全局配置，0 关闭自动充值，正数为自定义充值金额。',
+            )}
           />
           <Form.InputNumber
-            field='monthly_refill_day'
-            label={t('扩容日期')}
-            min={1}
-            max={28}
+            field='weekly_limit'
+            label={t('周自动充值次数')}
+            extraText={t(
+              '特殊值：-1 继承全局配置，0 不限制次数，正数为周期内最多充值次数。',
+            )}
           />
+          <Form.InputNumber
+            field='monthly_limit'
+            label={t('月自动充值次数')}
+            extraText={t(
+              '特殊值：-1 继承全局配置，0 不限制次数，正数为周期内最多充值次数。',
+            )}
+          />
+          {canConfigurePools && (
+            <>
+              <Form.Switch
+                field='monthly_refill_enabled'
+                label={t('月度扩容')}
+              />
+              <Form.InputNumber
+                field='monthly_refill_amount'
+                label={t('月扩容金额')}
+              />
+              <Form.InputNumber
+                field='monthly_refill_day'
+                label={t('扩容日期')}
+                min={1}
+                max={28}
+              />
+            </>
+          )}
           <Button htmlType='submit'>{t('提交')}</Button>
         </Form>
       </Modal>

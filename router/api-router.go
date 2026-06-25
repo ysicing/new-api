@@ -354,6 +354,7 @@ func SetApiRouter(router *gin.Engine) {
 		quotaPoolSelfRoute.Use(middleware.UserAuth())
 		{
 			quotaPoolSelfRoute.GET("/", controller.GetSelfQuotaPool)
+			quotaPoolSelfRoute.PUT("/", controller.UpdateSelfQuotaPool)
 			quotaPoolSelfRoute.GET("/transactions", controller.GetSelfQuotaPoolTransactions)
 			quotaPoolSelfRoute.GET("/members", controller.GetSelfQuotaPoolMembers)
 			quotaPoolSelfRoute.GET("/stats", controller.GetSelfQuotaPoolStats)

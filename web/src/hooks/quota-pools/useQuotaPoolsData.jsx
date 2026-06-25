@@ -21,6 +21,7 @@ export const useQuotaPoolsData = () => {
   const poolAdmin = currentUser.quota_pool_admin;
   const canUseGlobalApi = systemAdmin;
   const canConfigurePools = root;
+  const canConfigureRechargeRules = canConfigurePools || poolAdmin?.level >= 1;
   const canManagePoolAdmins = systemAdmin || poolAdmin?.level >= 2;
   const canRefillPools = systemAdmin;
 
@@ -229,7 +230,8 @@ export const useQuotaPoolsData = () => {
   };
 
   const updatePool = async (poolId, values) => {
-    const res = await API.put(`/api/quota_pool/${poolId}`, values);
+    const url = root ? `/api/quota_pool/${poolId}` : '/api/quota_pool/self';
+    const res = await API.put(url, values);
     const { success, message } = res.data;
     if (success) {
       showSuccess(t('操作成功完成！'));
@@ -399,8 +401,10 @@ export const useQuotaPoolsData = () => {
     revokeAdmin,
     canUseGlobalApi,
     canConfigurePools,
+    canConfigureRechargeRules,
     canManagePoolAdmins,
     canRefillPools,
+    quotaPoolAdmin: poolAdmin,
     poolBaseUrl,
     refreshDetail,
   };

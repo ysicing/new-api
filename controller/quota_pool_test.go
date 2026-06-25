@@ -258,6 +258,66 @@ func TestGetSelfQuotaPoolIncludesCounts(t *testing.T) {
 	}
 }
 
+func TestUpdateSelfQuotaPoolOnlyUpdatesRechargeRules(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	unit := int(common.QuotaPerUnit)
+	pool := &model.QuotaPool{
+		Name:                 "team",
+		Enabled:              true,
+		BaseQuota:            1000,
+		Quota:                1000,
+		AutoRechargeAmount:   model.QuotaPoolAutoRechargeInherit,
+		WeeklyLimit:          model.QuotaPoolAutoRechargeInherit,
+		MonthlyLimit:         model.QuotaPoolAutoRechargeInherit,
+		MonthlyRefillEnabled: false,
+		MonthlyRefillAmount:  100,
+		MonthlyRefillDay:     1,
+	}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	operator := &model.User{Id: 1, Username: "operator", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id, AffCode: "operator-code"}
+	if err := db.Create(operator).Error; err != nil {
+		t.Fatalf("create operator failed: %v", err)
+	}
+	if err := db.Create(&model.QuotaPoolAdmin{PoolId: pool.Id, UserId: operator.Id, Level: model.QuotaPoolAdminLevelV1}).Error; err != nil {
+		t.Fatalf("create operator admin failed: %v", err)
+	}
+	name := "renamed"
+	autoRechargeAmount := float64(6)
+	weeklyLimit := 3
+	monthlyLimit := 4
+	monthlyRefillEnabled := true
+	monthlyRefillAmount := float64(9)
+	monthlyRefillDay := 7
+	ctx, recorder := quotaPoolTestContext(t, http.MethodPut, "/api/quota_pool/self", quotaPoolUpdateRequest{
+		Name:                 &name,
+		AutoRechargeAmount:   &autoRechargeAmount,
+		WeeklyLimit:          &weeklyLimit,
+		MonthlyLimit:         &monthlyLimit,
+		MonthlyRefillEnabled: &monthlyRefillEnabled,
+		MonthlyRefillAmount:  &monthlyRefillAmount,
+		MonthlyRefillDay:     &monthlyRefillDay,
+	}, common.RoleCommonUser, operator.Id)
+
+	UpdateSelfQuotaPool(ctx)
+
+	response := decodeQuotaPoolResponse(t, recorder)
+	if response["success"] != true {
+		t.Fatalf("expected success response, got %#v", response)
+	}
+	var got model.QuotaPool
+	if err := db.First(&got, pool.Id).Error; err != nil {
+		t.Fatalf("load pool failed: %v", err)
+	}
+	if got.AutoRechargeAmount != 6*unit || got.WeeklyLimit != 3 || got.MonthlyLimit != 4 {
+		t.Fatalf("recharge rules not updated: %+v", got)
+	}
+	if got.Name != "team" || got.MonthlyRefillEnabled || got.MonthlyRefillAmount != 100 || got.MonthlyRefillDay != 1 {
+		t.Fatalf("self update should not change protected fields: %+v", got)
+	}
+}
+
 func TestGrantQuotaPoolAdminRejectsInvalidLevelBeforeMovingDefaultUser(t *testing.T) {
 	db := setupQuotaPoolControllerTestDB(t)
 	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 1000, Quota: 1000, MonthlyRefillDay: 1}

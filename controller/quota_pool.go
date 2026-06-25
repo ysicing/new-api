@@ -274,6 +274,40 @@ func UpdateQuotaPool(c *gin.Context) {
 	common.ApiSuccess(c, nil)
 }
 
+func UpdateSelfQuotaPool(c *gin.Context) {
+	if !requireQuotaPoolEnabled(c) {
+		return
+	}
+	admin, ok := requireQuotaPoolAdmin(c, model.QuotaPoolAdminLevelV1)
+	if !ok {
+		return
+	}
+	var req quotaPoolUpdateRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	updates := map[string]interface{}{}
+	if req.AutoRechargeAmount != nil {
+		if *req.AutoRechargeAmount < 0 {
+			updates["auto_recharge_amount"] = model.QuotaPoolAutoRechargeInherit
+		} else {
+			updates["auto_recharge_amount"] = quotaAmountToInternal(*req.AutoRechargeAmount)
+		}
+	}
+	if req.WeeklyLimit != nil {
+		updates["weekly_limit"] = *req.WeeklyLimit
+	}
+	if req.MonthlyLimit != nil {
+		updates["monthly_limit"] = *req.MonthlyLimit
+	}
+	if err := model.UpdateQuotaPoolConfig(admin.PoolId, updates); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, nil)
+}
+
 func EnableQuotaPool(c *gin.Context) {
 	if !requireQuotaPoolEnabled(c) {
 		return
