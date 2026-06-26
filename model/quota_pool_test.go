@@ -518,7 +518,7 @@ func TestListQuotaPoolMembersAndCandidatesOmitAccessToken(t *testing.T) {
 	if err := db.Model(&User{}).Where("id = ?", member.Id).Update("access_token", memberToken).Error; err != nil {
 		t.Fatalf("update member access token failed: %v", err)
 	}
-	if err := db.Create(&QuotaPoolAdmin{PoolId: pool.Id, UserId: member.Id, Level: QuotaPoolAdminLevelV2}).Error; err != nil {
+	if err := db.Create(&QuotaPoolAdmin{PoolId: pool.Id, UserId: member.Id, Level: QuotaPoolAdminLevelV1}).Error; err != nil {
 		t.Fatalf("create quota pool admin failed: %v", err)
 	}
 	if err := db.Model(&User{}).Where("id = ?", candidate.Id).Update("access_token", candidateToken).Error; err != nil {
@@ -529,8 +529,8 @@ func TestListQuotaPoolMembersAndCandidatesOmitAccessToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list members failed: %v", err)
 	}
-	if len(members) != 1 || members[0].QuotaPoolAdminLevel != QuotaPoolAdminLevelV2 {
-		t.Fatalf("expected member admin level v2, got %#v", members)
+	if len(members) != 1 || members[0].QuotaPoolAdminLevel != QuotaPoolAdminLevelV1 {
+		t.Fatalf("expected member admin level v1, got %#v", members)
 	}
 	memberJSON, err := common.Marshal(members[0])
 	if err != nil {

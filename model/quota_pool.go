@@ -16,7 +16,6 @@ import (
 
 const (
 	QuotaPoolAdminLevelV1 = 1
-	QuotaPoolAdminLevelV2 = 2
 
 	QuotaPoolDefaultUserPoolId = 0
 	QuotaPoolUnlimitedQuota    = -1
@@ -203,7 +202,11 @@ func normalizeQuotaPoolId(poolId int) int {
 }
 
 func IsQuotaPoolMemberRole(role int) bool {
-	return role == common.RoleCommonUser || role == common.RoleAdminUser
+	return role == common.RoleCommonUser || role == common.RoleQuotaPoolSuperAdmin || role == common.RoleAdminUser
+}
+
+func quotaPoolMemberRoles() []int {
+	return []int{common.RoleCommonUser, common.RoleQuotaPoolSuperAdmin, common.RoleAdminUser}
 }
 
 func newDefaultQuotaPool() *QuotaPool {
@@ -396,7 +399,7 @@ func ListQuotaPoolMembers(poolId int, pageInfo *common.PageInfo) ([]*QuotaPoolMe
 }
 
 func ListDefaultQuotaPoolCandidates(keyword string, pageInfo *common.PageInfo) ([]*QuotaPoolCandidate, int64, error) {
-	query := DB.Model(&User{}).Where("quota_pool_id = ? AND role IN ? AND status = ?", QuotaPoolDefaultUserPoolId, []int{common.RoleCommonUser, common.RoleAdminUser}, common.UserStatusEnabled)
+	query := DB.Model(&User{}).Where("quota_pool_id = ? AND role IN ? AND status = ?", QuotaPoolDefaultUserPoolId, quotaPoolMemberRoles(), common.UserStatusEnabled)
 	if keyword != "" {
 		like := "%" + keyword + "%"
 		if userId, err := strconv.Atoi(keyword); err == nil {
@@ -911,8 +914,8 @@ func MoveUserQuotaPool(userId int, targetPoolId int) (*QuotaPoolMoveResult, erro
 }
 
 func GrantQuotaPoolAdmin(poolId int, userId int, level int) error {
-	if level != QuotaPoolAdminLevelV1 && level != QuotaPoolAdminLevelV2 {
-		return errors.New("额度池管理员等级无效")
+	if level != QuotaPoolAdminLevelV1 {
+		return errors.New("额度池只支持池管理员权限")
 	}
 	if poolId == QuotaPoolDefaultUserPoolId {
 		return ErrQuotaPoolDefaultReadonly
@@ -936,7 +939,7 @@ func GrantQuotaPoolAdmin(poolId int, userId int, level int) error {
 			return err
 		}
 		if !IsQuotaPoolMemberRole(user.Role) {
-			return errors.New("只能任命普通用户或系统子管理员为额度池管理员")
+			return errors.New("只能任命普通用户、池超级管理员或系统子管理员为额度池管理员")
 		}
 		if normalizeQuotaPoolId(user.QuotaPoolId) != poolId {
 			return errors.New("用户不是该额度池成员")
@@ -957,6 +960,19 @@ func GrantQuotaPoolAdmin(poolId int, userId int, level int) error {
 }
 
 func RevokeQuotaPoolAdmin(poolId int, userId int) error {
+	if poolId == QuotaPoolDefaultUserPoolId {
+		return ErrQuotaPoolDefaultReadonly
+	}
+	pool := &QuotaPool{}
+	if err := DB.First(pool, "id = ?", poolId).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrQuotaPoolNotFound
+		}
+		return err
+	}
+	if pool.IsDefault {
+		return ErrQuotaPoolDefaultReadonly
+	}
 	return DB.Where("pool_id = ? AND user_id = ?", poolId, userId).Delete(&QuotaPoolAdmin{}).Error
 }
 

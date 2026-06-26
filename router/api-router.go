@@ -324,7 +324,7 @@ func SetApiRouter(router *gin.Engine) {
 		}
 
 		quotaPoolRoute := apiRouter.Group("/quota_pool")
-		quotaPoolRoute.Use(middleware.AdminAuth())
+		quotaPoolRoute.Use(middleware.QuotaPoolAuth())
 		{
 			quotaPoolRoute.GET("/", controller.GetQuotaPools)
 			quotaPoolRoute.GET("/candidates", controller.GetQuotaPoolCandidates)
@@ -332,6 +332,7 @@ func SetApiRouter(router *gin.Engine) {
 			quotaPoolRoute.GET("/:id", controller.GetQuotaPool)
 			quotaPoolRoute.GET("/:id/transactions", controller.GetQuotaPoolTransactions)
 			quotaPoolRoute.GET("/:id/members", controller.GetQuotaPoolMembers)
+			quotaPoolRoute.PUT("/:id", controller.UpdateQuotaPool)
 			quotaPoolRoute.POST("/:id/refill", controller.RefillQuotaPool)
 			quotaPoolRoute.POST("/:id/members", controller.AddQuotaPoolMember)
 			quotaPoolRoute.PUT("/users/:user_id", controller.MoveUserQuotaPool)
@@ -345,7 +346,6 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			quotaPoolRootRoute.POST("/", controller.CreateQuotaPool)
 			quotaPoolRootRoute.POST("/sync_default", controller.SyncDefaultQuotaPool)
-			quotaPoolRootRoute.PUT("/:id", controller.UpdateQuotaPool)
 			quotaPoolRootRoute.POST("/:id/enable", controller.EnableQuotaPool)
 			quotaPoolRootRoute.POST("/:id/disable", controller.DisableQuotaPool)
 			quotaPoolRootRoute.DELETE("/:id", controller.DeleteQuotaPool)

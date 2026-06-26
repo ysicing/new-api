@@ -41,7 +41,6 @@ const TRANSACTION_TYPE_LABELS = {
 };
 const ROLE_MEMBER = 0;
 const ROLE_POOL_ADMIN_V1 = 1;
-const ROLE_POOL_SUPER_ADMIN_V2 = 2;
 
 const QuotaPool = () => {
   const data = useQuotaPoolsData();
@@ -80,6 +79,7 @@ const QuotaPool = () => {
     canConfigurePools,
     canConfigureRechargeRules,
     canManagePoolAdmins,
+    canManagePoolMembers,
     canRefillPools,
     quotaPoolAdmin,
   } = data;
@@ -122,16 +122,19 @@ const QuotaPool = () => {
 
   const canOperateSelectedPool = selectedPool && !selectedPool.is_default;
   const canUseActivePool = canOperateSelectedPool && selectedPool.enabled;
-  const canMoveMembers = canUseGlobalApi && canOperateSelectedPool;
-  const canRechargeMembers = canUseActivePool;
-  const canReclaimMembers = canUseActivePool;
+  const canMoveMembers =
+    canUseGlobalApi && canManagePoolMembers && canOperateSelectedPool;
+  const canRechargeMembers = canUseActivePool && canManagePoolMembers;
+  const canReclaimMembers = canUseActivePool && canManagePoolMembers;
+  const canAddMembers =
+    canUseActivePool && (canManagePoolMembers || canManagePoolAdmins);
   const canConfigurePoolRules = (pool) =>
     !!pool &&
     !pool.is_default &&
     (canConfigurePools ||
+      (canUseGlobalApi && canConfigureRechargeRules) ||
       (canConfigureRechargeRules && quotaPoolAdmin?.pool_id === pool.id));
   const canConfigureSelectedPool = canConfigurePoolRules(selectedPool);
-  const canGrantV2Admins = canUseGlobalApi;
   const hasDefaultPool = pools.some((pool) => pool.is_default);
 
   const getMemberRoleActions = (record) => {
@@ -139,31 +142,10 @@ const QuotaPool = () => {
       return [];
     }
     const currentLevel = record.quota_pool_admin_level || ROLE_MEMBER;
-    if (canUseGlobalApi) {
-      if (currentLevel === ROLE_MEMBER) {
-        return [
-          { label: t('设为管理员'), level: ROLE_POOL_ADMIN_V1 },
-          { label: t('设为超管'), level: ROLE_POOL_SUPER_ADMIN_V2 },
-        ];
-      }
-      if (currentLevel === ROLE_POOL_ADMIN_V1) {
-        return [
-          { label: t('降为成员'), level: ROLE_MEMBER, danger: true },
-          { label: t('设为超管'), level: ROLE_POOL_SUPER_ADMIN_V2 },
-        ];
-      }
-      return [
-        { label: t('降为管理员'), level: ROLE_POOL_ADMIN_V1 },
-        { label: t('降为成员'), level: ROLE_MEMBER, danger: true },
-      ];
-    }
     if (currentLevel === ROLE_MEMBER) {
       return [{ label: t('设为管理员'), level: ROLE_POOL_ADMIN_V1 }];
     }
-    if (currentLevel === ROLE_POOL_ADMIN_V1) {
-      return [{ label: t('降为成员'), level: ROLE_MEMBER, danger: true }];
-    }
-    return [];
+    return [{ label: t('降为成员'), level: ROLE_MEMBER, danger: true }];
   };
 
   const updateMemberRole = async (userId, level) => {
@@ -298,8 +280,7 @@ const QuotaPool = () => {
   };
 
   const renderQuotaPoolRole = (level) => {
-    if (level === ROLE_POOL_SUPER_ADMIN_V2) return t('池超管');
-    if (level === ROLE_POOL_ADMIN_V1) return t('池管理员');
+    if (level > ROLE_MEMBER) return t('池管理员');
     return t('成员');
   };
 
@@ -336,16 +317,10 @@ const QuotaPool = () => {
     );
   };
 
-  const adminRoleOptions = canGrantV2Admins
-    ? [
-        { label: t('成员'), value: ROLE_MEMBER },
-        { label: t('池管理员'), value: ROLE_POOL_ADMIN_V1 },
-        { label: t('池超管'), value: ROLE_POOL_SUPER_ADMIN_V2 },
-      ]
-    : [
-        { label: t('成员'), value: ROLE_MEMBER },
-        { label: t('池管理员'), value: ROLE_POOL_ADMIN_V1 },
-      ];
+  const adminRoleOptions = [
+    ...(canManagePoolMembers ? [{ label: t('成员'), value: ROLE_MEMBER }] : []),
+    { label: t('池管理员'), value: ROLE_POOL_ADMIN_V1 },
+  ];
 
   const canDeletePool = (pool) =>
     canConfigurePools &&
@@ -506,9 +481,7 @@ const QuotaPool = () => {
       width: 110,
       render: (value) =>
         value > 0 ? (
-          <Tag color={value === 2 ? 'purple' : 'blue'}>
-            {renderQuotaPoolRole(value)}
-          </Tag>
+          <Tag color='blue'>{renderQuotaPoolRole(value)}</Tag>
         ) : (
           <Tag color='grey'>{t('成员')}</Tag>
         ),
@@ -730,12 +703,12 @@ const QuotaPool = () => {
                       {t('临时额度')}
                     </Button>
                   )}
-                  {canUseActivePool && (
+                  {canAddMembers && (
                     <Button
                       icon={<IconUserAdd />}
                       onClick={() => setShowAddMember(true)}
                     >
-                      {t('添加成员')}
+                      {canManagePoolMembers ? t('添加成员') : t('设置管理员')}
                     </Button>
                   )}
                   {canDeletePool(selectedPool) && (
@@ -1031,7 +1004,9 @@ const QuotaPool = () => {
       >
         <Form
           onSubmit={async (values) => {
-            await addMember(values.user_id);
+            if (canManagePoolMembers) {
+              await addMember(values.user_id);
+            }
             if (values.admin_level > 0) {
               await grantAdmin(values.user_id, values.admin_level);
             }
@@ -1058,11 +1033,13 @@ const QuotaPool = () => {
               field='admin_level'
               label={t('角色')}
               extraText={t(
-                '成员仅消耗本池额度；池管理员 v1 可查看本池、添加默认池用户并给成员充值；池超级管理员 v2 还可任命或撤销池管理员 v1。',
+                '成员仅消耗本池额度；池管理员 v1 可查看本池、添加默认池用户并给成员充值；池超级管理员是系统角色，可为非系统池设置或撤销池管理员。',
               )}
               style={{ width: '100%' }}
               optionList={adminRoleOptions}
-              initValue={ROLE_MEMBER}
+              initValue={
+                canManagePoolMembers ? ROLE_MEMBER : ROLE_POOL_ADMIN_V1
+              }
             />
           )}
           <Button htmlType='submit'>{t('提交')}</Button>

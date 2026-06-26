@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -86,9 +87,6 @@ func quotaPoolStatsRange(c *gin.Context) (int64, int64) {
 }
 
 func quotaPoolAdminLevelName(level int) string {
-	if level == model.QuotaPoolAdminLevelV2 {
-		return "池超级管理员 v2"
-	}
 	if level == model.QuotaPoolAdminLevelV1 {
 		return "池管理员 v1"
 	}
@@ -105,6 +103,66 @@ func quotaPoolAdminLogInfo(c *gin.Context, poolId int) map[string]interface{} {
 
 func recordQuotaPoolMemberManageLog(c *gin.Context, poolId int, userId int, content string) {
 	model.RecordLogWithAdminInfo(userId, model.LogTypeManage, content, quotaPoolAdminLogInfo(c, poolId))
+}
+
+func recordQuotaPoolManageLog(c *gin.Context, poolId int, content string) {
+	model.RecordLogWithAdminInfo(c.GetInt("id"), model.LogTypeManage, content, quotaPoolAdminLogInfo(c, poolId))
+}
+
+func quotaPoolRechargeAmountLabel(amount int) string {
+	if amount == model.QuotaPoolAutoRechargeInherit {
+		return "继承全局配置"
+	}
+	if amount == 0 {
+		return "关闭"
+	}
+	return logger.LogQuota(amount)
+}
+
+func quotaPoolLimitLabel(limit int) string {
+	if limit == model.QuotaPoolAutoRechargeInherit {
+		return "继承全局配置"
+	}
+	if limit == 0 {
+		return "不限制"
+	}
+	return fmt.Sprintf("%d 次", limit)
+}
+
+func quotaPoolEnabledLabel(enabled bool) string {
+	if enabled {
+		return "启用"
+	}
+	return "关闭"
+}
+
+func quotaPoolConfigChangeDescriptions(pool *model.QuotaPool, updates map[string]interface{}) []string {
+	if pool == nil || len(updates) == 0 {
+		return nil
+	}
+	descriptions := make([]string, 0, len(updates))
+	if name, ok := updates["name"].(string); ok && name != pool.Name {
+		descriptions = append(descriptions, fmt.Sprintf("名称 %s -> %s", pool.Name, name))
+	}
+	if amount, ok := updates["auto_recharge_amount"].(int); ok && amount != pool.AutoRechargeAmount {
+		descriptions = append(descriptions, fmt.Sprintf("充值金额 %s -> %s", quotaPoolRechargeAmountLabel(pool.AutoRechargeAmount), quotaPoolRechargeAmountLabel(amount)))
+	}
+	if limit, ok := updates["weekly_limit"].(int); ok && limit != pool.WeeklyLimit {
+		descriptions = append(descriptions, fmt.Sprintf("周自动充值次数 %s -> %s", quotaPoolLimitLabel(pool.WeeklyLimit), quotaPoolLimitLabel(limit)))
+	}
+	if limit, ok := updates["monthly_limit"].(int); ok && limit != pool.MonthlyLimit {
+		descriptions = append(descriptions, fmt.Sprintf("月自动充值次数 %s -> %s", quotaPoolLimitLabel(pool.MonthlyLimit), quotaPoolLimitLabel(limit)))
+	}
+	if enabled, ok := updates["monthly_refill_enabled"].(bool); ok && enabled != pool.MonthlyRefillEnabled {
+		descriptions = append(descriptions, fmt.Sprintf("月度扩容 %s -> %s", quotaPoolEnabledLabel(pool.MonthlyRefillEnabled), quotaPoolEnabledLabel(enabled)))
+	}
+	if amount, ok := updates["monthly_refill_amount"].(int); ok && amount != pool.MonthlyRefillAmount {
+		descriptions = append(descriptions, fmt.Sprintf("月扩容金额 %s -> %s", logger.LogQuota(pool.MonthlyRefillAmount), logger.LogQuota(amount)))
+	}
+	if day, ok := updates["monthly_refill_day"].(int); ok && day != pool.MonthlyRefillDay {
+		descriptions = append(descriptions, fmt.Sprintf("扩容日期 %d -> %d", pool.MonthlyRefillDay, day))
+	}
+	return descriptions
 }
 
 func parseQuotaPoolId(c *gin.Context) (int, bool) {
@@ -144,6 +202,26 @@ func requireQuotaPoolAdmin(c *gin.Context, minLevel int) (*model.QuotaPoolAdminS
 
 func isSystemAdmin(c *gin.Context) bool {
 	return c.GetInt("role") >= common.RoleAdminUser
+}
+
+func isQuotaPoolSuperAdmin(c *gin.Context) bool {
+	return c.GetInt("role") == common.RoleQuotaPoolSuperAdmin
+}
+
+func requireSystemAdmin(c *gin.Context) bool {
+	if !isSystemAdmin(c) {
+		common.ApiError(c, errors.New("无权限"))
+		return false
+	}
+	return true
+}
+
+func requireQuotaPoolAdminManager(c *gin.Context) bool {
+	if isSystemAdmin(c) || isQuotaPoolSuperAdmin(c) {
+		return true
+	}
+	common.ApiError(c, errors.New("无额度池权限"))
+	return false
 }
 
 func isSystemRoot(c *gin.Context) bool {
@@ -195,6 +273,7 @@ func SyncDefaultQuotaPool(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	recordQuotaPoolManageLog(c, pool.Id, fmt.Sprintf("同步默认额度池(ID:%d)", pool.Id))
 	common.ApiSuccess(c, pool)
 }
 
@@ -218,6 +297,10 @@ func UpdateQuotaPool(c *gin.Context) {
 	if !requireQuotaPoolEnabled(c) {
 		return
 	}
+	root := isSystemRoot(c)
+	if !root && !requireQuotaPoolAdminManager(c) {
+		return
+	}
 	id, ok := parseQuotaPoolId(c)
 	if !ok {
 		return
@@ -229,9 +312,17 @@ func UpdateQuotaPool(c *gin.Context) {
 	}
 	updates := map[string]interface{}{}
 	if req.Name != nil {
+		if !root {
+			common.ApiError(c, errors.New("无权限调整额度池名称"))
+			return
+		}
 		updates["name"] = *req.Name
 	}
 	if req.BaseQuota != nil {
+		if !root {
+			common.ApiError(c, errors.New("无权限调整额度池总额度"))
+			return
+		}
 		if *req.BaseQuota <= 0 {
 			common.ApiError(c, errors.New("额度池总额度必须大于 0"))
 			return
@@ -253,9 +344,17 @@ func UpdateQuotaPool(c *gin.Context) {
 		updates["monthly_limit"] = *req.MonthlyLimit
 	}
 	if req.MonthlyRefillEnabled != nil {
+		if !root {
+			common.ApiError(c, errors.New("无权限调整月度扩容"))
+			return
+		}
 		updates["monthly_refill_enabled"] = *req.MonthlyRefillEnabled
 	}
 	if req.MonthlyRefillAmount != nil {
+		if !root {
+			common.ApiError(c, errors.New("无权限调整月度扩容"))
+			return
+		}
 		if *req.MonthlyRefillAmount < 0 {
 			common.ApiError(c, errors.New("月度扩容金额不能小于 0"))
 			return
@@ -263,6 +362,10 @@ func UpdateQuotaPool(c *gin.Context) {
 		updates["monthly_refill_amount"] = quotaAmountToInternal(*req.MonthlyRefillAmount)
 	}
 	if req.MonthlyRefillDay != nil {
+		if !root {
+			common.ApiError(c, errors.New("无权限调整月度扩容"))
+			return
+		}
 		if *req.MonthlyRefillDay < 1 || *req.MonthlyRefillDay > 28 {
 			common.ApiError(c, errors.New("月度扩容日期必须在 1 到 28 之间"))
 			return
@@ -288,13 +391,25 @@ func UpdateQuotaPool(c *gin.Context) {
 			return
 		}
 	}
+	var beforePool *model.QuotaPool
+	if len(updates) > 0 {
+		pool, err := model.GetQuotaPoolById(id)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		beforePool = pool
+	}
 	change, err := model.UpdateQuotaPoolConfig(id, updates, c.GetInt("id"))
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
+	if descriptions := quotaPoolConfigChangeDescriptions(beforePool, updates); len(descriptions) > 0 {
+		recordQuotaPoolManageLog(c, id, fmt.Sprintf("修改额度池(ID:%d)配置：%s", id, strings.Join(descriptions, "；")))
+	}
 	if change != nil && change.Amount != 0 {
-		model.RecordLogWithAdminInfo(c.GetInt("id"), model.LogTypeManage, fmt.Sprintf("调整额度池(ID:%d)总额度，额度池余额从 %s 变为 %s", id, logger.LogQuota(change.QuotaBefore), logger.LogQuota(change.QuotaAfter)), quotaPoolAdminLogInfo(c, id))
+		recordQuotaPoolManageLog(c, id, fmt.Sprintf("调整额度池(ID:%d)总额度，额度池余额从 %s 变为 %s", id, logger.LogQuota(change.QuotaBefore), logger.LogQuota(change.QuotaAfter)))
 	}
 	common.ApiSuccess(c, nil)
 }
@@ -327,9 +442,21 @@ func UpdateSelfQuotaPool(c *gin.Context) {
 	if req.MonthlyLimit != nil {
 		updates["monthly_limit"] = *req.MonthlyLimit
 	}
+	var beforePool *model.QuotaPool
+	if len(updates) > 0 {
+		pool, err := model.GetQuotaPoolById(admin.PoolId)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		beforePool = pool
+	}
 	if _, err := model.UpdateQuotaPoolConfig(admin.PoolId, updates, c.GetInt("id")); err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	if descriptions := quotaPoolConfigChangeDescriptions(beforePool, updates); len(descriptions) > 0 {
+		recordQuotaPoolManageLog(c, admin.PoolId, fmt.Sprintf("修改额度池(ID:%d)配置：%s", admin.PoolId, strings.Join(descriptions, "；")))
 	}
 	common.ApiSuccess(c, nil)
 }
@@ -346,6 +473,7 @@ func EnableQuotaPool(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	recordQuotaPoolManageLog(c, id, fmt.Sprintf("启用额度池(ID:%d)", id))
 	common.ApiSuccess(c, nil)
 }
 
@@ -361,6 +489,7 @@ func DisableQuotaPool(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	recordQuotaPoolManageLog(c, id, fmt.Sprintf("禁用额度池(ID:%d)", id))
 	common.ApiSuccess(c, nil)
 }
 
@@ -372,15 +501,24 @@ func DeleteQuotaPool(c *gin.Context) {
 	if !ok {
 		return
 	}
+	pool, err := model.GetQuotaPoolById(id)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	if err := model.DeleteQuotaPool(id); err != nil {
 		common.ApiError(c, err)
 		return
 	}
+	recordQuotaPoolManageLog(c, id, fmt.Sprintf("删除额度池(ID:%d) %s", id, pool.Name))
 	common.ApiSuccess(c, nil)
 }
 
 func RefillQuotaPool(c *gin.Context) {
 	if !requireQuotaPoolEnabled(c) {
+		return
+	}
+	if !requireSystemAdmin(c) {
 		return
 	}
 	id, ok := parseQuotaPoolId(c)
@@ -397,6 +535,7 @@ func RefillQuotaPool(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	recordQuotaPoolManageLog(c, id, fmt.Sprintf("充值额度池(ID:%d)，额度池余额从 %s 变为 %s", id, logger.LogQuota(change.QuotaBefore), logger.LogQuota(change.QuotaAfter)))
 	common.ApiSuccess(c, change)
 }
 
@@ -468,7 +607,7 @@ func addUserToQuotaPool(c *gin.Context, poolId int, userId int, initialRecharge 
 		return
 	}
 	if !model.IsQuotaPoolMemberRole(user.Role) {
-		common.ApiError(c, errors.New("只能添加普通用户或系统子管理员到额度池"))
+		common.ApiError(c, errors.New("只能添加普通用户、池超级管理员或系统子管理员到额度池"))
 		return
 	}
 	if user.Status != common.UserStatusEnabled {
@@ -489,11 +628,11 @@ func addUserToQuotaPool(c *gin.Context, poolId int, userId int, initialRecharge 
 	}
 	recordQuotaPoolMemberManageLog(c, poolId, userId, fmt.Sprintf("%s额度池(ID:%d)", logAction, poolId))
 	if user.Role == common.RoleAdminUser && poolId != model.QuotaPoolDefaultUserPoolId {
-		if err := model.GrantQuotaPoolAdmin(poolId, userId, model.QuotaPoolAdminLevelV2); err != nil {
+		if err := model.GrantQuotaPoolAdmin(poolId, userId, model.QuotaPoolAdminLevelV1); err != nil {
 			common.ApiError(c, err)
 			return
 		}
-		recordQuotaPoolMemberManageLog(c, poolId, userId, fmt.Sprintf("任命用户为%s", quotaPoolAdminLevelName(model.QuotaPoolAdminLevelV2)))
+		recordQuotaPoolMemberManageLog(c, poolId, userId, fmt.Sprintf("任命用户为%s", quotaPoolAdminLevelName(model.QuotaPoolAdminLevelV1)))
 	}
 	warning := ""
 	if initialRecharge && poolId != model.QuotaPoolDefaultUserPoolId {
@@ -531,6 +670,9 @@ func AddQuotaPoolMember(c *gin.Context) {
 	if !requireQuotaPoolEnabled(c) {
 		return
 	}
+	if !requireQuotaPoolAdminManager(c) {
+		return
+	}
 	id, ok := parseQuotaPoolId(c)
 	if !ok {
 		return
@@ -549,6 +691,9 @@ func AddQuotaPoolMember(c *gin.Context) {
 
 func MoveUserQuotaPool(c *gin.Context) {
 	if !requireQuotaPoolEnabled(c) {
+		return
+	}
+	if !requireQuotaPoolAdminManager(c) {
 		return
 	}
 	userId, err := strconv.Atoi(c.Param("user_id"))
@@ -639,6 +784,9 @@ func RechargeQuotaPoolMember(c *gin.Context) {
 	if !requireQuotaPoolEnabled(c) {
 		return
 	}
+	if !requireQuotaPoolAdminManager(c) {
+		return
+	}
 	id, ok := parseQuotaPoolId(c)
 	if !ok {
 		return
@@ -657,6 +805,9 @@ func RechargeQuotaPoolMember(c *gin.Context) {
 
 func ReclaimQuotaPoolMember(c *gin.Context) {
 	if !requireQuotaPoolEnabled(c) {
+		return
+	}
+	if !requireQuotaPoolAdminManager(c) {
 		return
 	}
 	id, ok := parseQuotaPoolId(c)
@@ -679,6 +830,9 @@ func GrantQuotaPoolAdmin(c *gin.Context) {
 	if !requireQuotaPoolEnabled(c) {
 		return
 	}
+	if !requireQuotaPoolAdminManager(c) {
+		return
+	}
 	id, ok := parseQuotaPoolId(c)
 	if !ok {
 		return
@@ -688,8 +842,8 @@ func GrantQuotaPoolAdmin(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if req.Level != model.QuotaPoolAdminLevelV1 && req.Level != model.QuotaPoolAdminLevelV2 {
-		common.ApiError(c, errors.New("额度池管理员等级无效"))
+	if req.Level != model.QuotaPoolAdminLevelV1 {
+		common.ApiError(c, errors.New("额度池只支持池管理员权限"))
 		return
 	}
 	user := &model.User{}
@@ -698,7 +852,7 @@ func GrantQuotaPoolAdmin(c *gin.Context) {
 		return
 	}
 	if !model.IsQuotaPoolMemberRole(user.Role) {
-		common.ApiError(c, errors.New("只能任命普通用户或系统子管理员为额度池管理员"))
+		common.ApiError(c, errors.New("只能任命普通用户、池超级管理员或系统子管理员为额度池管理员"))
 		return
 	}
 	if user.QuotaPoolId == model.QuotaPoolDefaultUserPoolId {
@@ -717,6 +871,9 @@ func GrantQuotaPoolAdmin(c *gin.Context) {
 
 func RevokeQuotaPoolAdmin(c *gin.Context) {
 	if !requireQuotaPoolEnabled(c) {
+		return
+	}
+	if !requireQuotaPoolAdminManager(c) {
 		return
 	}
 	id, ok := parseQuotaPoolId(c)
@@ -880,71 +1037,12 @@ func GrantSelfQuotaPoolAdmin(c *gin.Context) {
 	if !requireQuotaPoolEnabled(c) {
 		return
 	}
-	admin, ok := requireQuotaPoolAdmin(c, model.QuotaPoolAdminLevelV2)
-	if !ok {
-		return
-	}
-	var req quotaPoolAdminRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if req.Level != model.QuotaPoolAdminLevelV1 {
-		common.ApiError(c, errors.New("池 v2 只能任命 v1 管理员"))
-		return
-	}
-	user := &model.User{}
-	if err := model.DB.First(user, "id = ?", req.UserId).Error; err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if !model.IsQuotaPoolMemberRole(user.Role) {
-		common.ApiError(c, errors.New("只能任命普通用户或系统子管理员为额度池管理员"))
-		return
-	}
-	if user.QuotaPoolId == model.QuotaPoolDefaultUserPoolId {
-		if _, err := moveUserToQuotaPoolForController(c, admin.PoolId, req.UserId, true); err != nil {
-			common.ApiError(c, err)
-			return
-		}
-	} else if user.QuotaPoolId != admin.PoolId {
-		common.ApiError(c, errors.New("池 v2 只能任命默认池或本池用户"))
-		return
-	}
-	if err := model.GrantQuotaPoolAdmin(admin.PoolId, req.UserId, model.QuotaPoolAdminLevelV1); err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	recordQuotaPoolMemberManageLog(c, admin.PoolId, req.UserId, fmt.Sprintf("任命用户为%s", quotaPoolAdminLevelName(model.QuotaPoolAdminLevelV1)))
-	common.ApiSuccess(c, nil)
+	common.ApiError(c, errors.New("池管理员不能任命或撤销池管理员"))
 }
 
 func RevokeSelfQuotaPoolAdmin(c *gin.Context) {
 	if !requireQuotaPoolEnabled(c) {
 		return
 	}
-	admin, ok := requireQuotaPoolAdmin(c, model.QuotaPoolAdminLevelV2)
-	if !ok {
-		return
-	}
-	userId, err := strconv.Atoi(c.Param("user_id"))
-	if err != nil {
-		common.ApiError(c, errors.New("用户 ID 无效"))
-		return
-	}
-	targetAdmin := &model.QuotaPoolAdmin{}
-	if err := model.DB.First(targetAdmin, "pool_id = ? AND user_id = ?", admin.PoolId, userId).Error; err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if targetAdmin.Level != model.QuotaPoolAdminLevelV1 {
-		common.ApiError(c, errors.New("池 v2 只能移除 v1 管理员"))
-		return
-	}
-	if err := model.RevokeQuotaPoolAdmin(admin.PoolId, userId); err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	recordQuotaPoolMemberManageLog(c, admin.PoolId, userId, "撤销额度池管理员权限")
-	common.ApiSuccess(c, nil)
+	common.ApiError(c, errors.New("池管理员不能任命或撤销池管理员"))
 }

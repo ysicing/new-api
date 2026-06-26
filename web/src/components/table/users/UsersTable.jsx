@@ -142,6 +142,7 @@ const UsersTable = (usersData) => {
       showResetTwoFAModal: showResetTwoFAUserModal,
       showUserSubscriptionsModal: showUserSubscriptionsUserModal,
       rechargeUser: manageUser,
+      manageUser,
     });
   }, [
     t,

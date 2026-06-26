@@ -31,6 +31,7 @@ import {
 } from '@douyinfe/semi-ui';
 import { IconMore } from '@douyinfe/semi-icons';
 import {
+  ROLE_QUOTA_POOL_SUPER_ADMIN,
   isRoot,
   renderGroup,
   renderNumber,
@@ -49,6 +50,12 @@ const renderRole = (role, t) => {
       return (
         <Tag color='blue' shape='circle'>
           {t('普通用户')}
+        </Tag>
+      );
+    case ROLE_QUOTA_POOL_SUPER_ADMIN:
+      return (
+        <Tag color='cyan' shape='circle'>
+          {t('池超级管理员')}
         </Tag>
       );
     case 10:
@@ -219,6 +226,7 @@ const renderOperations = (
     showResetTwoFAModal,
     showUserSubscriptionsModal,
     rechargeUser,
+    manageUser,
     t,
   },
 ) => {
@@ -230,8 +238,15 @@ const renderOperations = (
   const canManageLowerUser = currentUserIsRoot || record.role < 10;
   const canToggleStatus = record.role !== 100 && canManageLowerUser;
   const canDelete = record.role !== 100 && canManageLowerUser;
-  const canPromote = currentUserIsRoot && record.role < 10;
-  const canDemote = currentUserIsRoot && record.role >= 10 && record.role < 100;
+  const canPromote =
+    currentUserIsRoot &&
+    record.role < 10 &&
+    record.role !== ROLE_QUOTA_POOL_SUPER_ADMIN;
+  const canSetQuotaPoolSuperAdmin = currentUserIsRoot && record.role === 1;
+  const canDemote =
+    currentUserIsRoot &&
+    ((record.role >= 10 && record.role < 100) ||
+      record.role === ROLE_QUOTA_POOL_SUPER_ADMIN);
 
   const moreMenu = [
     {
@@ -308,6 +323,18 @@ const renderOperations = (
           {t('提升')}
         </Button>
       )}
+      {canSetQuotaPoolSuperAdmin && (
+        <Popconfirm
+          title={t('确定要设为池超级管理员吗？')}
+          onConfirm={() =>
+            manageUser(record.id, 'set_quota_pool_super_admin', record)
+          }
+        >
+          <Button type='secondary' size='small'>
+            {t('设为池超级管理员')}
+          </Button>
+        </Popconfirm>
+      )}
       <Popconfirm
         title={t('确定要给该用户充值吗？')}
         onConfirm={() => rechargeUser(record.id, 'recharge_auto', record)}
@@ -347,6 +374,7 @@ export const getUsersColumns = ({
   showResetTwoFAModal,
   showUserSubscriptionsModal,
   rechargeUser,
+  manageUser,
 }) => {
   return [
     {
@@ -434,6 +462,7 @@ export const getUsersColumns = ({
           showResetTwoFAModal,
           showUserSubscriptionsModal,
           rechargeUser,
+          manageUser,
           t,
         }),
     },

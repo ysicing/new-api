@@ -1,6 +1,13 @@
 import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { API, isAdmin, isRoot, showError, showSuccess } from '../../helpers';
+import {
+  API,
+  isAdmin,
+  isQuotaPoolSuperAdminRole,
+  isRoot,
+  showError,
+  showSuccess,
+} from '../../helpers';
 import { UserContext } from '../../context/User';
 
 export const useQuotaPoolsData = () => {
@@ -18,11 +25,20 @@ export const useQuotaPoolsData = () => {
   }, [userState?.user]);
   const systemAdmin = isAdmin();
   const root = isRoot();
+  const quotaPoolSuperAdmin = isQuotaPoolSuperAdminRole();
   const poolAdmin = currentUser.quota_pool_admin;
-  const canUseGlobalApi = systemAdmin;
+  const canUseGlobalApi = systemAdmin || quotaPoolSuperAdmin;
   const canConfigurePools = root;
-  const canConfigureRechargeRules = canConfigurePools || poolAdmin?.level >= 1;
-  const canManagePoolAdmins = systemAdmin || poolAdmin?.level >= 2;
+  const canConfigureRechargeRules =
+    canConfigurePools ||
+    systemAdmin ||
+    quotaPoolSuperAdmin ||
+    poolAdmin?.level >= 1;
+  const canManagePoolAdmins = systemAdmin || quotaPoolSuperAdmin;
+  const canManagePoolMembers =
+    systemAdmin ||
+    quotaPoolSuperAdmin ||
+    (!canUseGlobalApi && poolAdmin?.level >= 1);
   const canRefillPools = systemAdmin;
 
   const [loading, setLoading] = useState(false);
@@ -230,7 +246,9 @@ export const useQuotaPoolsData = () => {
   };
 
   const updatePool = async (poolId, values) => {
-    const url = root ? `/api/quota_pool/${poolId}` : '/api/quota_pool/self';
+    const url = canUseGlobalApi
+      ? `/api/quota_pool/${poolId}`
+      : '/api/quota_pool/self';
     const res = await API.put(url, values);
     const { success, message } = res.data;
     if (success) {
@@ -403,6 +421,7 @@ export const useQuotaPoolsData = () => {
     canConfigurePools,
     canConfigureRechargeRules,
     canManagePoolAdmins,
+    canManagePoolMembers,
     canRefillPools,
     quotaPoolAdmin: poolAdmin,
     poolBaseUrl,

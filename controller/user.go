@@ -1074,6 +1074,26 @@ func ManageUser(c *gin.Context) {
 			return
 		}
 		user.Role = common.RoleAdminUser
+	case "set_quota_pool_super_admin":
+		if myRole != common.RoleRootUser {
+			common.ApiErrorI18n(c, i18n.MsgUserAdminCannotPromote)
+			return
+		}
+		if user.Role != common.RoleCommonUser {
+			common.ApiError(c, errors.New("只能将普通用户设为池超级管理员"))
+			return
+		}
+		user.Role = common.RoleQuotaPoolSuperAdmin
+	case "unset_quota_pool_super_admin":
+		if myRole != common.RoleRootUser {
+			common.ApiErrorI18n(c, i18n.MsgUserAdminCannotPromote)
+			return
+		}
+		if user.Role != common.RoleQuotaPoolSuperAdmin {
+			common.ApiError(c, errors.New("用户不是池超级管理员"))
+			return
+		}
+		user.Role = common.RoleCommonUser
 	case "demote":
 		if user.Role == common.RoleRootUser {
 			common.ApiErrorI18n(c, i18n.MsgUserCannotDemoteRootUser)
@@ -1176,13 +1196,24 @@ func ManageUser(c *gin.Context) {
 	// 避免在 Redis TTL 过期前仍使用旧状态（尤其是禁用后仍可发起请求的问题）。
 	// InvalidateUserCache 会让下一次 GetUserCache 从数据库重新加载，
 	// InvalidateUserTokensCache 则确保令牌侧的缓存也同步刷新。
-	if req.Action == "disable" || req.Action == "promote" || req.Action == "demote" {
+	if req.Action == "disable" || req.Action == "promote" || req.Action == "demote" || req.Action == "set_quota_pool_super_admin" || req.Action == "unset_quota_pool_super_admin" {
 		if err := model.InvalidateUserCache(user.Id); err != nil {
 			common.SysLog(fmt.Sprintf("failed to invalidate user cache for user %d: %s", user.Id, err.Error()))
 		}
 		if err := model.InvalidateUserTokensCache(user.Id); err != nil {
 			common.SysLog(fmt.Sprintf("failed to invalidate tokens cache for user %d: %s", user.Id, err.Error()))
 		}
+	}
+	if req.Action == "set_quota_pool_super_admin" || req.Action == "unset_quota_pool_super_admin" {
+		adminInfo := map[string]interface{}{
+			"admin_id":       c.GetInt("id"),
+			"admin_username": c.GetString("username"),
+		}
+		content := "设置用户为池超级管理员"
+		if req.Action == "unset_quota_pool_super_admin" {
+			content = "取消用户池超级管理员权限"
+		}
+		model.RecordLogWithAdminInfo(user.Id, model.LogTypeManage, content, adminInfo)
 	}
 	clearUser := model.User{
 		Role:   user.Role,

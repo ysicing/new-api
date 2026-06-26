@@ -25,7 +25,7 @@ import { ChevronLeft } from 'lucide-react';
 import { useSidebarCollapsed } from '../../hooks/common/useSidebarCollapsed';
 import { useSidebar } from '../../hooks/common/useSidebar';
 import { useMinimumLoadingTime } from '../../hooks/common/useMinimumLoadingTime';
-import { showError } from '../../helpers';
+import { ROLE_QUOTA_POOL_SUPER_ADMIN, showError } from '../../helpers';
 import { UserContext } from '../../context/User';
 import SkeletonWrapper from './components/SkeletonWrapper';
 
@@ -81,9 +81,13 @@ const SiderBar = ({ onNavigate = () => {} }) => {
   }, [userState?.user]);
   const adminVisible = (currentUser?.role || 0) >= 10;
   const rootVisible = (currentUser?.role || 0) >= 100;
+  const quotaPoolSuperAdminVisible =
+    currentUser?.role === ROLE_QUOTA_POOL_SUPER_ADMIN;
   const quotaPoolVisible =
     !!currentUser?.quota_pool_enabled &&
-    (adminVisible || !!currentUser?.quota_pool_admin);
+    (adminVisible ||
+      quotaPoolSuperAdminVisible ||
+      !!currentUser?.quota_pool_admin);
 
   const workspaceItems = useMemo(() => {
     const items = [

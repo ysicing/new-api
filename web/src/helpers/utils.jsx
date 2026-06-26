@@ -28,6 +28,8 @@ import {
 import { TABLE_COMPACT_MODES_KEY } from '../constants';
 import { MOBILE_BREAKPOINT } from '../hooks/common/useIsMobile';
 
+export const ROLE_QUOTA_POOL_SUPER_ADMIN = 2;
+
 const HTMLToastContent = ({ htmlContent }) => {
   return <div dangerouslySetInnerHTML={{ __html: htmlContent }} />;
 };
@@ -44,6 +46,13 @@ export function isRoot() {
   if (!user) return false;
   user = JSON.parse(user);
   return user.role >= 100;
+}
+
+export function isQuotaPoolSuperAdminRole() {
+  let user = localStorage.getItem('user');
+  if (!user) return false;
+  user = JSON.parse(user);
+  return user.role === ROLE_QUOTA_POOL_SUPER_ADMIN;
 }
 
 export function isQuotaPoolAdmin() {

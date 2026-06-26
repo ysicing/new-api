@@ -27,6 +27,7 @@ import {
   Badge,
 } from '@douyinfe/semi-ui';
 import {
+  ROLE_QUOTA_POOL_SUPER_ADMIN,
   isRoot,
   isAdmin,
   renderQuota,
@@ -95,6 +96,15 @@ const UserInfoHeader = ({ t, userState }) => {
                         style={{ color: 'white' }}
                       >
                         {t('管理员')}
+                      </Tag>
+                    ) : userState?.user?.role ===
+                      ROLE_QUOTA_POOL_SUPER_ADMIN ? (
+                      <Tag
+                        size='large'
+                        shape='circle'
+                        style={{ color: 'white' }}
+                      >
+                        {t('池超级管理员')}
                       </Tag>
                     ) : (
                       <Tag

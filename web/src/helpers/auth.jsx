@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { history } from './history';
+import { ROLE_QUOTA_POOL_SUPER_ADMIN } from './utils';
 
 export function authHeader() {
   // return authorization header with jwt token
@@ -92,6 +93,7 @@ export function QuotaPoolRoute({ children }) {
       user &&
       user.quota_pool_enabled &&
       ((typeof user.role === 'number' && user.role >= 10) ||
+        user.role === ROLE_QUOTA_POOL_SUPER_ADMIN ||
         user.quota_pool_admin)
     ) {
       return children;

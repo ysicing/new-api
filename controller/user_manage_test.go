@@ -160,6 +160,86 @@ func TestManageUserAdminCannotDisableAdmin(t *testing.T) {
 	}
 }
 
+func TestManageUserRootCanSetQuotaPoolSuperAdmin(t *testing.T) {
+	db := setupUserManageTestDB(t)
+	target := &model.User{
+		Username: "target-user",
+		Password: "password",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+		Group:    "default",
+		AffCode:  "target-code",
+	}
+	if err := db.Create(target).Error; err != nil {
+		t.Fatalf("failed to create target user: %v", err)
+	}
+
+	ctx, recorder := newManageUserContext(t, ManageRequest{
+		Id:     target.Id,
+		Action: "set_quota_pool_super_admin",
+	}, common.RoleRootUser, 99)
+	ManageUser(ctx)
+	if response := decodeManageUserResponse(t, recorder); !response.Success {
+		t.Fatalf("expected set quota pool super admin success, got %#v", response)
+	}
+
+	var updated model.User
+	if err := db.First(&updated, target.Id).Error; err != nil {
+		t.Fatalf("failed to reload target user: %v", err)
+	}
+	if updated.Role != common.RoleQuotaPoolSuperAdmin {
+		t.Fatalf("role = %d, want quota pool super admin", updated.Role)
+	}
+	assertLatestManageLogAdminInfo(t, db, target.Id, 99, "admin-user")
+	var log model.Log
+	if err := db.Where("user_id = ? AND type = ?", target.Id, model.LogTypeManage).Order("id desc").First(&log).Error; err != nil {
+		t.Fatalf("failed to load quota pool super admin manage log: %v", err)
+	}
+	if !strings.Contains(log.Content, "设置用户为池超级管理员") {
+		t.Fatalf("unexpected manage log content: %q", log.Content)
+	}
+}
+
+func TestManageUserRootCanUnsetQuotaPoolSuperAdminWritesLog(t *testing.T) {
+	db := setupUserManageTestDB(t)
+	target := &model.User{
+		Username: "target-quota-super-admin",
+		Password: "password",
+		Role:     common.RoleQuotaPoolSuperAdmin,
+		Status:   common.UserStatusEnabled,
+		Group:    "default",
+		AffCode:  "target-super-code",
+	}
+	if err := db.Create(target).Error; err != nil {
+		t.Fatalf("failed to create target user: %v", err)
+	}
+
+	ctx, recorder := newManageUserContext(t, ManageRequest{
+		Id:     target.Id,
+		Action: "unset_quota_pool_super_admin",
+	}, common.RoleRootUser, 99)
+	ManageUser(ctx)
+	if response := decodeManageUserResponse(t, recorder); !response.Success {
+		t.Fatalf("expected unset quota pool super admin success, got %#v", response)
+	}
+
+	var updated model.User
+	if err := db.First(&updated, target.Id).Error; err != nil {
+		t.Fatalf("failed to reload target user: %v", err)
+	}
+	if updated.Role != common.RoleCommonUser {
+		t.Fatalf("role = %d, want common user", updated.Role)
+	}
+	assertLatestManageLogAdminInfo(t, db, target.Id, 99, "admin-user")
+	var log model.Log
+	if err := db.Where("user_id = ? AND type = ?", target.Id, model.LogTypeManage).Order("id desc").First(&log).Error; err != nil {
+		t.Fatalf("failed to load quota pool super admin manage log: %v", err)
+	}
+	if !strings.Contains(log.Content, "取消用户池超级管理员权限") {
+		t.Fatalf("unexpected manage log content: %q", log.Content)
+	}
+}
+
 func TestAdminClearLDAPBinding(t *testing.T) {
 	db := setupUserManageTestDB(t)
 	user := model.User{
@@ -219,7 +299,7 @@ func TestSetupLoginReturnsQuotaPoolAdminSummary(t *testing.T) {
 	if err := db.Create(user).Error; err != nil {
 		t.Fatalf("failed to create user: %v", err)
 	}
-	if err := db.Create(&model.QuotaPoolAdmin{PoolId: pool.Id, UserId: user.Id, Level: model.QuotaPoolAdminLevelV2}).Error; err != nil {
+	if err := db.Create(&model.QuotaPoolAdmin{PoolId: pool.Id, UserId: user.Id, Level: model.QuotaPoolAdminLevelV1}).Error; err != nil {
 		t.Fatalf("failed to create pool admin: %v", err)
 	}
 
@@ -243,7 +323,7 @@ func TestSetupLoginReturnsQuotaPoolAdminSummary(t *testing.T) {
 	if !response.Success || response.Data.QuotaPoolAdmin == nil {
 		t.Fatalf("expected quota_pool_admin in login response, got %s", recorder.Body.String())
 	}
-	if response.Data.QuotaPoolAdmin.PoolId != pool.Id || response.Data.QuotaPoolAdmin.Level != model.QuotaPoolAdminLevelV2 {
+	if response.Data.QuotaPoolAdmin.PoolId != pool.Id || response.Data.QuotaPoolAdmin.Level != model.QuotaPoolAdminLevelV1 {
 		t.Fatalf("unexpected quota_pool_admin: %+v", response.Data.QuotaPoolAdmin)
 	}
 }

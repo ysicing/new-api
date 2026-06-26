@@ -34,6 +34,10 @@ func validUserInfo(username string, role int) bool {
 }
 
 func authHelper(c *gin.Context, minRole int) {
+	authHelperWithRoleCheck(c, minRole, nil)
+}
+
+func authHelperWithRoleCheck(c *gin.Context, minRole int, allowRole func(int) bool) {
 	session := sessions.Default(c)
 	username := session.Get("username")
 	role := session.Get("role")
@@ -128,7 +132,8 @@ func authHelper(c *gin.Context, minRole int) {
 		c.Abort()
 		return
 	}
-	if role.(int) < minRole {
+	roleValue := role.(int)
+	if roleValue < minRole && (allowRole == nil || !allowRole(roleValue)) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege),
@@ -176,6 +181,14 @@ func UserAuth() func(c *gin.Context) {
 func AdminAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		authHelper(c, common.RoleAdminUser)
+	}
+}
+
+func QuotaPoolAuth() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		authHelperWithRoleCheck(c, common.RoleAdminUser, func(role int) bool {
+			return role == common.RoleQuotaPoolSuperAdmin
+		})
 	}
 }
 
