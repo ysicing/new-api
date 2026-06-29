@@ -41,6 +41,7 @@ type User struct {
 	AccessToken      *string        `json:"access_token" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
 	Quota            int            `json:"quota" gorm:"type:int;default:0"`
 	QuotaPoolId      int            `json:"quota_pool_id" gorm:"type:int;default:0;column:quota_pool_id;index"`
+	QuotaPoolName    string         `json:"quota_pool_name,omitempty" gorm:"-"`
 	UsedQuota        int            `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
 	RequestCount     int            `json:"request_count" gorm:"type:int;default:0;"`               // request number
 	Group            string         `json:"group" gorm:"type:varchar(64);default:'default'"`
@@ -219,6 +220,10 @@ func GetAllUsers(pageInfo *common.PageInfo) (users []*User, total int64, err err
 		tx.Rollback()
 		return nil, 0, err
 	}
+	if err = fillUserQuotaPoolNames(tx, users); err != nil {
+		tx.Rollback()
+		return nil, 0, err
+	}
 
 	// Commit transaction
 	if err = tx.Commit().Error; err != nil {
@@ -286,6 +291,10 @@ func SearchUsers(keyword string, group string, startIdx int, num int) ([]*User, 
 		tx.Rollback()
 		return nil, 0, err
 	}
+	if err = fillUserQuotaPoolNames(tx, users); err != nil {
+		tx.Rollback()
+		return nil, 0, err
+	}
 
 	// 提交事务
 	if err = tx.Commit().Error; err != nil {
@@ -293,6 +302,36 @@ func SearchUsers(keyword string, group string, startIdx int, num int) ([]*User, 
 	}
 
 	return users, total, nil
+}
+
+func fillUserQuotaPoolNames(tx *gorm.DB, users []*User) error {
+	poolIds := make([]int, 0)
+	seen := map[int]bool{}
+	for _, user := range users {
+		if user == nil || user.QuotaPoolId <= 0 || seen[user.QuotaPoolId] {
+			continue
+		}
+		seen[user.QuotaPoolId] = true
+		poolIds = append(poolIds, user.QuotaPoolId)
+	}
+	if len(poolIds) == 0 {
+		return nil
+	}
+	var pools []QuotaPool
+	if err := tx.Select("id", "name").Where("id IN ?", poolIds).Find(&pools).Error; err != nil {
+		return err
+	}
+	names := make(map[int]string, len(pools))
+	for _, pool := range pools {
+		names[pool.Id] = pool.Name
+	}
+	for _, user := range users {
+		if user == nil {
+			continue
+		}
+		user.QuotaPoolName = names[user.QuotaPoolId]
+	}
+	return nil
 }
 
 func GetUserById(id int, selectAll bool) (*User, error) {

@@ -92,6 +92,40 @@ func createQuotaPoolForTest(t *testing.T, db *gorm.DB, quota int) *QuotaPool {
 	return pool
 }
 
+func TestUserListsIncludeQuotaPoolName(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 1000)
+	pool.Name = "研发额度池"
+	if err := db.Model(&QuotaPool{}).Where("id = ?", pool.Id).Update("name", pool.Name).Error; err != nil {
+		t.Fatalf("rename pool failed: %v", err)
+	}
+	user := createQuotaPoolTestUser(t, db, 1, 100, pool.Id)
+
+	users, total, err := GetAllUsers(&common.PageInfo{Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("get all users failed: %v", err)
+	}
+	if total != 1 || len(users) != 1 {
+		t.Fatalf("unexpected users result total=%d len=%d", total, len(users))
+	}
+	if users[0].QuotaPoolName != pool.Name {
+		t.Fatalf("quota pool name = %q, want %q", users[0].QuotaPoolName, pool.Name)
+	}
+
+	users, total, err = SearchUsers(user.Username, "", 0, 10)
+	if err != nil {
+		t.Fatalf("search users failed: %v", err)
+	}
+	if total != 1 || len(users) != 1 {
+		t.Fatalf("unexpected search result total=%d len=%d", total, len(users))
+	}
+	if users[0].QuotaPoolName != pool.Name {
+		t.Fatalf("search quota pool name = %q, want %q", users[0].QuotaPoolName, pool.Name)
+	}
+}
+
 func TestDefaultQuotaPoolMonthlyRefillDayCapsAt28(t *testing.T) {
 	cases := []struct {
 		now  time.Time

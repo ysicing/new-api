@@ -186,6 +186,26 @@ const renderQuotaUsage = (text, record, t) => {
   );
 };
 
+const renderQuotaPool = (poolId, record, t) => {
+  if (!poolId || poolId <= 0) {
+    return (
+      <Tag color='grey' shape='circle'>
+        {t('默认')}
+      </Tag>
+    );
+  }
+  const poolName = record.quota_pool_name || `${t('额度池')} #${poolId}`;
+  return (
+    <Tooltip content={`${poolName} (#${poolId})`} position='top'>
+      <Tag color='cyan' shape='circle'>
+        <span className='inline-block max-w-24 truncate align-bottom'>
+          {poolName}
+        </span>
+      </Tag>
+    </Tooltip>
+  );
+};
+
 /**
  * Render invite information
  */
@@ -419,16 +439,7 @@ export const getUsersColumns = ({
     {
       title: t('额度池'),
       dataIndex: 'quota_pool_id',
-      render: (value) =>
-        value && value > 0 ? (
-          <Tag color='cyan' shape='circle'>
-            #{value}
-          </Tag>
-        ) : (
-          <Tag color='grey' shape='circle'>
-            {t('默认')}
-          </Tag>
-        ),
+      render: (value, record) => renderQuotaPool(value, record, t),
     },
     {
       title: t('邀请信息'),
