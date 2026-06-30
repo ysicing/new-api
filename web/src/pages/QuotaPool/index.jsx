@@ -351,7 +351,7 @@ const QuotaPool = () => {
       ),
     },
     {
-      title: t('可用额度/总额度'),
+      title: t('本月可用额度/累计总额度'),
       dataIndex: 'quota',
       width: 170,
       render: (_, record) => renderPoolQuota(record),
@@ -732,7 +732,7 @@ const QuotaPool = () => {
                   : 'xl:grid-cols-5'
               } gap-3`}
             >
-              <Card title={t('可用额度/总额度')}>
+              <Card title={t('本月可用额度/累计总额度')}>
                 <Typography.Text>
                   {renderPoolQuota(selectedPool)}
                 </Typography.Text>
@@ -1033,7 +1033,7 @@ const QuotaPool = () => {
               field='admin_level'
               label={t('角色')}
               extraText={t(
-                '成员仅消耗本池额度；池管理员 v1 可查看本池、添加默认池用户并给成员充值；池超级管理员是系统角色，可为非系统池设置或撤销池管理员。',
+                '成员仅加入本额度池并消耗本池额度；池管理员可查看本池、添加默认池用户并给成员充值。',
               )}
               style={{ width: '100%' }}
               optionList={adminRoleOptions}

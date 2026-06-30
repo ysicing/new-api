@@ -28,6 +28,7 @@ import {
   Popover,
   Typography,
   Dropdown,
+  Modal,
 } from '@douyinfe/semi-ui';
 import { IconMore } from '@douyinfe/semi-icons';
 import {
@@ -55,7 +56,7 @@ const renderRole = (role, t) => {
     case ROLE_QUOTA_POOL_SUPER_ADMIN:
       return (
         <Tag color='cyan' shape='circle'>
-          {t('池超级管理员')}
+          {t('池超管')}
         </Tag>
       );
     case 10:
@@ -268,7 +269,28 @@ const renderOperations = (
     ((record.role >= 10 && record.role < 100) ||
       record.role === ROLE_QUOTA_POOL_SUPER_ADMIN);
 
-  const moreMenu = [
+  const moreMenu = [];
+  if (canSetQuotaPoolSuperAdmin) {
+    moreMenu.push({
+      node: 'item',
+      name: t('设为池超管'),
+      onClick: () => {
+        Modal.confirm({
+          title: t('确定要设为池超管吗？'),
+          onOk: () =>
+            manageUser(record.id, 'set_quota_pool_super_admin', record),
+          size: 'small',
+          centered: true,
+        });
+      },
+    });
+  }
+  if (moreMenu.length > 0) {
+    moreMenu.push({
+      node: 'divider',
+    });
+  }
+  moreMenu.push(
     {
       node: 'item',
       name: t('订阅管理'),
@@ -287,7 +309,7 @@ const renderOperations = (
       name: t('重置 2FA'),
       onClick: () => showResetTwoFAModal(record),
     },
-  ];
+  );
   if (canDelete) {
     moreMenu.push(
       {
@@ -342,18 +364,6 @@ const renderOperations = (
         >
           {t('提升')}
         </Button>
-      )}
-      {canSetQuotaPoolSuperAdmin && (
-        <Popconfirm
-          title={t('确定要设为池超级管理员吗？')}
-          onConfirm={() =>
-            manageUser(record.id, 'set_quota_pool_super_admin', record)
-          }
-        >
-          <Button type='secondary' size='small'>
-            {t('设为池超级管理员')}
-          </Button>
-        </Popconfirm>
       )}
       <Popconfirm
         title={t('确定要给该用户充值吗？')}
