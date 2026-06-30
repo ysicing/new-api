@@ -31,7 +31,10 @@ type LoginRequest struct {
 }
 
 type LDAPSyncRequest struct {
-	Username string `json:"username"`
+	Username string   `json:"username"`
+	Action   string   `json:"action"`
+	Email    string   `json:"email"`
+	Emails   []string `json:"emails"`
 }
 
 func Login(c *gin.Context) {
@@ -145,11 +148,53 @@ func SyncLDAPUser(c *gin.Context) {
 		return
 	}
 	username := strings.TrimSpace(req.Username)
+
+	switch strings.ToLower(strings.TrimSpace(req.Action)) {
+	case "search":
+		if username == "" {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		users, err := service.SearchLDAPUsers(username)
+		if err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
+		common.ApiSuccess(c, gin.H{
+			"users": users,
+			"total": len(users),
+		})
+		return
+	case "sync":
+		email := strings.TrimSpace(req.Email)
+		if email == "" && len(req.Emails) == 1 {
+			email = strings.TrimSpace(req.Emails[0])
+		}
+		if email == "" || len(req.Emails) > 1 {
+			common.ApiErrorMsg(c, "请选择一个要同步的 LDAP 用户")
+			return
+		}
+		user, err := service.SyncLDAPUserByEmail(email)
+		if err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
+		adminInfo := map[string]interface{}{
+			"admin_id":       c.GetInt("id"),
+			"admin_username": c.GetString("username"),
+		}
+		model.RecordLogWithAdminInfo(user.Id, model.LogTypeManage,
+			fmt.Sprintf("管理员同步 LDAP 用户 %s", user.Email), adminInfo)
+		common.ApiSuccess(c, gin.H{
+			"user": ldapSyncUserResponse(user),
+		})
+		return
+	}
+
 	if username == "" {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-
 	user, err := service.SyncLDAPUser(username)
 	if err != nil {
 		common.ApiErrorMsg(c, err.Error())
@@ -172,6 +217,19 @@ func SyncLDAPUser(c *gin.Context) {
 		"role":         user.Role,
 		"status":       user.Status,
 	})
+}
+
+func ldapSyncUserResponse(user *model.User) gin.H {
+	return gin.H{
+		"id":           user.Id,
+		"username":     user.Username,
+		"display_name": user.DisplayName,
+		"department":   user.Department,
+		"ldap_id":      user.LDAPId,
+		"email":        user.Email,
+		"role":         user.Role,
+		"status":       user.Status,
+	}
 }
 
 // setup session & cookies and then return user info

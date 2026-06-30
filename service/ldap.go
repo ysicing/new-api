@@ -23,6 +23,15 @@ type ldapProfile struct {
 	LDAPId      string
 }
 
+type LDAPSyncCandidate struct {
+	Key         string `json:"key"`
+	Username    string `json:"username"`
+	Email       string `json:"email"`
+	DisplayName string `json:"display_name"`
+	Department  string `json:"department"`
+	LDAPId      string `json:"ldap_id"`
+}
+
 var ldapRequest = func(conf ergoldap.LdapConf, username, password string) (*goldap.SearchResult, error) {
 	return conf.LdapReq(username, password)
 }
@@ -62,17 +71,36 @@ func LoginWithLDAP(username, password string) (*model.User, error) {
 }
 
 func SyncLDAPUser(identifier string) (*model.User, error) {
+	profiles, err := searchLDAPProfiles(identifier)
+	if err != nil {
+		return nil, err
+	}
+	if len(profiles) != 1 {
+		return nil, errors.New("匹配到多个 LDAP 用户，请输入更精确的用户名或邮箱")
+	}
+	return findOrCreateLDAPUser(profiles[0], true)
+}
+
+func SearchLDAPUsers(identifier string) ([]LDAPSyncCandidate, error) {
+	profiles, err := searchLDAPProfiles(identifier)
+	if err != nil {
+		return nil, err
+	}
+
+	candidates := make([]LDAPSyncCandidate, 0, len(profiles))
+	for _, profile := range profiles {
+		candidates = append(candidates, ldapSyncCandidateFromProfile(profile))
+	}
+	return candidates, nil
+}
+
+func searchLDAPProfiles(identifier string) ([]ldapProfile, error) {
 	identifier = strings.TrimSpace(identifier)
 	if identifier == "" {
 		return nil, errors.New("LDAP 用户名或邮箱为空")
 	}
 
-	settings := system_setting.GetLDAPSettings()
-	if !settings.Enabled {
-		return nil, ErrLDAPLoginDisabled
-	}
-
-	conf, err := buildLDAPConf(settings)
+	conf, err := ldapSyncConf()
 	if err != nil {
 		return nil, err
 	}
@@ -81,15 +109,73 @@ func SyncLDAPUser(identifier string) (*model.User, error) {
 	if len(users) == 0 {
 		return nil, errors.New("未找到 LDAP 用户")
 	}
-	if len(users) != 1 {
-		return nil, errors.New("匹配到多个 LDAP 用户，请输入更精确的用户名或邮箱")
-	}
 
-	profile, err := ldapProfileFromUser(users[0], identifier)
+	profiles := make([]ldapProfile, 0, len(users))
+	seen := map[string]struct{}{}
+	for _, user := range users {
+		profile, err := ldapProfileFromUser(user, identifier)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := seen[profile.Email]; ok {
+			continue
+		}
+		seen[profile.Email] = struct{}{}
+		profiles = append(profiles, profile)
+	}
+	if len(profiles) == 0 {
+		return nil, errors.New("未找到 LDAP 用户")
+	}
+	return profiles, nil
+}
+
+func SyncLDAPUserByEmail(email string) (*model.User, error) {
+	email = normalizeLDAPEmail(email)
+	if email == "" {
+		return nil, errors.New("请选择一个要同步的 LDAP 用户")
+	}
+	conf, err := ldapSyncConf()
+	if err != nil {
+		return nil, err
+	}
+	profile, err := ldapProfileForSyncEmail(conf, email)
 	if err != nil {
 		return nil, err
 	}
 	return findOrCreateLDAPUser(profile, true)
+}
+
+func ldapSyncConf() (ergoldap.LdapConf, error) {
+	settings := system_setting.GetLDAPSettings()
+	if !settings.Enabled {
+		return ergoldap.LdapConf{}, ErrLDAPLoginDisabled
+	}
+	return buildLDAPConf(settings)
+}
+
+func ldapSyncCandidateFromProfile(profile ldapProfile) LDAPSyncCandidate {
+	return LDAPSyncCandidate{
+		Key:         profile.Email,
+		Username:    profile.Username,
+		Email:       profile.Email,
+		DisplayName: ldapDisplayName(profile),
+		Department:  profile.Department,
+		LDAPId:      profile.LDAPId,
+	}
+}
+
+func ldapProfileForSyncEmail(conf ergoldap.LdapConf, email string) (ldapProfile, error) {
+	users := searchLDAPUsersForSync(conf, email)
+	for _, user := range users {
+		profile, err := ldapProfileFromUser(user, email)
+		if err != nil {
+			return ldapProfile{}, err
+		}
+		if profile.Email == email {
+			return profile, nil
+		}
+	}
+	return ldapProfile{}, fmt.Errorf("未找到 LDAP 用户: %s", email)
 }
 
 func searchLDAPUsersForSync(conf ergoldap.LdapConf, identifier string) []ergoldap.LdapUser {

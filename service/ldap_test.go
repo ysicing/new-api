@@ -516,3 +516,96 @@ func TestSyncLDAPUserRejectsMultipleMatches(t *testing.T) {
 		t.Fatalf("expected multiple matches error, got %v", err)
 	}
 }
+
+func TestSearchLDAPUsersReturnsMultipleCandidates(t *testing.T) {
+	setupLDAPTest(t)
+	ldapSearch = func(conf ergoldap.LdapConf, username string) []ergoldap.LdapUser {
+		if username != "alice" {
+			t.Fatalf("unexpected search username: %s", username)
+		}
+		return []ergoldap.LdapUser{
+			{
+				Username:    "alice",
+				Email:       "Alice@Example.com",
+				DisplayName: "Alice Doe",
+				Department:  "Engineering",
+			},
+			{
+				Username:    "alice2",
+				Email:       "alice2@example.com",
+				DisplayName: "Alice Two",
+				Department:  "Product",
+			},
+		}
+	}
+
+	candidates, err := SearchLDAPUsers("alice")
+	if err != nil {
+		t.Fatalf("search ldap users failed: %v", err)
+	}
+	if len(candidates) != 2 {
+		t.Fatalf("expected two candidates, got %+v", candidates)
+	}
+	if candidates[0].Key != "alice@example.com" || candidates[0].Email != "alice@example.com" || candidates[0].DisplayName != "Alice Doe" {
+		t.Fatalf("unexpected first candidate: %+v", candidates[0])
+	}
+	if candidates[1].Key != "alice2@example.com" || candidates[1].Department != "Product" {
+		t.Fatalf("unexpected second candidate: %+v", candidates[1])
+	}
+}
+
+func TestSyncLDAPUserByEmailSyncsSelectedUser(t *testing.T) {
+	db := setupLDAPTest(t)
+	var requested []string
+	var attrs []string
+	ldapSearch = func(conf ergoldap.LdapConf, username string) []ergoldap.LdapUser {
+		requested = append(requested, username)
+		attrs = append(attrs, conf.LdapUID)
+		switch {
+		case conf.LdapUID == "mail" && username == "alice@example.com":
+			return []ergoldap.LdapUser{{
+				Username:    "alice",
+				Email:       "alice@example.com",
+				DisplayName: "Alice Doe",
+				Department:  "Engineering",
+			}}
+		default:
+			return nil
+		}
+	}
+
+	user, err := SyncLDAPUserByEmail("alice@example.com")
+	if err != nil {
+		t.Fatalf("sync ldap user failed: %v", err)
+	}
+	if user.Email != "alice@example.com" || user.Username != "Alice Doe" || user.Department != "Engineering" {
+		t.Fatalf("unexpected synced user: %+v", user)
+	}
+
+	var count int64
+	if err := db.Model(&model.User{}).Count(&count).Error; err != nil {
+		t.Fatalf("count users failed: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected one user, got %d", count)
+	}
+	if strings.Join(requested, ",") != "alice@example.com,alice@example.com" {
+		t.Fatalf("unexpected search sequence: %v", requested)
+	}
+	if strings.Join(attrs, ",") != "sAMAccountName,mail" {
+		t.Fatalf("unexpected search attrs: %v", attrs)
+	}
+}
+
+func TestSyncLDAPUserByEmailRequiresEmail(t *testing.T) {
+	setupLDAPTest(t)
+	ldapSearch = func(conf ergoldap.LdapConf, username string) []ergoldap.LdapUser {
+		t.Fatalf("ldap search should not be called")
+		return nil
+	}
+
+	_, err := SyncLDAPUserByEmail(" ")
+	if err == nil || !strings.Contains(err.Error(), "请选择一个要同步的 LDAP 用户") {
+		t.Fatalf("expected selected user error, got %v", err)
+	}
+}
