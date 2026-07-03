@@ -1,6 +1,7 @@
 package service
 
 import (
+	"crypto/hmac"
 	"errors"
 	"fmt"
 	"strings"
@@ -25,6 +26,15 @@ type ldapProfile struct {
 
 type LDAPSyncCandidate struct {
 	Key         string `json:"key"`
+	Username    string `json:"username"`
+	Email       string `json:"email"`
+	DisplayName string `json:"display_name"`
+	Department  string `json:"department"`
+	LDAPId      string `json:"ldap_id"`
+	Signature   string `json:"signature"`
+}
+
+type ldapSyncCandidatePayload struct {
 	Username    string `json:"username"`
 	Email       string `json:"email"`
 	DisplayName string `json:"display_name"`
@@ -129,16 +139,14 @@ func searchLDAPProfiles(identifier string) ([]ldapProfile, error) {
 	return profiles, nil
 }
 
-func SyncLDAPUserByEmail(email string) (*model.User, error) {
-	email = normalizeLDAPEmail(email)
-	if email == "" {
-		return nil, errors.New("请选择一个要同步的 LDAP 用户")
-	}
-	conf, err := ldapSyncConf()
-	if err != nil {
+func SyncLDAPCandidate(candidate LDAPSyncCandidate) (*model.User, error) {
+	if _, err := ldapSyncConf(); err != nil {
 		return nil, err
 	}
-	profile, err := ldapProfileForSyncEmail(conf, email)
+	if !verifyLDAPSyncCandidate(candidate) {
+		return nil, errors.New("LDAP 用户信息校验失败，请重新查询后同步")
+	}
+	profile, err := ldapProfileFromCandidate(candidate)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +162,7 @@ func ldapSyncConf() (ergoldap.LdapConf, error) {
 }
 
 func ldapSyncCandidateFromProfile(profile ldapProfile) LDAPSyncCandidate {
-	return LDAPSyncCandidate{
+	candidate := LDAPSyncCandidate{
 		Key:         profile.Email,
 		Username:    profile.Username,
 		Email:       profile.Email,
@@ -162,20 +170,62 @@ func ldapSyncCandidateFromProfile(profile ldapProfile) LDAPSyncCandidate {
 		Department:  profile.Department,
 		LDAPId:      profile.LDAPId,
 	}
+	candidate.Signature = signLDAPSyncCandidate(candidate)
+	return candidate
 }
 
-func ldapProfileForSyncEmail(conf ergoldap.LdapConf, email string) (ldapProfile, error) {
-	users := searchLDAPUsersForSync(conf, email)
-	for _, user := range users {
-		profile, err := ldapProfileFromUser(user, email)
-		if err != nil {
-			return ldapProfile{}, err
-		}
-		if profile.Email == email {
-			return profile, nil
-		}
+func ldapProfileFromCandidate(candidate LDAPSyncCandidate) (ldapProfile, error) {
+	profile := ldapProfile{
+		Username:    strings.TrimSpace(candidate.Username),
+		Email:       normalizeLDAPEmail(candidate.Email),
+		DisplayName: strings.TrimSpace(candidate.DisplayName),
+		Department:  strings.TrimSpace(candidate.Department),
+		LDAPId:      strings.TrimSpace(candidate.LDAPId),
 	}
-	return ldapProfile{}, fmt.Errorf("未找到 LDAP 用户: %s", email)
+	if profile.Username == "" {
+		profile.Username = profile.Email
+	}
+	if profile.Email == "" || !strings.Contains(profile.Email, "@") {
+		return ldapProfile{}, errors.New("LDAP 用户邮箱为空")
+	}
+	if len(profile.Email) > 50 {
+		return ldapProfile{}, errors.New("LDAP 用户邮箱长度不能超过 50")
+	}
+	profile.DisplayName = trimRunes(profile.DisplayName, model.UserNameMaxLength)
+	profile.Department = trimRunes(profile.Department, model.UserDepartmentMaxLength)
+	if profile.LDAPId == "" {
+		profile.LDAPId = strings.TrimSpace(ldapBindingId(profile))
+	}
+	profile.LDAPId = trimRunes(profile.LDAPId, 256)
+	return profile, nil
+}
+
+func ldapSyncCandidateSignaturePayload(candidate LDAPSyncCandidate) string {
+	payload := ldapSyncCandidatePayload{
+		Username:    strings.TrimSpace(candidate.Username),
+		Email:       normalizeLDAPEmail(candidate.Email),
+		DisplayName: strings.TrimSpace(candidate.DisplayName),
+		Department:  strings.TrimSpace(candidate.Department),
+		LDAPId:      strings.TrimSpace(candidate.LDAPId),
+	}
+	data, err := common.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func signLDAPSyncCandidate(candidate LDAPSyncCandidate) string {
+	return common.GenerateHMAC(ldapSyncCandidateSignaturePayload(candidate))
+}
+
+func verifyLDAPSyncCandidate(candidate LDAPSyncCandidate) bool {
+	signature := strings.TrimSpace(candidate.Signature)
+	if signature == "" {
+		return false
+	}
+	expected := signLDAPSyncCandidate(candidate)
+	return hmac.Equal([]byte(signature), []byte(expected))
 }
 
 func searchLDAPUsersForSync(conf ergoldap.LdapConf, identifier string) []ergoldap.LdapUser {

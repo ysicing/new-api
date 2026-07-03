@@ -549,63 +549,64 @@ func TestSearchLDAPUsersReturnsMultipleCandidates(t *testing.T) {
 	if candidates[0].Key != "alice@example.com" || candidates[0].Email != "alice@example.com" || candidates[0].DisplayName != "Alice Doe" {
 		t.Fatalf("unexpected first candidate: %+v", candidates[0])
 	}
+	if candidates[0].Signature == "" {
+		t.Fatalf("expected signed first candidate")
+	}
 	if candidates[1].Key != "alice2@example.com" || candidates[1].Department != "Product" {
 		t.Fatalf("unexpected second candidate: %+v", candidates[1])
 	}
 }
 
-func TestSyncLDAPUserByEmailSyncsSelectedUser(t *testing.T) {
-	db := setupLDAPTest(t)
-	var requested []string
-	var attrs []string
-	ldapSearch = func(conf ergoldap.LdapConf, username string) []ergoldap.LdapUser {
-		requested = append(requested, username)
-		attrs = append(attrs, conf.LdapUID)
-		switch {
-		case conf.LdapUID == "mail" && username == "alice@example.com":
-			return []ergoldap.LdapUser{{
-				Username:    "alice",
-				Email:       "alice@example.com",
-				DisplayName: "Alice Doe",
-				Department:  "Engineering",
-			}}
-		default:
-			return nil
-		}
-	}
-
-	user, err := SyncLDAPUserByEmail("alice@example.com")
-	if err != nil {
-		t.Fatalf("sync ldap user failed: %v", err)
-	}
-	if user.Email != "alice@example.com" || user.Username != "Alice Doe" || user.Department != "Engineering" {
-		t.Fatalf("unexpected synced user: %+v", user)
-	}
-
-	var count int64
-	if err := db.Model(&model.User{}).Count(&count).Error; err != nil {
-		t.Fatalf("count users failed: %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("expected one user, got %d", count)
-	}
-	if strings.Join(requested, ",") != "alice@example.com,alice@example.com" {
-		t.Fatalf("unexpected search sequence: %v", requested)
-	}
-	if strings.Join(attrs, ",") != "sAMAccountName,mail" {
-		t.Fatalf("unexpected search attrs: %v", attrs)
-	}
-}
-
-func TestSyncLDAPUserByEmailRequiresEmail(t *testing.T) {
+func TestSyncLDAPCandidateUsesSelectedProfileWithoutSearchingAgain(t *testing.T) {
 	setupLDAPTest(t)
 	ldapSearch = func(conf ergoldap.LdapConf, username string) []ergoldap.LdapUser {
-		t.Fatalf("ldap search should not be called")
+		t.Fatalf("ldap search should not be called when syncing selected candidate")
 		return nil
 	}
 
-	_, err := SyncLDAPUserByEmail(" ")
-	if err == nil || !strings.Contains(err.Error(), "请选择一个要同步的 LDAP 用户") {
-		t.Fatalf("expected selected user error, got %v", err)
+	candidate := LDAPSyncCandidate{
+		Username:    "alice",
+		Email:       "alice@example.com",
+		DisplayName: "Alice Doe",
+		Department:  "Engineering",
+	}
+	candidate.Signature = signLDAPSyncCandidate(candidate)
+	user, err := SyncLDAPCandidate(candidate)
+	if err != nil {
+		t.Fatalf("sync ldap user failed: %v", err)
+	}
+	if user.Email != "alice@example.com" || user.Username != "Alice Doe" {
+		t.Fatalf("unexpected synced user: %+v", user)
+	}
+}
+
+func TestSyncLDAPCandidateRejectsTamperedProfile(t *testing.T) {
+	setupLDAPTest(t)
+	candidate := LDAPSyncCandidate{
+		Username:    "alice",
+		Email:       "alice@example.com",
+		DisplayName: "Alice Doe",
+	}
+	candidate.Signature = signLDAPSyncCandidate(candidate)
+	candidate.Email = "mallory@example.com"
+
+	_, err := SyncLDAPCandidate(candidate)
+	if err == nil || !strings.Contains(err.Error(), "LDAP 用户信息校验失败") {
+		t.Fatalf("expected signature error, got %v", err)
+	}
+}
+
+func TestSyncLDAPCandidateRejectsWhenLDAPDisabled(t *testing.T) {
+	setupLDAPTest(t)
+	system_setting.GetLDAPSettings().Enabled = false
+	candidate := LDAPSyncCandidate{
+		Username: "alice",
+		Email:    "alice@example.com",
+	}
+	candidate.Signature = signLDAPSyncCandidate(candidate)
+
+	_, err := SyncLDAPCandidate(candidate)
+	if !errors.Is(err, ErrLDAPLoginDisabled) {
+		t.Fatalf("expected ldap disabled error, got %v", err)
 	}
 }

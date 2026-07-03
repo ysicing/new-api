@@ -31,10 +31,9 @@ type LoginRequest struct {
 }
 
 type LDAPSyncRequest struct {
-	Username string   `json:"username"`
-	Action   string   `json:"action"`
-	Email    string   `json:"email"`
-	Emails   []string `json:"emails"`
+	Username string                    `json:"username"`
+	Action   string                    `json:"action"`
+	User     service.LDAPSyncCandidate `json:"user"`
 }
 
 func Login(c *gin.Context) {
@@ -166,15 +165,11 @@ func SyncLDAPUser(c *gin.Context) {
 		})
 		return
 	case "sync":
-		email := strings.TrimSpace(req.Email)
-		if email == "" && len(req.Emails) == 1 {
-			email = strings.TrimSpace(req.Emails[0])
-		}
-		if email == "" || len(req.Emails) > 1 {
+		if req.User.Email == "" {
 			common.ApiErrorMsg(c, "请选择一个要同步的 LDAP 用户")
 			return
 		}
-		user, err := service.SyncLDAPUserByEmail(email)
+		user, err := service.SyncLDAPCandidate(req.User)
 		if err != nil {
 			common.ApiErrorMsg(c, err.Error())
 			return

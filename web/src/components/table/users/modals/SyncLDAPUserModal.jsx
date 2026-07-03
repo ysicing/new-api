@@ -32,7 +32,12 @@ import {
   Tag,
   Typography,
 } from '@douyinfe/semi-ui';
-import { IconClose, IconRefresh, IconSearch, IconUserAdd } from '@douyinfe/semi-icons';
+import {
+  IconClose,
+  IconRefresh,
+  IconSearch,
+  IconUserAdd,
+} from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 
 const { Text, Title } = Typography;
@@ -91,10 +96,17 @@ const SyncLDAPUserModal = (props) => {
       showError(t('请选择一个要同步的 LDAP 用户'));
       return;
     }
+    const selectedUser = candidates.find(
+      (user) => user.key === selectedKeys[0],
+    );
+    if (!selectedUser?.email) {
+      showError(t('请选择一个要同步的 LDAP 用户'));
+      return;
+    }
     setSyncing(true);
     const res = await API.post('/api/user/ldap/sync', {
       action: 'sync',
-      email: selectedKeys[0],
+      user: selectedUser,
     });
     const { success, message } = res.data;
     if (success) {
@@ -239,10 +251,13 @@ const SyncLDAPUserModal = (props) => {
               {hasSearched && (
                 <div className='mt-3'>
                   <div className='mb-2 text-xs text-gray-600'>
-                    {t('查询到 {{count}} 个 LDAP 用户，已选择 {{selected}} 个', {
-                      count: candidates.length,
-                      selected: selectedKeys.length,
-                    })}
+                    {t(
+                      '查询到 {{count}} 个 LDAP 用户，已选择 {{selected}} 个',
+                      {
+                        count: candidates.length,
+                        selected: selectedKeys.length,
+                      },
+                    )}
                   </div>
                   <Table
                     size='small'
