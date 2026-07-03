@@ -10,7 +10,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
@@ -21,6 +23,14 @@ import (
 type manageUserAPIResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
+}
+
+type ldapSyncCandidateTestPayload struct {
+	Username    string `json:"username"`
+	Email       string `json:"email"`
+	DisplayName string `json:"display_name"`
+	Department  string `json:"department"`
+	LDAPId      string `json:"ldap_id"`
 }
 
 func setupUserManageTestDB(t *testing.T) *gorm.DB {
@@ -71,6 +81,23 @@ func setupUserManageTestDB(t *testing.T) *gorm.DB {
 	})
 
 	return db
+}
+
+func signLDAPSyncCandidateForTest(t *testing.T, candidate service.LDAPSyncCandidate) string {
+	t.Helper()
+
+	payload := ldapSyncCandidateTestPayload{
+		Username:    strings.TrimSpace(candidate.Username),
+		Email:       strings.ToLower(strings.TrimSpace(candidate.Email)),
+		DisplayName: strings.TrimSpace(candidate.DisplayName),
+		Department:  strings.TrimSpace(candidate.Department),
+		LDAPId:      strings.TrimSpace(candidate.LDAPId),
+	}
+	data, err := common.Marshal(payload)
+	if err != nil {
+		t.Fatalf("failed to marshal ldap candidate payload: %v", err)
+	}
+	return common.GenerateHMAC(string(data))
 }
 
 func newManageUserContext(t *testing.T, body any, role int, userID int) (*gin.Context, *httptest.ResponseRecorder) {
@@ -125,6 +152,51 @@ func assertLatestManageLogAdminInfo(t *testing.T, db *gorm.DB, userId int, admin
 	if got := adminInfo["admin_username"]; got != adminUsername {
 		t.Fatalf("unexpected admin_username, got %#v", got)
 	}
+}
+
+func TestSyncLDAPUserAllowsSelectedCandidateWithoutEmail(t *testing.T) {
+	db := setupUserManageTestDB(t)
+	oldLDAPSettings := *system_setting.GetLDAPSettings()
+	*system_setting.GetLDAPSettings() = system_setting.LDAPSettings{
+		Enabled:           true,
+		URL:               "ldap://ldap.example.com:389",
+		BaseDN:            "ou=users,dc=example,dc=com",
+		UID:               "sAMAccountName",
+		Scope:             3,
+		ConnectionTimeout: 30,
+	}
+	t.Cleanup(func() {
+		*system_setting.GetLDAPSettings() = oldLDAPSettings
+	})
+
+	candidate := service.LDAPSyncCandidate{
+		Key:         "lee",
+		Username:    "lee",
+		DisplayName: "Lee User",
+		Department:  "Engineering",
+		LDAPId:      "lee",
+	}
+	candidate.Signature = signLDAPSyncCandidateForTest(t, candidate)
+	ctx, recorder := newManageUserContext(t, LDAPSyncRequest{
+		Action: "sync",
+		User:   candidate,
+	}, common.RoleAdminUser, 100)
+	ctx.Request.URL.Path = "/api/user/ldap/sync"
+
+	SyncLDAPUser(ctx)
+
+	response := decodeManageUserResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected sync success, got message: %s", response.Message)
+	}
+	var user model.User
+	if err := db.Where("ldap_id = ?", "lee").First(&user).Error; err != nil {
+		t.Fatalf("expected synced ldap user: %v", err)
+	}
+	if user.Email != "" || user.Username != "Lee User" || user.Department != "Engineering" {
+		t.Fatalf("unexpected synced user: %+v", user)
+	}
+	assertLatestManageLogAdminInfo(t, db, user.Id, 100, "admin-user")
 }
 
 func TestManageUserAdminCannotDisableAdmin(t *testing.T) {

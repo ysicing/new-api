@@ -99,7 +99,7 @@ const SyncLDAPUserModal = (props) => {
     const selectedUser = candidates.find(
       (user) => user.key === selectedKeys[0],
     );
-    if (!selectedUser?.email) {
+    if (!selectedUser) {
       showError(t('请选择一个要同步的 LDAP 用户'));
       return;
     }
@@ -146,9 +146,6 @@ const SyncLDAPUserModal = (props) => {
     onChange: (selectedRowKeys) => {
       setSelectedKeys(selectedRowKeys.slice(-1));
     },
-    getCheckboxProps: (record) => ({
-      disabled: !record.email,
-    }),
   };
 
   return (
@@ -215,7 +212,7 @@ const SyncLDAPUserModal = (props) => {
                     {t('从 LDAP 查询并同步用户')}
                   </Text>
                   <div className='text-xs text-gray-600'>
-                    {t('先查询 LDAP 用户，选择一个有邮箱的账号后同步')}
+                    {t('先查询 LDAP 用户，选择一个账号后同步')}
                   </div>
                 </div>
               </div>

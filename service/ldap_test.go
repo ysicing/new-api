@@ -557,6 +557,31 @@ func TestSearchLDAPUsersReturnsMultipleCandidates(t *testing.T) {
 	}
 }
 
+func TestSearchLDAPUsersIncludesCandidateWithoutEmail(t *testing.T) {
+	setupLDAPTest(t)
+	ldapSearch = func(conf ergoldap.LdapConf, username string) []ergoldap.LdapUser {
+		if username != "lee" {
+			t.Fatalf("unexpected search username: %s", username)
+		}
+		return []ergoldap.LdapUser{{
+			Username:    "lee",
+			DisplayName: "Lee User",
+			Department:  "Engineering",
+		}}
+	}
+
+	candidates, err := SearchLDAPUsers("lee")
+	if err != nil {
+		t.Fatalf("search ldap users failed: %v", err)
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("expected one candidate, got %+v", candidates)
+	}
+	if candidates[0].Key != "lee" || candidates[0].Email != "" || candidates[0].LDAPId != "lee" || candidates[0].Signature == "" {
+		t.Fatalf("unexpected candidate: %+v", candidates[0])
+	}
+}
+
 func TestSyncLDAPCandidateUsesSelectedProfileWithoutSearchingAgain(t *testing.T) {
 	setupLDAPTest(t)
 	ldapSearch = func(conf ergoldap.LdapConf, username string) []ergoldap.LdapUser {
@@ -577,6 +602,119 @@ func TestSyncLDAPCandidateUsesSelectedProfileWithoutSearchingAgain(t *testing.T)
 	}
 	if user.Email != "alice@example.com" || user.Username != "Alice Doe" {
 		t.Fatalf("unexpected synced user: %+v", user)
+	}
+}
+
+func TestSyncLDAPCandidateCreatesUserWithoutEmail(t *testing.T) {
+	setupLDAPTest(t)
+	candidate := LDAPSyncCandidate{
+		Key:         "lee",
+		Username:    "lee",
+		DisplayName: "Lee User",
+		Department:  "Engineering",
+		LDAPId:      "lee",
+	}
+	candidate.Signature = signLDAPSyncCandidate(candidate)
+
+	user, err := SyncLDAPCandidate(candidate)
+	if err != nil {
+		t.Fatalf("sync ldap user failed: %v", err)
+	}
+	if user.Username != "Lee User" || user.Email != "" || user.LDAPId != "lee" || user.Department != "Engineering" {
+		t.Fatalf("unexpected synced user: %+v", user)
+	}
+}
+
+func TestSyncLDAPCandidateUpdatesExistingUserByLDAPId(t *testing.T) {
+	db := setupLDAPTest(t)
+	existing := model.User{
+		Username:    "Lee User",
+		DisplayName: "Lee User",
+		Department:  "Old Department",
+		LDAPId:      "lee",
+		Role:        common.RoleCommonUser,
+		Status:      common.UserStatusEnabled,
+		AffCode:     "lee-code",
+		CreatedAt:   time.Now().Unix(),
+	}
+	if err := db.Create(&existing).Error; err != nil {
+		t.Fatalf("create existing user failed: %v", err)
+	}
+
+	candidate := LDAPSyncCandidate{
+		Key:         "lee@example.com",
+		Username:    "lee",
+		Email:       "lee@example.com",
+		DisplayName: "Lee User",
+		Department:  "Engineering",
+		LDAPId:      "lee",
+	}
+	candidate.Signature = signLDAPSyncCandidate(candidate)
+
+	user, err := SyncLDAPCandidate(candidate)
+	if err != nil {
+		t.Fatalf("sync ldap user failed: %v", err)
+	}
+	if user.Id != existing.Id || user.Email != "lee@example.com" || user.Department != "Engineering" {
+		t.Fatalf("expected existing user to be updated, got %+v", user)
+	}
+	var count int64
+	if err := db.Model(&model.User{}).Count(&count).Error; err != nil {
+		t.Fatalf("count users failed: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected one user, got %d", count)
+	}
+}
+
+func TestSyncLDAPCandidateRejectsEmailFromDeletedUserWhenUpdatingByLDAPId(t *testing.T) {
+	db := setupLDAPTest(t)
+	existing := model.User{
+		Username:    "Lee User",
+		DisplayName: "Lee User",
+		LDAPId:      "lee",
+		Role:        common.RoleCommonUser,
+		Status:      common.UserStatusEnabled,
+		AffCode:     "lee-code",
+		CreatedAt:   time.Now().Unix(),
+	}
+	if err := db.Create(&existing).Error; err != nil {
+		t.Fatalf("create existing user failed: %v", err)
+	}
+	deleted := model.User{
+		Username:  "Deleted Lee",
+		Email:     "lee@example.com",
+		Role:      common.RoleCommonUser,
+		Status:    common.UserStatusEnabled,
+		AffCode:   "deleted-lee",
+		CreatedAt: time.Now().Unix(),
+	}
+	if err := db.Create(&deleted).Error; err != nil {
+		t.Fatalf("create deleted user failed: %v", err)
+	}
+	if err := db.Delete(&deleted).Error; err != nil {
+		t.Fatalf("delete user failed: %v", err)
+	}
+
+	candidate := LDAPSyncCandidate{
+		Key:         "lee@example.com",
+		Username:    "lee",
+		Email:       "lee@example.com",
+		DisplayName: "Lee User",
+		LDAPId:      "lee",
+	}
+	candidate.Signature = signLDAPSyncCandidate(candidate)
+
+	_, err := SyncLDAPCandidate(candidate)
+	if err == nil || !strings.Contains(err.Error(), "LDAP 用户邮箱对应账号已删除") {
+		t.Fatalf("expected deleted email error, got %v", err)
+	}
+	var user model.User
+	if err := db.First(&user, existing.Id).Error; err != nil {
+		t.Fatalf("load existing user failed: %v", err)
+	}
+	if user.Email != "" {
+		t.Fatalf("expected existing user email unchanged, got %+v", user)
 	}
 }
 

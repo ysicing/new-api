@@ -977,7 +977,7 @@
     "从 LDAP 同步指定用户": "Sync a specified user from LDAP",
     "按邮箱匹配已有账号，不存在则创建本地账号": "Match existing accounts by email, or create a local account",
     "从 LDAP 查询并同步用户": "Search and sync users from LDAP",
-    "先查询 LDAP 用户，选择一个有邮箱的账号后同步": "Search LDAP users first, then select one account with an email to sync",
+    "先查询 LDAP 用户，选择一个账号后同步": "Search LDAP users first, then select one account to sync",
     "同步所选": "Sync selected",
     "请选择一个要同步的 LDAP 用户": "Select one LDAP user to sync",
     "查询到 {{count}} 个 LDAP 用户，已选择 {{selected}} 个": "Found {{count}} LDAP users, {{selected}} selected",

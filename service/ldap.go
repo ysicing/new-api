@@ -127,10 +127,11 @@ func searchLDAPProfiles(identifier string) ([]ldapProfile, error) {
 		if err != nil {
 			return nil, err
 		}
-		if _, ok := seen[profile.Email]; ok {
+		identity := ldapBindingId(profile)
+		if _, ok := seen[identity]; ok {
 			continue
 		}
-		seen[profile.Email] = struct{}{}
+		seen[identity] = struct{}{}
 		profiles = append(profiles, profile)
 	}
 	if len(profiles) == 0 {
@@ -163,7 +164,7 @@ func ldapSyncConf() (ergoldap.LdapConf, error) {
 
 func ldapSyncCandidateFromProfile(profile ldapProfile) LDAPSyncCandidate {
 	candidate := LDAPSyncCandidate{
-		Key:         profile.Email,
+		Key:         ldapBindingId(profile),
 		Username:    profile.Username,
 		Email:       profile.Email,
 		DisplayName: ldapDisplayName(profile),
@@ -185,8 +186,11 @@ func ldapProfileFromCandidate(candidate LDAPSyncCandidate) (ldapProfile, error) 
 	if profile.Username == "" {
 		profile.Username = profile.Email
 	}
-	if profile.Email == "" || !strings.Contains(profile.Email, "@") {
-		return ldapProfile{}, errors.New("LDAP 用户邮箱为空")
+	if profile.Username == "" {
+		profile.Username = profile.LDAPId
+	}
+	if profile.Email != "" && !strings.Contains(profile.Email, "@") {
+		return ldapProfile{}, errors.New("LDAP 用户邮箱格式不正确")
 	}
 	if len(profile.Email) > 50 {
 		return ldapProfile{}, errors.New("LDAP 用户邮箱长度不能超过 50")
@@ -348,8 +352,11 @@ func ldapProfileFromSearchResult(result *goldap.SearchResult, uidAttr, fallbackU
 	}
 
 	profile.Email = normalizeLDAPEmail(profile.Email)
-	if profile.Email == "" || !strings.Contains(profile.Email, "@") {
+	if profile.Email == "" {
 		return ldapProfile{}, errors.New("LDAP 用户邮箱为空")
+	}
+	if !strings.Contains(profile.Email, "@") {
+		return ldapProfile{}, errors.New("LDAP 用户邮箱格式不正确")
 	}
 	if len(profile.Email) > 50 {
 		return ldapProfile{}, errors.New("LDAP 用户邮箱长度不能超过 50")
@@ -373,8 +380,8 @@ func ldapProfileFromUser(user ergoldap.LdapUser, fallbackUsername string) (ldapP
 	if profile.DisplayName == "" {
 		profile.DisplayName = strings.TrimSpace(user.Realname)
 	}
-	if profile.Email == "" || !strings.Contains(profile.Email, "@") {
-		return ldapProfile{}, errors.New("LDAP 用户邮箱为空")
+	if profile.Email != "" && !strings.Contains(profile.Email, "@") {
+		return ldapProfile{}, errors.New("LDAP 用户邮箱格式不正确")
 	}
 	if len(profile.Email) > 50 {
 		return ldapProfile{}, errors.New("LDAP 用户邮箱长度不能超过 50")
@@ -390,20 +397,48 @@ func normalizeLDAPEmail(email string) string {
 }
 
 func ldapBindingId(profile ldapProfile) string {
-	return profile.Email
+	if profile.Email != "" {
+		return profile.Email
+	}
+	return profile.Username
 }
 
 func findOrCreateLDAPUser(profile ldapProfile, allowCreate bool) (*model.User, error) {
 	var user model.User
-	err := model.DB.Where("email = ?", profile.Email).First(&user).Error
-	if err == nil {
-		return syncLDAPUserProfile(&user, profile)
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, err
+	if profile.Email != "" {
+		err := model.DB.Where("email = ?", profile.Email).First(&user).Error
+		if err == nil {
+			return syncLDAPUserProfile(&user, profile)
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+		if profile.LDAPId != "" {
+			err = model.DB.Where("ldap_id = ?", profile.LDAPId).First(&user).Error
+			if err == nil {
+				return syncLDAPUserProfile(&user, profile)
+			}
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, err
+			}
+		}
+	} else if profile.LDAPId != "" {
+		err := model.DB.Where("ldap_id = ?", profile.LDAPId).First(&user).Error
+		if err == nil {
+			return syncLDAPUserProfile(&user, profile)
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
 	}
 
-	if model.DB.Unscoped().Where("email = ?", profile.Email).Find(&model.User{}).RowsAffected > 0 {
+	deletedQuery := model.DB.Unscoped()
+	if profile.Email != "" {
+		deletedQuery = deletedQuery.Where("email = ?", profile.Email)
+	} else {
+		deletedQuery = deletedQuery.Where("ldap_id = ?", profile.LDAPId)
+	}
+	if deletedQuery.Find(&model.User{}).RowsAffected > 0 {
 		return nil, errors.New("LDAP 用户邮箱对应账号已删除")
 	}
 	if !allowCreate {
@@ -435,6 +470,13 @@ func syncLDAPUserProfile(user *model.User, profile ldapProfile) (*model.User, er
 		updates["department"] = profile.Department
 		user.Department = profile.Department
 	}
+	if profile.Email != "" && user.Email != profile.Email {
+		if err := ensureLDAPEmailAvailableForUser(user.Id, profile.Email); err != nil {
+			return nil, err
+		}
+		updates["email"] = profile.Email
+		user.Email = profile.Email
+	}
 	if profile.LDAPId != "" && user.LDAPId != profile.LDAPId {
 		updates["ldap_id"] = profile.LDAPId
 		user.LDAPId = profile.LDAPId
@@ -447,6 +489,24 @@ func syncLDAPUserProfile(user *model.User, profile ldapProfile) (*model.User, er
 	}
 	_ = model.InvalidateUserCache(user.Id)
 	return user, nil
+}
+
+func ensureLDAPEmailAvailableForUser(currentUserId int, email string) error {
+	var existing model.User
+	err := model.DB.Unscoped().
+		Select("id", "deleted_at").
+		Where("email = ? AND id <> ?", email, currentUserId).
+		First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if existing.DeletedAt.Valid {
+		return errors.New("LDAP 用户邮箱对应账号已删除")
+	}
+	return errors.New("LDAP 用户邮箱已绑定其他账号")
 }
 
 func ldapLocalUsername(currentUserId int, profile ldapProfile) string {

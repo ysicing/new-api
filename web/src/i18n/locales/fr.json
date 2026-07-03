@@ -975,7 +975,7 @@
     "从 LDAP 同步指定用户": "Synchroniser un utilisateur LDAP spécifique",
     "按邮箱匹配已有账号，不存在则创建本地账号": "Associe les comptes existants par e-mail ou crée un compte local",
     "从 LDAP 查询并同步用户": "Rechercher et synchroniser des utilisateurs depuis LDAP",
-    "先查询 LDAP 用户，选择一个有邮箱的账号后同步": "Recherchez d'abord les utilisateurs LDAP, puis sélectionnez un compte avec e-mail à synchroniser",
+    "先查询 LDAP 用户，选择一个账号后同步": "Recherchez d'abord les utilisateurs LDAP, puis sélectionnez un compte à synchroniser",
     "同步所选": "Synchroniser la sélection",
     "请选择一个要同步的 LDAP 用户": "Veuillez sélectionner un utilisateur LDAP à synchroniser",
     "查询到 {{count}} 个 LDAP 用户，已选择 {{selected}} 个": "{{count}} utilisateurs LDAP trouvés, {{selected}} sélectionnés",

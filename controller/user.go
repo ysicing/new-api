@@ -165,7 +165,7 @@ func SyncLDAPUser(c *gin.Context) {
 		})
 		return
 	case "sync":
-		if req.User.Email == "" {
+		if strings.TrimSpace(req.User.Signature) == "" {
 			common.ApiErrorMsg(c, "请选择一个要同步的 LDAP 用户")
 			return
 		}
@@ -179,7 +179,7 @@ func SyncLDAPUser(c *gin.Context) {
 			"admin_username": c.GetString("username"),
 		}
 		model.RecordLogWithAdminInfo(user.Id, model.LogTypeManage,
-			fmt.Sprintf("管理员同步 LDAP 用户 %s", user.Email), adminInfo)
+			fmt.Sprintf("管理员同步 LDAP 用户 %s", ldapSyncLogIdentity(user)), adminInfo)
 		common.ApiSuccess(c, gin.H{
 			"user": ldapSyncUserResponse(user),
 		})
@@ -212,6 +212,17 @@ func SyncLDAPUser(c *gin.Context) {
 		"role":         user.Role,
 		"status":       user.Status,
 	})
+}
+
+func ldapSyncLogIdentity(user *model.User) string {
+	switch {
+	case strings.TrimSpace(user.Email) != "":
+		return user.Email
+	case strings.TrimSpace(user.LDAPId) != "":
+		return user.LDAPId
+	default:
+		return user.Username
+	}
 }
 
 func ldapSyncUserResponse(user *model.User) gin.H {

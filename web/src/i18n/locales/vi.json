@@ -963,7 +963,7 @@
     "从 LDAP 同步指定用户": "Đồng bộ người dùng chỉ định từ LDAP",
     "按邮箱匹配已有账号，不存在则创建本地账号": "Khớp tài khoản hiện có theo email, nếu không có thì tạo tài khoản cục bộ",
     "从 LDAP 查询并同步用户": "Tìm kiếm và đồng bộ người dùng từ LDAP",
-    "先查询 LDAP 用户，选择一个有邮箱的账号后同步": "Tìm người dùng LDAP trước, sau đó chọn một tài khoản có email để đồng bộ",
+    "先查询 LDAP 用户，选择一个账号后同步": "Tìm người dùng LDAP trước, sau đó chọn một tài khoản để đồng bộ",
     "同步所选": "Đồng bộ mục đã chọn",
     "请选择一个要同步的 LDAP 用户": "Vui lòng chọn một người dùng LDAP cần đồng bộ",
     "查询到 {{count}} 个 LDAP 用户，已选择 {{selected}} 个": "Tìm thấy {{count}} người dùng LDAP, đã chọn {{selected}}",
