@@ -104,6 +104,13 @@ type QuotaPoolTransactionItem struct {
 	OperatorName string `json:"operator_name"`
 }
 
+type QuotaPoolTransactionFilter struct {
+	UserKeyword    string
+	Types          []string
+	StartTimestamp int64
+	EndTimestamp   int64
+}
+
 type QuotaPoolAdminSummary struct {
 	PoolId int `json:"pool_id"`
 	Level  int `json:"level"`
@@ -321,9 +328,10 @@ func systemAutoRechargeForQuotaPool() QuotaPoolSystemAutoRecharge {
 	}
 }
 
-func ListQuotaPoolTransactions(poolId int, pageInfo *common.PageInfo) ([]*QuotaPoolTransactionItem, int64, error) {
+func ListQuotaPoolTransactions(poolId int, pageInfo *common.PageInfo, filter *QuotaPoolTransactionFilter) ([]*QuotaPoolTransactionItem, int64, error) {
 	var total int64
 	query := DB.Model(&QuotaPoolTransaction{}).Where("pool_id = ?", poolId)
+	query = applyQuotaPoolTransactionFilter(query, filter)
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
@@ -333,6 +341,39 @@ func ListQuotaPoolTransactions(poolId int, pageInfo *common.PageInfo) ([]*QuotaP
 	}
 	items, err := buildQuotaPoolTransactionItems(txs)
 	return items, total, err
+}
+
+func applyQuotaPoolTransactionFilter(query *gorm.DB, filter *QuotaPoolTransactionFilter) *gorm.DB {
+	if filter == nil {
+		return query
+	}
+	if len(filter.Types) > 0 {
+		query = query.Where("type IN ?", filter.Types)
+	}
+	if filter.StartTimestamp > 0 {
+		query = query.Where("created_at >= ?", filter.StartTimestamp)
+	}
+	if filter.EndTimestamp > 0 {
+		query = query.Where("created_at <= ?", filter.EndTimestamp)
+	}
+	if filter.UserKeyword == "" {
+		return query
+	}
+
+	keyword := strings.TrimSpace(filter.UserKeyword)
+	if keyword == "" {
+		return query
+	}
+	like := "%" + keyword + "%"
+	userQuery := DB.Model(&User{}).Select("id")
+	if userId, err := strconv.Atoi(keyword); err == nil {
+		userQuery = userQuery.Where("id = ? OR username LIKE ? OR email LIKE ? OR display_name LIKE ?", userId, like, like, like)
+		query = query.Where("user_id = ? OR operator_id = ? OR user_id IN (?) OR operator_id IN (?)", userId, userId, userQuery, userQuery)
+		return query
+	}
+	userQuery = userQuery.Where("username LIKE ? OR email LIKE ? OR display_name LIKE ?", like, like, like)
+	query = query.Where("user_id IN (?) OR operator_id IN (?)", userQuery, userQuery)
+	return query
 }
 
 func buildQuotaPoolTransactionItems(txs []*QuotaPoolTransaction) ([]*QuotaPoolTransactionItem, error) {

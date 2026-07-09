@@ -673,7 +673,7 @@ func TestListQuotaPoolTransactionsIncludesUserNames(t *testing.T) {
 		t.Fatalf("create transactions failed: %v", err)
 	}
 
-	items, total, err := ListQuotaPoolTransactions(pool.Id, &common.PageInfo{Page: 1, PageSize: 10})
+	items, total, err := ListQuotaPoolTransactions(pool.Id, &common.PageInfo{Page: 1, PageSize: 10}, nil)
 	if err != nil {
 		t.Fatalf("list transactions failed: %v", err)
 	}
@@ -688,6 +688,79 @@ func TestListQuotaPoolTransactionsIncludesUserNames(t *testing.T) {
 	}
 	if items[2].UserName != member.Username || items[2].OperatorName != operator.Username {
 		t.Fatalf("expected named user/operator, got user=%q operator=%q", items[2].UserName, items[2].OperatorName)
+	}
+}
+
+func TestListQuotaPoolTransactionsFilters(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 1000)
+	otherPool := createQuotaPoolForTest(t, db, 1000)
+	operator := createQuotaPoolTestUser(t, db, 1, 0, pool.Id)
+	member := createQuotaPoolTestUser(t, db, 2, 0, pool.Id)
+	otherMember := createQuotaPoolTestUser(t, db, 3, 0, otherPool.Id)
+	now := time.Now().Unix()
+	records := []*QuotaPoolTransaction{
+		{
+			PoolId:      pool.Id,
+			Type:        QuotaPoolTransactionAllocateManual,
+			Amount:      -100,
+			QuotaBefore: 1000,
+			QuotaAfter:  900,
+			UserId:      member.Id,
+			OperatorId:  operator.Id,
+			CreatedAt:   now - 60,
+		},
+		{
+			PoolId:      pool.Id,
+			Type:        QuotaPoolTransactionAllocateAuto,
+			Amount:      -100,
+			QuotaBefore: 900,
+			QuotaAfter:  800,
+			UserId:      otherMember.Id,
+			OperatorId:  0,
+			CreatedAt:   now - 3600,
+		},
+		{
+			PoolId:      pool.Id,
+			Type:        QuotaPoolTransactionReclaimUser,
+			Amount:      50,
+			QuotaBefore: 800,
+			QuotaAfter:  850,
+			UserId:      member.Id,
+			OperatorId:  operator.Id,
+			CreatedAt:   now - 8*24*60*60,
+		},
+		{
+			PoolId:      otherPool.Id,
+			Type:        QuotaPoolTransactionAllocateManual,
+			Amount:      -100,
+			QuotaBefore: 1000,
+			QuotaAfter:  900,
+			UserId:      member.Id,
+			OperatorId:  operator.Id,
+			CreatedAt:   now - 60,
+		},
+	}
+	if err := db.Create(&records).Error; err != nil {
+		t.Fatalf("create transactions failed: %v", err)
+	}
+
+	items, total, err := ListQuotaPoolTransactions(pool.Id, &common.PageInfo{Page: 1, PageSize: 10}, &QuotaPoolTransactionFilter{
+		UserKeyword:    member.Username,
+		Types:          []string{QuotaPoolTransactionAllocateManual},
+		StartTimestamp: now - 7*24*60*60,
+		EndTimestamp:   now,
+	})
+	if err != nil {
+		t.Fatalf("list filtered transactions failed: %v", err)
+	}
+	if total != 1 || len(items) != 1 {
+		t.Fatalf("expected 1 filtered transaction, got total=%d len=%d", total, len(items))
+	}
+	if items[0].Type != QuotaPoolTransactionAllocateManual || items[0].UserId != member.Id {
+		t.Fatalf("unexpected filtered transaction: %#v", items[0])
 	}
 }
 

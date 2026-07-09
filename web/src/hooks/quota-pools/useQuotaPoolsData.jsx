@@ -1,3 +1,22 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
 import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -9,6 +28,42 @@ import {
   showSuccess,
 } from '../../helpers';
 import { UserContext } from '../../context/User';
+
+const getDefaultTransactionDateRange = () => {
+  const end = new Date();
+  const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+  return [start, end];
+};
+
+const toUnixTimestamp = (value) => {
+  if (!value) return 0;
+  const timestamp = value instanceof Date ? value.getTime() : Date.parse(value);
+  return Number.isNaN(timestamp) ? 0 : Math.floor(timestamp / 1000);
+};
+
+const buildTransactionParams = (page, pageSize, filters) => {
+  const params = new URLSearchParams({
+    p: String(page),
+    page_size: String(pageSize),
+  });
+  const user = filters.user?.trim();
+  if (user) {
+    params.append('user', user);
+  }
+  if (filters.transactionType) {
+    params.append('transaction_type', filters.transactionType);
+  }
+  const [startTime, endTime] = filters.dateRange || [];
+  const startTimestamp = toUnixTimestamp(startTime);
+  const endTimestamp = toUnixTimestamp(endTime);
+  if (startTimestamp > 0) {
+    params.append('start_timestamp', String(startTimestamp));
+  }
+  if (endTimestamp > 0) {
+    params.append('end_timestamp', String(endTimestamp));
+  }
+  return params.toString();
+};
 
 export const useQuotaPoolsData = () => {
   const { t } = useTranslation();
@@ -49,6 +104,21 @@ export const useQuotaPoolsData = () => {
   const [membersPageSize, setMembersPageSize] = useState(20);
   const [membersTotal, setMembersTotal] = useState(0);
   const [transactions, setTransactions] = useState([]);
+  const [transactionsPage, setTransactionsPage] = useState(1);
+  const [transactionsPageSize, setTransactionsPageSize] = useState(20);
+  const [transactionsTotal, setTransactionsTotal] = useState(0);
+  const [transactionFilters, setTransactionFilters] = useState(() => ({
+    user: '',
+    transactionType: '',
+    dateRange: getDefaultTransactionDateRange(),
+  }));
+  const [appliedTransactionFilters, setAppliedTransactionFilters] = useState(
+    () => ({
+      user: '',
+      transactionType: '',
+      dateRange: getDefaultTransactionDateRange(),
+    }),
+  );
   const [candidates, setCandidates] = useState([]);
   const [stats, setStats] = useState({
     usage: [],
@@ -126,19 +196,29 @@ export const useQuotaPoolsData = () => {
     [canUseGlobalApi, selectedPoolId],
   );
 
-  const loadTransactions = useCallback(async () => {
-    if (!selectedPoolId) return;
-    const url = canUseGlobalApi
-      ? `/api/quota_pool/${selectedPoolId}/transactions`
-      : '/api/quota_pool/self/transactions';
-    const res = await API.get(`${url}?p=1&page_size=50`);
-    const { success, message, data } = res.data;
-    if (success) {
-      setTransactions(data?.items || []);
-    } else {
-      showError(message);
-    }
-  }, [canUseGlobalApi, selectedPoolId]);
+  const loadTransactions = useCallback(
+    async (page, pageSize, filters = appliedTransactionFilters) => {
+      if (!selectedPoolId) {
+        setTransactions([]);
+        setTransactionsTotal(0);
+        return;
+      }
+      const url = canUseGlobalApi
+        ? `/api/quota_pool/${selectedPoolId}/transactions`
+        : '/api/quota_pool/self/transactions';
+      const res = await API.get(
+        `${url}?${buildTransactionParams(page, pageSize, filters)}`,
+      );
+      const { success, message, data } = res.data;
+      if (success) {
+        setTransactions(data?.items || []);
+        setTransactionsTotal(data?.total || 0);
+      } else {
+        showError(message);
+      }
+    },
+    [appliedTransactionFilters, canUseGlobalApi, selectedPoolId],
+  );
 
   const loadStats = useCallback(async () => {
     if (!selectedPoolId) {
@@ -190,9 +270,18 @@ export const useQuotaPoolsData = () => {
     await loadMembers(membersPage, membersPageSize);
   }, [loadMembers, membersPage, membersPageSize]);
 
+  const refreshTransactions = useCallback(async () => {
+    await loadTransactions(transactionsPage, transactionsPageSize);
+  }, [loadTransactions, transactionsPage, transactionsPageSize]);
+
   const refreshDetail = useCallback(async () => {
-    await Promise.all([refreshMembers(), loadTransactions(), loadStats()]);
-  }, [refreshMembers, loadTransactions, loadStats]);
+    await Promise.all([refreshMembers(), refreshTransactions(), loadStats()]);
+  }, [refreshMembers, refreshTransactions, loadStats]);
+
+  const refreshLatestTransactions = useCallback(async () => {
+    setTransactionsPage(1);
+    await loadTransactions(1, transactionsPageSize);
+  }, [loadTransactions, transactionsPageSize]);
 
   const handleMembersPageChange = useCallback((page) => {
     setMembersPage(page);
@@ -203,12 +292,45 @@ export const useQuotaPoolsData = () => {
     setMembersPageSize(pageSize);
   }, []);
 
+  const handleTransactionsPageChange = useCallback((page) => {
+    setTransactionsPage(page);
+  }, []);
+
+  const handleTransactionsPageSizeChange = useCallback((pageSize) => {
+    setTransactionsPage(1);
+    setTransactionsPageSize(pageSize);
+  }, []);
+
+  const updateTransactionFilter = useCallback((field, value) => {
+    setTransactionFilters((filters) => ({
+      ...filters,
+      [field]: value,
+    }));
+  }, []);
+
+  const searchTransactions = useCallback(() => {
+    setTransactionsPage(1);
+    setAppliedTransactionFilters(transactionFilters);
+  }, [transactionFilters]);
+
+  const resetTransactionFilters = useCallback(() => {
+    const filters = {
+      user: '',
+      transactionType: '',
+      dateRange: getDefaultTransactionDateRange(),
+    };
+    setTransactionsPage(1);
+    setTransactionFilters(filters);
+    setAppliedTransactionFilters(filters);
+  }, []);
+
   useEffect(() => {
     loadPools();
   }, [loadPools]);
 
   useEffect(() => {
     setMembersPage(1);
+    setTransactionsPage(1);
   }, [selectedPoolId]);
 
   useEffect(() => {
@@ -216,8 +338,8 @@ export const useQuotaPoolsData = () => {
   }, [refreshMembers]);
 
   useEffect(() => {
-    loadTransactions();
-  }, [loadTransactions]);
+    refreshTransactions();
+  }, [refreshTransactions]);
 
   useEffect(() => {
     loadStats();
@@ -307,7 +429,7 @@ export const useQuotaPoolsData = () => {
       await loadPools();
       setMembersPage(1);
       await loadMembers(1, membersPageSize);
-      await Promise.all([loadTransactions(), loadStats()]);
+      await Promise.all([refreshLatestTransactions(), loadStats()]);
     } else {
       showError(message);
     }
@@ -398,6 +520,15 @@ export const useQuotaPoolsData = () => {
     handleMembersPageChange,
     handleMembersPageSizeChange,
     transactions,
+    transactionsPage,
+    transactionsPageSize,
+    transactionsTotal,
+    transactionFilters,
+    handleTransactionsPageChange,
+    handleTransactionsPageSizeChange,
+    updateTransactionFilter,
+    searchTransactions,
+    resetTransactionFilters,
     stats,
     statsLoading,
     statsPeriod,

@@ -69,12 +69,46 @@ func quotaPoolPageInfo(c *gin.Context) *common.PageInfo {
 	return common.GetPageQuery(c)
 }
 
+func quotaPoolTransactionFilter(c *gin.Context) *model.QuotaPoolTransactionFilter {
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	return &model.QuotaPoolTransactionFilter{
+		UserKeyword:    strings.TrimSpace(c.Query("user")),
+		Types:          quotaPoolTransactionTypes(c.Query("transaction_type")),
+		StartTimestamp: startTimestamp,
+		EndTimestamp:   endTimestamp,
+	}
+}
+
+func quotaPoolTransactionTypes(transactionType string) []string {
+	switch strings.TrimSpace(transactionType) {
+	case "":
+		return nil
+	case "manual":
+		return []string{
+			model.QuotaPoolTransactionInitialFund,
+			model.QuotaPoolTransactionManualRefill,
+			model.QuotaPoolTransactionAllocateManual,
+			model.QuotaPoolTransactionAdjustBase,
+		}
+	case "auto":
+		return []string{
+			model.QuotaPoolTransactionMonthlyRefill,
+			model.QuotaPoolTransactionAllocateAuto,
+		}
+	case "reclaim":
+		return []string{model.QuotaPoolTransactionReclaimUser}
+	default:
+		return []string{transactionType}
+	}
+}
+
 func quotaPoolStatsRange(c *gin.Context) (int64, int64) {
 	now := time.Now()
 	period := c.DefaultQuery("period", "week")
 	var start time.Time
 	if period == "month" {
-		start = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+		start = now.AddDate(0, -1, 0)
 	} else {
 		weekday := int(now.Weekday())
 		if weekday == 0 {
@@ -547,7 +581,7 @@ func GetQuotaPoolTransactions(c *gin.Context) {
 	if !ok {
 		return
 	}
-	items, total, err := model.ListQuotaPoolTransactions(id, quotaPoolPageInfo(c))
+	items, total, err := model.ListQuotaPoolTransactions(id, quotaPoolPageInfo(c), quotaPoolTransactionFilter(c))
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -917,7 +951,7 @@ func GetSelfQuotaPoolTransactions(c *gin.Context) {
 	if !ok {
 		return
 	}
-	items, total, err := model.ListQuotaPoolTransactions(admin.PoolId, quotaPoolPageInfo(c))
+	items, total, err := model.ListQuotaPoolTransactions(admin.PoolId, quotaPoolPageInfo(c), quotaPoolTransactionFilter(c))
 	if err != nil {
 		common.ApiError(c, err)
 		return

@@ -1,9 +1,30 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Card,
+  DatePicker,
   Dropdown,
   Form,
+  Input,
   Modal,
   Popconfirm,
   Radio,
@@ -41,6 +62,12 @@ const TRANSACTION_TYPE_LABELS = {
 };
 const ROLE_MEMBER = 0;
 const ROLE_POOL_ADMIN_V1 = 1;
+const TRANSACTION_FILTER_OPTIONS = [
+  { label: '全部类型', value: '' },
+  { label: '手动', value: 'manual' },
+  { label: '自动', value: 'auto' },
+  { label: '回收', value: 'reclaim' },
+];
 
 const QuotaPool = () => {
   const data = useQuotaPoolsData();
@@ -56,6 +83,15 @@ const QuotaPool = () => {
     handleMembersPageChange,
     handleMembersPageSizeChange,
     transactions,
+    transactionsPage,
+    transactionsPageSize,
+    transactionsTotal,
+    transactionFilters,
+    handleTransactionsPageChange,
+    handleTransactionsPageSizeChange,
+    updateTransactionFilter,
+    searchTransactions,
+    resetTransactionFilters,
     stats,
     statsLoading,
     statsPeriod,
@@ -462,9 +498,10 @@ const QuotaPool = () => {
     { title: t('ID'), dataIndex: 'id', width: 80 },
     { title: t('用户名'), dataIndex: 'username' },
     {
-      title: t('余额'),
+      title: t('剩余额度/总额度'),
       dataIndex: 'quota',
-      render: (value) => renderQuota(value),
+      render: (value, record) =>
+        `${renderQuota(value)} / ${renderQuota(value + (record.used_quota || 0))}`,
     },
     {
       title: t('状态'),
@@ -800,13 +837,67 @@ const QuotaPool = () => {
                   />
                 </TabPane>
                 <TabPane itemKey='transactions' tab={t('流水')}>
+                  <div className='flex flex-col gap-2 py-3'>
+                    <div className='grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2'>
+                      <Input
+                        value={transactionFilters.user}
+                        placeholder={t('用户名或用户ID')}
+                        showClear
+                        pure
+                        onChange={(value) =>
+                          updateTransactionFilter('user', value)
+                        }
+                      />
+                      <Select
+                        value={transactionFilters.transactionType}
+                        optionList={TRANSACTION_FILTER_OPTIONS.map(
+                          (option) => ({
+                            ...option,
+                            label: t(option.label),
+                          }),
+                        )}
+                        onChange={(value) =>
+                          updateTransactionFilter('transactionType', value)
+                        }
+                        style={{ width: '100%' }}
+                      />
+                      <div className='md:col-span-2'>
+                        <DatePicker
+                          type='dateTimeRange'
+                          density='compact'
+                          value={transactionFilters.dateRange}
+                          placeholder={[t('开始时间'), t('结束时间')]}
+                          onChange={(value) =>
+                            updateTransactionFilter('dateRange', value || [])
+                          }
+                          style={{ width: '100%' }}
+                        />
+                      </div>
+                    </div>
+                    <Space>
+                      <Button type='primary' onClick={searchTransactions}>
+                        {t('查询')}
+                      </Button>
+                      <Button onClick={resetTransactionFilters}>
+                        {t('重置')}
+                      </Button>
+                    </Space>
+                  </div>
                   <Table
                     size='small'
                     columns={transactionColumns}
                     dataSource={transactions}
                     rowKey='id'
                     scroll={{ x: 'max-content' }}
-                    pagination={false}
+                    pagination={{
+                      currentPage: transactionsPage,
+                      pageSize: transactionsPageSize,
+                      total: transactionsTotal,
+                      showSizeChanger: true,
+                      pageSizeOptions: [10, 20, 50, 100],
+                      onPageChange: handleTransactionsPageChange,
+                      onPageSizeChange: handleTransactionsPageSizeChange,
+                    }}
                   />
                 </TabPane>
                 <TabPane itemKey='stats' tab={t('数据统计')}>
@@ -818,7 +909,7 @@ const QuotaPool = () => {
                         onChange={(event) => setStatsPeriod(event.target.value)}
                       >
                         <Radio value='week'>{t('本周')}</Radio>
-                        <Radio value='month'>{t('本月')}</Radio>
+                        <Radio value='month'>{t('近一月')}</Radio>
                       </RadioGroup>
                       <Button
                         icon={<IconRefresh />}
