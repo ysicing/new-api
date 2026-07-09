@@ -173,6 +173,7 @@ type QuotaPoolCandidate struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
 	Email       string `json:"email"`
+	Department  string `json:"department"`
 }
 
 type QuotaPoolUsageStat struct {
@@ -444,9 +445,9 @@ func ListDefaultQuotaPoolCandidates(keyword string, pageInfo *common.PageInfo) (
 	if keyword != "" {
 		like := "%" + keyword + "%"
 		if userId, err := strconv.Atoi(keyword); err == nil {
-			query = query.Where("id = ? OR username LIKE ? OR email LIKE ? OR display_name LIKE ?", userId, like, like, like)
+			query = query.Where("id = ? OR username LIKE ? OR email LIKE ? OR display_name LIKE ? OR department LIKE ?", userId, like, like, like, like)
 		} else {
-			query = query.Where("username LIKE ? OR email LIKE ? OR display_name LIKE ?", like, like, like)
+			query = query.Where("username LIKE ? OR email LIKE ? OR display_name LIKE ? OR department LIKE ?", like, like, like, like)
 		}
 	}
 	var total int64
@@ -459,6 +460,7 @@ func ListDefaultQuotaPoolCandidates(keyword string, pageInfo *common.PageInfo) (
 		"username",
 		"display_name",
 		"email",
+		"department",
 	}
 	err := query.Select(strings.Join(selectColumns, ", ")).
 		Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&users).Error

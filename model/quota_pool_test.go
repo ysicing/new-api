@@ -558,6 +558,13 @@ func TestListQuotaPoolMembersAndCandidatesOmitAccessToken(t *testing.T) {
 	if err := db.Model(&User{}).Where("id = ?", candidate.Id).Update("access_token", candidateToken).Error; err != nil {
 		t.Fatalf("update candidate access token failed: %v", err)
 	}
+	if err := db.Model(&User{}).Where("id = ?", candidate.Id).Updates(map[string]interface{}{
+		"display_name": "仲睿",
+		"email":        "zhongrui@example.com",
+		"department":   "研发平台部",
+	}).Error; err != nil {
+		t.Fatalf("update candidate profile failed: %v", err)
+	}
 
 	members, _, err := ListQuotaPoolMembers(pool.Id, &common.PageInfo{Page: 1, PageSize: 10})
 	if err != nil {
@@ -581,6 +588,9 @@ func TestListQuotaPoolMembersAndCandidatesOmitAccessToken(t *testing.T) {
 	if len(candidates) != 1 {
 		t.Fatalf("expected one candidate, got %#v", candidates)
 	}
+	if candidates[0].Department != "研发平台部" {
+		t.Fatalf("expected candidate department returned, got %#v", candidates[0])
+	}
 	candidateJSON, err := common.Marshal(candidates[0])
 	if err != nil {
 		t.Fatalf("marshal candidate failed: %v", err)
@@ -600,6 +610,13 @@ func TestListQuotaPoolMembersAndCandidatesOmitAccessToken(t *testing.T) {
 	}
 	if len(candidatesById) != 1 || candidatesById[0].Id != candidate.Id {
 		t.Fatalf("expected candidate searchable by id, got %#v", candidatesById)
+	}
+	candidatesByDepartment, _, err := ListDefaultQuotaPoolCandidates("平台部", &common.PageInfo{Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("list candidates by department failed: %v", err)
+	}
+	if len(candidatesByDepartment) != 1 || candidatesByDepartment[0].Id != candidate.Id {
+		t.Fatalf("expected candidate searchable by department, got %#v", candidatesByDepartment)
 	}
 }
 

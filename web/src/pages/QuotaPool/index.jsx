@@ -69,6 +69,31 @@ const TRANSACTION_FILTER_OPTIONS = [
   { label: '回收', value: 'reclaim' },
 ];
 
+const formatDepartment = (department) => {
+  if (!department) {
+    return '';
+  }
+  const parts = department
+    .split(/[\/\\>｜|,，;；-]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length <= 1) {
+    return department;
+  }
+  return `${parts[0]} / ${parts[parts.length - 1]}`;
+};
+
+const formatCandidateLabel = (user) => {
+  const details = [
+    user.display_name,
+    user.email,
+    formatDepartment(user.department),
+  ].filter(Boolean);
+  return `${user.username}(ID:${user.id})${
+    details.length > 0 ? ` - ${details.join(' / ')}` : ''
+  }`;
+};
+
 const QuotaPool = () => {
   const data = useQuotaPoolsData();
   const {
@@ -1107,10 +1132,10 @@ const QuotaPool = () => {
           <Form.Select
             field='user_id'
             label={t('用户')}
-            placeholder={t('搜索用户 ID、用户名、显示名称或邮箱')}
+            placeholder={t('搜索用户 ID、用户名、显示名称、邮箱或部门')}
             style={{ width: '100%' }}
             optionList={candidates.map((user) => ({
-              label: `${user.username}(ID:${user.id})`,
+              label: formatCandidateLabel(user),
               value: user.id,
             }))}
             filter
