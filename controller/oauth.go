@@ -1,9 +1,11 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -198,6 +200,7 @@ func handleOAuthBind(c *gin.Context, provider oauth.Provider) {
 // findOrCreateOAuthUser finds existing user or creates new user
 func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *oauth.OAuthUser, session sessions.Session) (*model.User, error) {
 	user := &model.User{}
+	oauthUser.Email = normalizeOAuthEmail(oauthUser.Email)
 
 	// Check if user already exists with new ID
 	if provider.IsUserIDTaken(oauthUser.ProviderUserID) {
@@ -229,6 +232,19 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 				}
 				return user, nil
 			}
+		}
+	}
+
+	if oauthUser.Email != "" {
+		foundUser, err := findOAuthUserByEmail(oauthUser.Email)
+		if err != nil {
+			return nil, err
+		}
+		if foundUser != nil {
+			if err := bindOAuthProviderToUser(provider, foundUser, oauthUser.ProviderUserID); err != nil {
+				return nil, err
+			}
+			return foundUser, nil
 		}
 	}
 
@@ -328,6 +344,81 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 	}
 
 	return user, nil
+}
+
+func normalizeOAuthEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func findOAuthUserByEmail(email string) (*model.User, error) {
+	var user model.User
+	err := model.DB.Unscoped().Where("LOWER(email) = ?", email).First(&user).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if user.DeletedAt.Valid {
+		return nil, &OAuthUserDeletedError{}
+	}
+	return &user, nil
+}
+
+func bindOAuthProviderToUser(provider oauth.Provider, user *model.User, providerUserID string) error {
+	if providerUserID == "" {
+		return errors.New("OAuth 用户 ID 为空")
+	}
+	if genericProvider, ok := provider.(*oauth.GenericOAuthProvider); ok {
+		binding, err := model.GetUserOAuthBinding(user.Id, genericProvider.GetProviderId())
+		if err == nil {
+			if binding.ProviderUserId == providerUserID {
+				return nil
+			}
+			return errors.New("该邮箱已绑定其他 OAuth 账号")
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		return model.CreateUserOAuthBinding(&model.UserOAuthBinding{
+			UserId:         user.Id,
+			ProviderId:     genericProvider.GetProviderId(),
+			ProviderUserId: providerUserID,
+		})
+	}
+
+	currentBindingID := currentProviderUserID(provider, user)
+	if currentBindingID != "" && currentBindingID != providerUserID {
+		return errors.New("该邮箱已绑定其他 OAuth 账号")
+	}
+	provider.SetProviderUserID(user, providerUserID)
+	if err := model.DB.Model(user).Updates(map[string]interface{}{
+		"github_id":   user.GitHubId,
+		"discord_id":  user.DiscordId,
+		"oidc_id":     user.OidcId,
+		"linux_do_id": user.LinuxDOId,
+		"wechat_id":   user.WeChatId,
+		"telegram_id": user.TelegramId,
+	}).Error; err != nil {
+		return err
+	}
+	_ = model.InvalidateUserCache(user.Id)
+	return nil
+}
+
+func currentProviderUserID(provider oauth.Provider, user *model.User) string {
+	switch provider.GetProviderPrefix() {
+	case "github_":
+		return user.GitHubId
+	case "discord_":
+		return user.DiscordId
+	case "oidc_":
+		return user.OidcId
+	case "linuxdo_":
+		return user.LinuxDOId
+	default:
+		return ""
+	}
 }
 
 // Error types for OAuth
