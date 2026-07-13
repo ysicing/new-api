@@ -116,6 +116,13 @@ type QuotaPoolAdminSummary struct {
 	Level  int `json:"level"`
 }
 
+type QuotaPoolAdminContact struct {
+	Id          int    `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
+}
+
 type QuotaPoolSystemAutoRecharge struct {
 	Enabled      bool `json:"enabled"`
 	Interval     int  `json:"interval"`
@@ -267,6 +274,17 @@ func GetQuotaPoolAdminSummary(userId int) (*QuotaPoolAdminSummary, error) {
 		return nil, err
 	}
 	return &QuotaPoolAdminSummary{PoolId: admin.PoolId, Level: admin.Level}, nil
+}
+
+func ListQuotaPoolAdminContacts(poolId int) ([]*QuotaPoolAdminContact, error) {
+	var admins []*QuotaPoolAdminContact
+	err := DB.Model(&QuotaPoolAdmin{}).
+		Select("users.id", "users.username", "users.display_name", "users.email").
+		Joins("JOIN users ON users.id = quota_pool_admins.user_id").
+		Where("quota_pool_admins.pool_id = ?", poolId).
+		Order("quota_pool_admins.id asc").
+		Find(&admins).Error
+	return admins, err
 }
 
 func GetQuotaPoolById(poolId int) (*QuotaPool, error) {

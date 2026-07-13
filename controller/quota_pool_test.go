@@ -211,7 +211,7 @@ func TestGrantSelfQuotaPoolAdminRejectsAdminGrant(t *testing.T) {
 	if err := db.Create(pool).Error; err != nil {
 		t.Fatalf("create pool failed: %v", err)
 	}
-	operator := &model.User{Id: 1, Username: "operator", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id, AffCode: "operator-code"}
+	operator := &model.User{Id: 1, Username: "operator", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Email: "operator@example.com", QuotaPoolId: pool.Id, AffCode: "operator-code"}
 	target := &model.User{Id: 2, Username: "target", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id, AffCode: "target-code"}
 	if err := db.Create(operator).Error; err != nil {
 		t.Fatalf("create operator failed: %v", err)
@@ -288,6 +288,14 @@ func TestGetSelfQuotaPoolIncludesCounts(t *testing.T) {
 	}
 	if memberData["admin"] != nil {
 		t.Fatalf("member should not receive admin summary, got %#v", memberData["admin"])
+	}
+	adminContacts := memberData["admin_contacts"].([]interface{})
+	if len(adminContacts) != 1 {
+		t.Fatalf("expected one admin contact, got %#v", adminContacts)
+	}
+	adminContact := adminContacts[0].(map[string]interface{})
+	if adminContact["username"] != operator.Username || adminContact["email"] != operator.Email {
+		t.Fatalf("unexpected admin contact: %#v", adminContact)
 	}
 
 	defaultCtx, defaultRecorder := quotaPoolTestContext(t, http.MethodGet, "/api/quota_pool/self", nil, common.RoleCommonUser, defaultMember.Id)

@@ -100,6 +100,7 @@ export const useQuotaPoolsData = () => {
   const [loading, setLoading] = useState(false);
   const [pools, setPools] = useState([]);
   const [selectedPool, setSelectedPool] = useState(null);
+  const [adminContacts, setAdminContacts] = useState([]);
   const [members, setMembers] = useState([]);
   const [membersPage, setMembersPage] = useState(1);
   const [membersPageSize, setMembersPageSize] = useState(20);
@@ -147,6 +148,7 @@ export const useQuotaPoolsData = () => {
         }
         const nextPools = data || [];
         setPools(nextPools);
+        setAdminContacts([]);
         setSelectedPool((current) => {
           if (!current) {
             return null;
@@ -161,6 +163,7 @@ export const useQuotaPoolsData = () => {
           return;
         }
         setPools(data?.pool ? [data.pool] : []);
+        setAdminContacts(data?.admin_contacts || []);
         setSelectedPool((current) => {
           if (!current) return data?.pool || null;
           return data?.pool || null;
@@ -521,6 +524,7 @@ export const useQuotaPoolsData = () => {
     pools,
     selectedPool,
     setSelectedPool,
+    adminContacts,
     members,
     membersPage,
     membersPageSize,

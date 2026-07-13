@@ -111,6 +111,7 @@ const QuotaPool = () => {
     transactionsPage,
     transactionsPageSize,
     transactionsTotal,
+    adminContacts,
     transactionFilters,
     handleTransactionsPageChange,
     handleTransactionsPageSizeChange,
@@ -339,6 +340,12 @@ const QuotaPool = () => {
       return t('系统');
     }
     return `${name}(ID:${id})`;
+  };
+
+  const renderAdminContactName = (admin) => {
+    const name =
+      admin.display_name || admin.username || `${t('用户')} #${admin.id}`;
+    return `${name}(ID:${admin.id})`;
   };
 
   const renderQuotaPoolRole = (level) => {
@@ -837,6 +844,36 @@ const QuotaPool = () => {
                 </Typography.Text>
               </Card>
             </div>
+
+            {!canViewPoolManagement && (
+              <Card title={t('池管理员')}>
+                {adminContacts.length > 0 ? (
+                  <div className='flex flex-wrap gap-2'>
+                    {adminContacts.map((admin) => (
+                      <div
+                        key={admin.id}
+                        className='flex flex-col gap-1 rounded border border-semi-color-border px-3 py-2 min-w-[220px]'
+                      >
+                        <Typography.Text strong>
+                          {renderAdminContactName(admin)}
+                        </Typography.Text>
+                        <Typography.Text
+                          size='small'
+                          type='tertiary'
+                          copyable={!!admin.email}
+                        >
+                          {admin.email || t('邮箱未设置')}
+                        </Typography.Text>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <Typography.Text type='secondary'>
+                    {t('暂无池管理员')}
+                  </Typography.Text>
+                )}
+              </Card>
+            )}
 
             {canViewPoolManagement && (
               <Card>

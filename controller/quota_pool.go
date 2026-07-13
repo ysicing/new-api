@@ -954,7 +954,12 @@ func GetSelfQuotaPool(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"pool": pool, "admin": admin})
+	adminContacts, err := model.ListQuotaPoolAdminContacts(poolId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"pool": pool, "admin": admin, "admin_contacts": adminContacts})
 }
 
 func GetSelfQuotaPoolTransactions(c *gin.Context) {
