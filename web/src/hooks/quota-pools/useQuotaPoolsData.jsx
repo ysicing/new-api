@@ -95,6 +95,7 @@ export const useQuotaPoolsData = () => {
     quotaPoolSuperAdmin ||
     (!canUseGlobalApi && poolAdmin?.level >= 1);
   const canRefillPools = systemAdmin;
+  const canViewPoolManagement = canUseGlobalApi || poolAdmin?.level >= 1;
 
   const [loading, setLoading] = useState(false);
   const [pools, setPools] = useState([]);
@@ -161,9 +162,7 @@ export const useQuotaPoolsData = () => {
         }
         setPools(data?.pool ? [data.pool] : []);
         setSelectedPool((current) => {
-          if (!current) {
-            return null;
-          }
+          if (!current) return data?.pool || null;
           return data?.pool || null;
         });
       }
@@ -176,7 +175,7 @@ export const useQuotaPoolsData = () => {
 
   const loadMembers = useCallback(
     async (page, pageSize) => {
-      if (!selectedPoolId) {
+      if (!canViewPoolManagement || !selectedPoolId) {
         setMembers([]);
         setMembersTotal(0);
         return;
@@ -193,12 +192,12 @@ export const useQuotaPoolsData = () => {
         showError(message);
       }
     },
-    [canUseGlobalApi, selectedPoolId],
+    [canUseGlobalApi, canViewPoolManagement, selectedPoolId],
   );
 
   const loadTransactions = useCallback(
     async (page, pageSize, filters = appliedTransactionFilters) => {
-      if (!selectedPoolId) {
+      if (!canViewPoolManagement || !selectedPoolId) {
         setTransactions([]);
         setTransactionsTotal(0);
         return;
@@ -217,11 +216,16 @@ export const useQuotaPoolsData = () => {
         showError(message);
       }
     },
-    [appliedTransactionFilters, canUseGlobalApi, selectedPoolId],
+    [
+      appliedTransactionFilters,
+      canUseGlobalApi,
+      canViewPoolManagement,
+      selectedPoolId,
+    ],
   );
 
   const loadStats = useCallback(async () => {
-    if (!selectedPoolId) {
+    if (!canViewPoolManagement || !selectedPoolId) {
       setStats({
         usage: [],
         total_usage: 0,
@@ -248,10 +252,14 @@ export const useQuotaPoolsData = () => {
     } finally {
       setStatsLoading(false);
     }
-  }, [canUseGlobalApi, selectedPoolId, statsPeriod, t]);
+  }, [canUseGlobalApi, canViewPoolManagement, selectedPoolId, statsPeriod, t]);
 
   const loadCandidates = useCallback(
     async (keyword = '') => {
+      if (!canManagePoolMembers && !canManagePoolAdmins) {
+        setCandidates([]);
+        return;
+      }
       const url = canUseGlobalApi
         ? `/api/quota_pool/candidates?keyword=${encodeURIComponent(keyword)}`
         : `/api/quota_pool/self/candidates?keyword=${encodeURIComponent(keyword)}`;
@@ -263,7 +271,7 @@ export const useQuotaPoolsData = () => {
         showError(message);
       }
     },
-    [canUseGlobalApi],
+    [canManagePoolAdmins, canManagePoolMembers, canUseGlobalApi],
   );
 
   const refreshMembers = useCallback(async () => {
@@ -554,6 +562,7 @@ export const useQuotaPoolsData = () => {
     canManagePoolAdmins,
     canManagePoolMembers,
     canRefillPools,
+    canViewPoolManagement,
     quotaPoolAdmin: poolAdmin,
     poolBaseUrl,
     refreshDetail,

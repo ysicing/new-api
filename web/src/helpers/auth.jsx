@@ -94,7 +94,8 @@ export function QuotaPoolRoute({ children }) {
       user.quota_pool_enabled &&
       ((typeof user.role === 'number' && user.role >= 10) ||
         user.role === ROLE_QUOTA_POOL_SUPER_ADMIN ||
-        user.quota_pool_admin)
+        user.quota_pool_admin ||
+        user.quota_pool_id > 0)
     ) {
       return children;
     }

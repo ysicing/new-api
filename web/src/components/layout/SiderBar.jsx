@@ -87,7 +87,8 @@ const SiderBar = ({ onNavigate = () => {} }) => {
     !!currentUser?.quota_pool_enabled &&
     (adminVisible ||
       quotaPoolSuperAdminVisible ||
-      !!currentUser?.quota_pool_admin);
+      !!currentUser?.quota_pool_admin ||
+      currentUser?.quota_pool_id > 0);
 
   const workspaceItems = useMemo(() => {
     const items = [

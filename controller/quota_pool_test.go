@@ -244,11 +244,15 @@ func TestGetSelfQuotaPoolIncludesCounts(t *testing.T) {
 	}
 	operator := &model.User{Id: 1, Username: "operator", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id, AffCode: "operator-code"}
 	member := &model.User{Id: 2, Username: "member", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id, AffCode: "member-code"}
+	defaultMember := &model.User{Id: 3, Username: "default-member", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: model.QuotaPoolDefaultUserPoolId, AffCode: "default-member-code"}
 	if err := db.Create(operator).Error; err != nil {
 		t.Fatalf("create operator failed: %v", err)
 	}
 	if err := db.Create(member).Error; err != nil {
 		t.Fatalf("create member failed: %v", err)
+	}
+	if err := db.Create(defaultMember).Error; err != nil {
+		t.Fatalf("create default member failed: %v", err)
 	}
 	if err := db.Create(&model.QuotaPoolAdmin{PoolId: pool.Id, UserId: operator.Id, Level: model.QuotaPoolAdminLevelV1}).Error; err != nil {
 		t.Fatalf("create operator admin failed: %v", err)
@@ -269,6 +273,32 @@ func TestGetSelfQuotaPoolIncludesCounts(t *testing.T) {
 	}
 	if poolData["admin_count"].(float64) != 1 {
 		t.Fatalf("admin_count = %v, want 1", poolData["admin_count"])
+	}
+
+	memberCtx, memberRecorder := quotaPoolTestContext(t, http.MethodGet, "/api/quota_pool/self", nil, common.RoleCommonUser, member.Id)
+	GetSelfQuotaPool(memberCtx)
+	memberResponse := decodeQuotaPoolResponse(t, memberRecorder)
+	if memberResponse["success"] != true {
+		t.Fatalf("expected member success response, got %#v", memberResponse)
+	}
+	memberData := memberResponse["data"].(map[string]interface{})
+	memberPoolData := memberData["pool"].(map[string]interface{})
+	if int(memberPoolData["id"].(float64)) != pool.Id {
+		t.Fatalf("member pool id = %v, want %d", memberPoolData["id"], pool.Id)
+	}
+	if memberData["admin"] != nil {
+		t.Fatalf("member should not receive admin summary, got %#v", memberData["admin"])
+	}
+
+	defaultCtx, defaultRecorder := quotaPoolTestContext(t, http.MethodGet, "/api/quota_pool/self", nil, common.RoleCommonUser, defaultMember.Id)
+	GetSelfQuotaPool(defaultCtx)
+	defaultResponse := decodeQuotaPoolResponse(t, defaultRecorder)
+	if defaultResponse["success"] != true {
+		t.Fatalf("expected default member success response, got %#v", defaultResponse)
+	}
+	defaultData := defaultResponse["data"].(map[string]interface{})
+	if defaultData["pool"] != nil {
+		t.Fatalf("default pool member should not receive pool info, got %#v", defaultData["pool"])
 	}
 }
 

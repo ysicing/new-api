@@ -931,11 +931,25 @@ func GetSelfQuotaPool(c *gin.Context) {
 	if !requireQuotaPoolEnabled(c) {
 		return
 	}
-	admin, ok := requireQuotaPoolAdmin(c, model.QuotaPoolAdminLevelV1)
-	if !ok {
+	user, err := model.GetUserById(c.GetInt("id"), false)
+	if err != nil {
+		common.ApiError(c, err)
 		return
 	}
-	pool, err := model.GetQuotaPoolListItemById(admin.PoolId)
+	admin, err := currentQuotaPoolAdmin(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	poolId := user.QuotaPoolId
+	if admin != nil {
+		poolId = admin.PoolId
+	}
+	if admin == nil && poolId == model.QuotaPoolDefaultUserPoolId {
+		common.ApiSuccess(c, gin.H{"pool": nil, "admin": nil})
+		return
+	}
+	pool, err := model.GetQuotaPoolListItemById(poolId)
 	if err != nil {
 		common.ApiError(c, err)
 		return

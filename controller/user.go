@@ -253,13 +253,14 @@ func setupLogin(user *model.User, c *gin.Context) {
 		return
 	}
 	data := map[string]any{
-		"id":           user.Id,
-		"username":     user.Username,
-		"display_name": user.DisplayName,
-		"department":   user.Department,
-		"role":         user.Role,
-		"status":       user.Status,
-		"group":        user.Group,
+		"id":            user.Id,
+		"username":      user.Username,
+		"display_name":  user.DisplayName,
+		"department":    user.Department,
+		"role":          user.Role,
+		"status":        user.Status,
+		"group":         user.Group,
+		"quota_pool_id": user.QuotaPoolId,
 	}
 	data["quota_pool_enabled"] = common.QuotaPoolEnabled
 	if common.QuotaPoolEnabled {
@@ -568,6 +569,7 @@ func GetSelf(c *gin.Context) {
 		"group":             user.Group,
 		"quota":             user.Quota,
 		"used_quota":        user.UsedQuota,
+		"quota_pool_id":     user.QuotaPoolId,
 		"request_count":     user.RequestCount,
 		"aff_code":          user.AffCode,
 		"aff_count":         user.AffCount,

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Avatar,
   Card,
@@ -32,10 +32,15 @@ import {
   isAdmin,
   renderQuota,
   stringToColor,
+  API,
 } from '../../../../helpers';
-import { Coins, BarChart2, Users } from 'lucide-react';
+import { Coins, BarChart2, Users, Wallet } from 'lucide-react';
 
 const UserInfoHeader = ({ t, userState }) => {
+  const [quotaPoolName, setQuotaPoolName] = useState('');
+  const hasQuotaPoolInfo =
+    !!userState?.user?.quota_pool_enabled && userState?.user?.quota_pool_id > 0;
+
   const getUsername = () => {
     if (userState.user) {
       return userState.user.username;
@@ -50,6 +55,41 @@ const UserInfoHeader = ({ t, userState }) => {
       return username.slice(0, 2).toUpperCase();
     }
     return 'NA';
+  };
+
+  useEffect(() => {
+    if (!hasQuotaPoolInfo) {
+      setQuotaPoolName('');
+      return;
+    }
+    let canceled = false;
+    const loadQuotaPool = async () => {
+      try {
+        const res = await API.get('/api/quota_pool/self');
+        const { success, data } = res.data;
+        if (!canceled && success) {
+          setQuotaPoolName(data?.pool?.name || '');
+        }
+      } catch (error) {
+        if (!canceled) {
+          setQuotaPoolName('');
+        }
+      }
+    };
+    loadQuotaPool();
+    return () => {
+      canceled = true;
+    };
+  }, [hasQuotaPoolInfo, userState?.user?.quota_pool_id]);
+
+  const getQuotaPoolText = () => {
+    if (quotaPoolName) {
+      return quotaPoolName;
+    }
+    if (typeof userState?.user?.quota_pool_id === 'number') {
+      return `${t('额度池')} #${userState.user.quota_pool_id}`;
+    }
+    return '-';
   };
 
   return (
@@ -142,7 +182,7 @@ const UserInfoHeader = ({ t, userState }) => {
             className='!rounded-xl'
             bodyStyle={{ padding: '12px 16px' }}
           >
-            <div className='flex items-center gap-4'>
+            <div className='flex flex-wrap items-center gap-3'>
               <div className='flex items-center gap-2'>
                 <Coins size={16} />
                 <Typography.Text size='small' type='tertiary'>
@@ -172,6 +212,26 @@ const UserInfoHeader = ({ t, userState }) => {
                   {userState?.user?.group || t('默认')}
                 </Typography.Text>
               </div>
+              {hasQuotaPoolInfo && (
+                <>
+                  <Divider layout='vertical' />
+                  <div className='flex items-center gap-2'>
+                    <Wallet size={16} />
+                    <Typography.Text size='small' type='tertiary'>
+                      {t('所在额度池')}
+                    </Typography.Text>
+                    <Typography.Text
+                      size='small'
+                      type='tertiary'
+                      strong
+                      ellipsis={{ showTooltip: true }}
+                      style={{ maxWidth: 160 }}
+                    >
+                      {getQuotaPoolText()}
+                    </Typography.Text>
+                  </div>
+                </>
+              )}
             </div>
           </Card>
         </div>
@@ -220,6 +280,28 @@ const UserInfoHeader = ({ t, userState }) => {
                 {userState?.user?.group || t('默认')}
               </Typography.Text>
             </div>
+            {hasQuotaPoolInfo && (
+              <>
+                <Divider margin='8px' />
+                <div className='flex items-center justify-between gap-3'>
+                  <div className='flex items-center gap-2'>
+                    <Wallet size={16} />
+                    <Typography.Text size='small' type='tertiary'>
+                      {t('所在额度池')}
+                    </Typography.Text>
+                  </div>
+                  <Typography.Text
+                    size='small'
+                    type='tertiary'
+                    strong
+                    ellipsis={{ showTooltip: true }}
+                    style={{ maxWidth: 180 }}
+                  >
+                    {getQuotaPoolText()}
+                  </Typography.Text>
+                </div>
+              </>
+            )}
           </div>
         </Card>
       </div>

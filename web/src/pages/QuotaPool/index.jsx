@@ -142,6 +142,7 @@ const QuotaPool = () => {
     canManagePoolAdmins,
     canManagePoolMembers,
     canRefillPools,
+    canViewPoolManagement,
     quotaPoolAdmin,
   } = data;
   const [showCreate, setShowCreate] = useState(false);
@@ -715,22 +716,28 @@ const QuotaPool = () => {
             <Card>
               <div className='flex flex-col md:flex-row md:items-center justify-between gap-3'>
                 <Space>
-                  <Button
-                    icon={<IconArrowLeft />}
-                    type='tertiary'
-                    onClick={closePoolDetail}
-                  >
-                    {t('返回列表')}
-                  </Button>
+                  {canViewPoolManagement && (
+                    <Button
+                      icon={<IconArrowLeft />}
+                      type='tertiary'
+                      onClick={closePoolDetail}
+                    >
+                      {t('返回列表')}
+                    </Button>
+                  )}
                   <Typography.Text strong>{t('额度池')}</Typography.Text>
-                  <Select
-                    style={{ width: 240 }}
-                    value={selectedPool?.id}
-                    optionList={poolOptions}
-                    onChange={(id) =>
-                      setSelectedPool(pools.find((pool) => pool.id === id))
-                    }
-                  />
+                  {canViewPoolManagement ? (
+                    <Select
+                      style={{ width: 240 }}
+                      value={selectedPool?.id}
+                      optionList={poolOptions}
+                      onChange={(id) =>
+                        setSelectedPool(pools.find((pool) => pool.id === id))
+                      }
+                    />
+                  ) : (
+                    <Typography.Text>{selectedPool?.name}</Typography.Text>
+                  )}
                   {renderPoolStatus(selectedPool)}
                 </Space>
                 <Space>
@@ -831,141 +838,145 @@ const QuotaPool = () => {
               </Card>
             </div>
 
-            <Card>
-              <Tabs type='line' defaultActiveKey='members'>
-                <TabPane
-                  itemKey='members'
-                  tab={
-                    <span className='flex items-center gap-2'>
-                      {t('成员')}
-                      <Tag color='grey' shape='circle'>
-                        {membersTotal}
-                      </Tag>
-                    </span>
-                  }
-                >
-                  <Table
-                    size='small'
-                    columns={memberColumns}
-                    dataSource={members}
-                    rowKey='id'
-                    scroll={{ x: 'max-content' }}
-                    pagination={{
-                      currentPage: membersPage,
-                      pageSize: membersPageSize,
-                      total: membersTotal,
-                      showSizeChanger: true,
-                      pageSizeOptions: [10, 20, 50, 100],
-                      onPageChange: handleMembersPageChange,
-                      onPageSizeChange: handleMembersPageSizeChange,
-                    }}
-                  />
-                </TabPane>
-                <TabPane itemKey='transactions' tab={t('流水')}>
-                  <div className='flex flex-col gap-2 py-3'>
-                    <div className='grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2'>
-                      <Input
-                        value={transactionFilters.user}
-                        placeholder={t('用户名或用户ID')}
-                        showClear
-                        pure
-                        onChange={(value) =>
-                          updateTransactionFilter('user', value)
-                        }
-                      />
-                      <Select
-                        value={transactionFilters.transactionType}
-                        optionList={TRANSACTION_FILTER_OPTIONS.map(
-                          (option) => ({
-                            ...option,
-                            label: t(option.label),
-                          }),
-                        )}
-                        onChange={(value) =>
-                          updateTransactionFilter('transactionType', value)
-                        }
-                        style={{ width: '100%' }}
-                      />
-                      <div className='md:col-span-2'>
-                        <DatePicker
-                          type='dateTimeRange'
-                          density='compact'
-                          value={transactionFilters.dateRange}
-                          placeholder={[t('开始时间'), t('结束时间')]}
+            {canViewPoolManagement && (
+              <Card>
+                <Tabs type='line' defaultActiveKey='members'>
+                  <TabPane
+                    itemKey='members'
+                    tab={
+                      <span className='flex items-center gap-2'>
+                        {t('成员')}
+                        <Tag color='grey' shape='circle'>
+                          {membersTotal}
+                        </Tag>
+                      </span>
+                    }
+                  >
+                    <Table
+                      size='small'
+                      columns={memberColumns}
+                      dataSource={members}
+                      rowKey='id'
+                      scroll={{ x: 'max-content' }}
+                      pagination={{
+                        currentPage: membersPage,
+                        pageSize: membersPageSize,
+                        total: membersTotal,
+                        showSizeChanger: true,
+                        pageSizeOptions: [10, 20, 50, 100],
+                        onPageChange: handleMembersPageChange,
+                        onPageSizeChange: handleMembersPageSizeChange,
+                      }}
+                    />
+                  </TabPane>
+                  <TabPane itemKey='transactions' tab={t('流水')}>
+                    <div className='flex flex-col gap-2 py-3'>
+                      <div className='grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2'>
+                        <Input
+                          value={transactionFilters.user}
+                          placeholder={t('用户名或用户ID')}
+                          showClear
+                          pure
                           onChange={(value) =>
-                            updateTransactionFilter('dateRange', value || [])
+                            updateTransactionFilter('user', value)
+                          }
+                        />
+                        <Select
+                          value={transactionFilters.transactionType}
+                          optionList={TRANSACTION_FILTER_OPTIONS.map(
+                            (option) => ({
+                              ...option,
+                              label: t(option.label),
+                            }),
+                          )}
+                          onChange={(value) =>
+                            updateTransactionFilter('transactionType', value)
                           }
                           style={{ width: '100%' }}
                         />
+                        <div className='md:col-span-2'>
+                          <DatePicker
+                            type='dateTimeRange'
+                            density='compact'
+                            value={transactionFilters.dateRange}
+                            placeholder={[t('开始时间'), t('结束时间')]}
+                            onChange={(value) =>
+                              updateTransactionFilter('dateRange', value || [])
+                            }
+                            style={{ width: '100%' }}
+                          />
+                        </div>
                       </div>
+                      <Space>
+                        <Button type='primary' onClick={searchTransactions}>
+                          {t('查询')}
+                        </Button>
+                        <Button onClick={resetTransactionFilters}>
+                          {t('重置')}
+                        </Button>
+                      </Space>
                     </div>
-                    <Space>
-                      <Button type='primary' onClick={searchTransactions}>
-                        {t('查询')}
-                      </Button>
-                      <Button onClick={resetTransactionFilters}>
-                        {t('重置')}
-                      </Button>
-                    </Space>
-                  </div>
-                  <Table
-                    size='small'
-                    columns={transactionColumns}
-                    dataSource={transactions}
-                    rowKey='id'
-                    scroll={{ x: 'max-content' }}
-                    pagination={{
-                      currentPage: transactionsPage,
-                      pageSize: transactionsPageSize,
-                      total: transactionsTotal,
-                      showSizeChanger: true,
-                      pageSizeOptions: [10, 20, 50, 100],
-                      onPageChange: handleTransactionsPageChange,
-                      onPageSizeChange: handleTransactionsPageSizeChange,
-                    }}
-                  />
-                </TabPane>
-                <TabPane itemKey='stats' tab={t('数据统计')}>
-                  <div className='flex flex-col gap-3 pt-3'>
-                    <div className='flex flex-col md:flex-row md:items-center justify-between gap-3'>
-                      <RadioGroup
-                        type='button'
-                        value={statsPeriod}
-                        onChange={(event) => setStatsPeriod(event.target.value)}
-                      >
-                        <Radio value='week'>{t('本周')}</Radio>
-                        <Radio value='month'>{t('近一月')}</Radio>
-                      </RadioGroup>
-                      <Button
-                        icon={<IconRefresh />}
-                        loading={statsLoading}
-                        onClick={loadStats}
-                      >
-                        {t('刷新统计')}
-                      </Button>
-                    </div>
-                    <div className='grid grid-cols-1 md:grid-cols-3 gap-3'>
+                    <Table
+                      size='small'
+                      columns={transactionColumns}
+                      dataSource={transactions}
+                      rowKey='id'
+                      scroll={{ x: 'max-content' }}
+                      pagination={{
+                        currentPage: transactionsPage,
+                        pageSize: transactionsPageSize,
+                        total: transactionsTotal,
+                        showSizeChanger: true,
+                        pageSizeOptions: [10, 20, 50, 100],
+                        onPageChange: handleTransactionsPageChange,
+                        onPageSizeChange: handleTransactionsPageSizeChange,
+                      }}
+                    />
+                  </TabPane>
+                  <TabPane itemKey='stats' tab={t('数据统计')}>
+                    <div className='flex flex-col gap-3 pt-3'>
+                      <div className='flex flex-col md:flex-row md:items-center justify-between gap-3'>
+                        <RadioGroup
+                          type='button'
+                          value={statsPeriod}
+                          onChange={(event) =>
+                            setStatsPeriod(event.target.value)
+                          }
+                        >
+                          <Radio value='week'>{t('本周')}</Radio>
+                          <Radio value='month'>{t('近一月')}</Radio>
+                        </RadioGroup>
+                        <Button
+                          icon={<IconRefresh />}
+                          loading={statsLoading}
+                          onClick={loadStats}
+                        >
+                          {t('刷新统计')}
+                        </Button>
+                      </div>
+                      <div className='grid grid-cols-1 md:grid-cols-3 gap-3'>
+                        <Card title={t('使用统计')}>
+                          <Typography.Text strong>
+                            {renderQuota(stats.total_usage || 0)}
+                          </Typography.Text>
+                        </Card>
+                      </div>
                       <Card title={t('使用统计')}>
-                        <Typography.Text strong>
-                          {renderQuota(stats.total_usage || 0)}
-                        </Typography.Text>
+                        <Table
+                          size='small'
+                          columns={usageStatColumns}
+                          dataSource={stats.usage || []}
+                          rowKey='user_id'
+                          loading={statsLoading}
+                          pagination={false}
+                          scroll={{ x: 'max-content' }}
+                        />
                       </Card>
                     </div>
-                    <Card title={t('使用统计')}>
-                      <Table
-                        size='small'
-                        columns={usageStatColumns}
-                        dataSource={stats.usage || []}
-                        rowKey='user_id'
-                        loading={statsLoading}
-                        pagination={false}
-                        scroll={{ x: 'max-content' }}
-                      />
-                    </Card>
-                  </div>
-                </TabPane>
-              </Tabs>
-            </Card>
+                  </TabPane>
+                </Tabs>
+              </Card>
+            )}
           </>
         )}
       </div>
