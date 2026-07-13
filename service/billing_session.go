@@ -354,13 +354,13 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		}
 		if userQuota <= 0 {
 			return nil, types.NewErrorWithStatusCode(
-				fmt.Errorf("用户额度不足, 剩余额度: %s", logger.FormatQuota(userQuota)),
+				insufficientUserQuotaError(relayInfo.UserId, userQuota),
 				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
 				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		}
 		if userQuota-preConsumedQuota < 0 {
 			return nil, types.NewErrorWithStatusCode(
-				fmt.Errorf("预扣费额度失败, 用户剩余额度: %s, 需要预扣费额度: %s", logger.FormatQuota(userQuota), logger.FormatQuota(preConsumedQuota)),
+				insufficientPreConsumeQuotaError(relayInfo.UserId, userQuota, preConsumedQuota),
 				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
 				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		}
@@ -431,4 +431,26 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		}
 		return session, nil
 	}
+}
+
+func insufficientUserQuotaError(userId int, userQuota int) error {
+	if isNonDefaultQuotaPoolMember(userId) {
+		return fmt.Errorf("额度不足，请联系池管理员充值")
+	}
+	return fmt.Errorf("用户额度不足, 剩余额度: %s", logger.FormatQuota(userQuota))
+}
+
+func insufficientPreConsumeQuotaError(userId int, userQuota int, preConsumedQuota int) error {
+	if isNonDefaultQuotaPoolMember(userId) {
+		return fmt.Errorf("额度不足，请联系池管理员充值")
+	}
+	return fmt.Errorf("预扣费额度失败, 用户剩余额度: %s, 需要预扣费额度: %s", logger.FormatQuota(userQuota), logger.FormatQuota(preConsumedQuota))
+}
+
+func isNonDefaultQuotaPoolMember(userId int) bool {
+	var quotaPoolId int
+	if err := model.DB.Model(&model.User{}).Where("id = ?", userId).Select("quota_pool_id").Find(&quotaPoolId).Error; err != nil {
+		return false
+	}
+	return quotaPoolId > model.QuotaPoolDefaultUserPoolId
 }

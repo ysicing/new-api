@@ -847,31 +847,36 @@ const QuotaPool = () => {
 
             {!canViewPoolManagement && (
               <Card title={t('池管理员')}>
-                {adminContacts.length > 0 ? (
-                  <div className='flex flex-wrap gap-2'>
-                    {adminContacts.map((admin) => (
-                      <div
-                        key={admin.id}
-                        className='flex flex-col gap-1 rounded border border-semi-color-border px-3 py-2 min-w-[220px]'
-                      >
-                        <Typography.Text strong>
-                          {renderAdminContactName(admin)}
-                        </Typography.Text>
-                        <Typography.Text
-                          size='small'
-                          type='tertiary'
-                          copyable={!!admin.email}
-                        >
-                          {admin.email || t('邮箱未设置')}
-                        </Typography.Text>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
+                <div className='flex flex-col gap-3'>
                   <Typography.Text type='secondary'>
-                    {t('暂无池管理员')}
+                    {t('额度不足时，请联系池管理员充值。')}
                   </Typography.Text>
-                )}
+                  {adminContacts.length > 0 ? (
+                    <div className='flex flex-wrap gap-2'>
+                      {adminContacts.map((admin) => (
+                        <div
+                          key={admin.id}
+                          className='flex flex-col gap-1 rounded border border-semi-color-border px-3 py-2 min-w-[220px]'
+                        >
+                          <Typography.Text strong>
+                            {renderAdminContactName(admin)}
+                          </Typography.Text>
+                          <Typography.Text
+                            size='small'
+                            type='tertiary'
+                            copyable={!!admin.email}
+                          >
+                            {admin.email || t('邮箱未设置')}
+                          </Typography.Text>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <Typography.Text type='secondary'>
+                      {t('暂无池管理员')}
+                    </Typography.Text>
+                  )}
+                </div>
               </Card>
             )}
 
