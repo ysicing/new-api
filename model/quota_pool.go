@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -693,32 +694,66 @@ func getQuotaPoolUsageStats(poolId int, startTimestamp int64, endTimestamp int64
 		userNames[member.Id] = member.Username
 	}
 
-	selectSQL := "logs.user_id, COALESCE(SUM(logs.quota), 0) as used_quota, " +
-		topUserModelFamilySelect("LOWER(logs.model_name)", "logs.quota")
-
-	tx := LOG_DB.Table("logs").
-		Select(selectSQL).
-		Where("logs.type = ?", LogTypeConsume).
-		Where("logs.user_id IN ?", userIds)
-
-	if startTimestamp != 0 {
-		tx = tx.Where("logs.created_at >= ?", startTimestamp)
-	}
-	if endTimestamp != 0 {
-		tx = tx.Where("logs.created_at <= ?", endTimestamp)
-	}
-
-	var results []QuotaPoolUsageStat
-	err := tx.Group("logs.user_id").
-		Order("used_quota desc").
-		Scan(&results).Error
+	usedMap, err := getQuotaPoolUsageStatsFromUsageData(startTimestamp, endTimestamp, userIds)
 	if err != nil {
 		return nil, err
 	}
-	for i := range results {
-		results[i].Username = userNames[results[i].UserId]
+	results := make([]QuotaPoolUsageStat, 0, len(usedMap))
+	for userId, stat := range usedMap {
+		if stat.UsedQuota == 0 {
+			continue
+		}
+		results = append(results, QuotaPoolUsageStat{
+			UserId:        userId,
+			Username:      userNames[userId],
+			UsedQuota:     stat.UsedQuota,
+			GptQuota:      stat.GptQuota,
+			ClaudeQuota:   stat.ClaudeQuota,
+			DeepSeekQuota: stat.DeepSeekQuota,
+			GeminiQuota:   stat.GeminiQuota,
+			QwenQuota:     stat.QwenQuota,
+			OtherQuota:    stat.OtherQuota,
+		})
 	}
-	return results, err
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].UsedQuota > results[j].UsedQuota
+	})
+	return results, nil
+}
+
+func getQuotaPoolUsageStatsFromUsageData(startTimestamp int64, endTimestamp int64, userIds []int) (map[int]rechargeUsageStat, error) {
+	usedMap := make(map[int]rechargeUsageStat, len(userIds))
+	if len(userIds) == 0 {
+		return usedMap, nil
+	}
+
+	currentHourStart := currentHourStartTimestamp()
+	if settledStart, settledEnd, ok := topUsersSettledRange(startTimestamp, endTimestamp, currentHourStart); ok {
+		settledStats, err := getRechargeUsageStatsFromQuotaData(settledStart, settledEnd, userIds)
+		if err != nil {
+			return nil, err
+		}
+		mergeRechargeUsageStats(usedMap, settledStats)
+
+		missingUserIds := rechargeUsageMissingUserIds(userIds, settledStats)
+		if len(missingUserIds) > 0 {
+			missingStats, err := getRechargeUsageStatsFromLogs(settledStart, settledEnd, missingUserIds)
+			if err != nil {
+				return nil, err
+			}
+			mergeRechargeUsageStats(usedMap, missingStats)
+		}
+	}
+
+	if currentStart, currentEnd, ok := topUsersCurrentHourRange(startTimestamp, endTimestamp, currentHourStart); ok {
+		currentStats, err := getRechargeUsageStatsFromLogs(currentStart, currentEnd, userIds)
+		if err != nil {
+			return nil, err
+		}
+		mergeRechargeUsageStats(usedMap, currentStats)
+	}
+
+	return usedMap, nil
 }
 
 func getQuotaPoolRechargeStats(poolId int, startTimestamp int64, endTimestamp int64) ([]QuotaPoolRechargeStat, error) {

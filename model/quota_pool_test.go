@@ -41,7 +41,7 @@ func setupQuotaPoolTestDB(t *testing.T) (*gorm.DB, func()) {
 	}
 	DB = db
 	LOG_DB = db
-	if err := db.AutoMigrate(&User{}, &Log{}, &QuotaPool{}, &QuotaPoolAdmin{}, &QuotaPoolTransaction{}); err != nil {
+	if err := db.AutoMigrate(&User{}, &Log{}, &QuotaData{}, &QuotaPool{}, &QuotaPoolAdmin{}, &QuotaPoolTransaction{}); err != nil {
 		t.Fatalf("migrate quota pool test tables failed: %v", err)
 	}
 	cleanup := func() {
@@ -1029,6 +1029,53 @@ func TestGetQuotaPoolStatsScopesUsageAndRechargeToPool(t *testing.T) {
 		if item.Type == QuotaPoolTransactionReclaimUser && item.Amount != -50 {
 			t.Fatalf("reclaim amount = %d, want -50", item.Amount)
 		}
+	}
+}
+
+func TestGetQuotaPoolStatsMergesQuotaDataWithCurrentHourLogs(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 1000)
+	otherPool := createQuotaPoolForTest(t, db, 1000)
+	member := createQuotaPoolTestUser(t, db, 1, 100, pool.Id)
+	missingQuotaDataMember := createQuotaPoolTestUser(t, db, 2, 100, pool.Id)
+	otherMember := createQuotaPoolTestUser(t, db, 3, 100, otherPool.Id)
+	currentHourStart := currentHourStartTimestamp()
+	settledAt := currentHourStart - 3600
+	currentAt := currentHourStart + 60
+
+	quotaData := []*QuotaData{
+		{UserID: member.Id, Username: member.Username, ModelName: "gpt-4o", Quota: 70, CreatedAt: settledAt, Count: 1, TokenUsed: 100},
+	}
+	if err := db.Create(&quotaData).Error; err != nil {
+		t.Fatalf("create quota data failed: %v", err)
+	}
+	logs := []*Log{
+		{UserId: member.Id, Username: member.Username, Type: LogTypeConsume, ModelName: "gpt-4o", Quota: 999, CreatedAt: settledAt},
+		{UserId: member.Id, Username: member.Username, Type: LogTypeConsume, ModelName: "claude-3-5-sonnet", Quota: 30, CreatedAt: currentAt},
+		{UserId: missingQuotaDataMember.Id, Username: missingQuotaDataMember.Username, Type: LogTypeConsume, ModelName: "deepseek-chat", Quota: 40, CreatedAt: settledAt},
+		{UserId: otherMember.Id, Username: otherMember.Username, Type: LogTypeConsume, ModelName: "gpt-4o", Quota: 500, CreatedAt: currentAt},
+	}
+	if err := db.Create(&logs).Error; err != nil {
+		t.Fatalf("create logs failed: %v", err)
+	}
+
+	stats, err := GetQuotaPoolStats(pool.Id, settledAt-60, currentAt+60)
+	if err != nil {
+		t.Fatalf("GetQuotaPoolStats returned error: %v", err)
+	}
+	if stats.TotalUsage != 140 {
+		t.Fatalf("total usage = %d, want 140", stats.TotalUsage)
+	}
+	if len(stats.Usage) != 2 {
+		t.Fatalf("usage length = %d, want 2", len(stats.Usage))
+	}
+	if stats.Usage[0].UserId != member.Id || stats.Usage[0].UsedQuota != 100 || stats.Usage[0].GptQuota != 70 || stats.Usage[0].ClaudeQuota != 30 {
+		t.Fatalf("unexpected quota_data-backed stat: %+v", stats.Usage[0])
+	}
+	if stats.Usage[1].UserId != missingQuotaDataMember.Id || stats.Usage[1].UsedQuota != 40 || stats.Usage[1].DeepSeekQuota != 40 {
+		t.Fatalf("unexpected logs-filled stat: %+v", stats.Usage[1])
 	}
 }
 
