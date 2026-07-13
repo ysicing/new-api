@@ -311,7 +311,11 @@ func updateOptionMap(key string, value string) (err error) {
 				common.OptionMap[key] = strconv.FormatBool(true)
 				return errors.New("额度池功能开启后不能关闭")
 			}
+			wasEnabled := common.QuotaPoolEnabled
 			common.QuotaPoolEnabled = boolValue
+			if boolValue && !wasEnabled {
+				err = SyncSystemQuotaPools()
+			}
 		case "DataExportEnabled":
 			common.DataExportEnabled = true
 		case "DefaultCollapseSidebar":

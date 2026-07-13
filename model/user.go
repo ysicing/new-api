@@ -421,6 +421,25 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 	return tx.Commit().Error
 }
 
+func (user *User) usesNewUserQuotaPoolPolicy() bool {
+	return common.QuotaPoolEnabled && user.QuotaPoolId > QuotaPoolDefaultUserPoolId
+}
+
+func (user *User) applyNewUserQuotaPolicy(tx *gorm.DB) error {
+	if !common.QuotaPoolEnabled {
+		user.Quota = common.QuotaForNewUser
+		user.QuotaPoolId = QuotaPoolDefaultUserPoolId
+		return nil
+	}
+	pool, err := syncNewUserQuotaPool(tx)
+	if err != nil {
+		return err
+	}
+	user.Quota = common.QuotaForNewUser
+	user.QuotaPoolId = pool.Id
+	return nil
+}
+
 func (user *User) Insert(inviterId int) error {
 	var err error
 	if user.Password != "" {
@@ -429,7 +448,9 @@ func (user *User) Insert(inviterId int) error {
 			return err
 		}
 	}
-	user.Quota = common.QuotaForNewUser
+	if err := user.applyNewUserQuotaPolicy(DB); err != nil {
+		return err
+	}
 	//user.SetAccessToken(common.GetUUID())
 	user.AffCode = common.GetRandomString(4)
 
@@ -460,11 +481,11 @@ func (user *User) Insert(inviterId int) error {
 		}
 	}
 
-	if common.QuotaForNewUser > 0 {
-		RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("新用户注册赠送 %s", logger.LogQuota(common.QuotaForNewUser)))
+	if user.Quota > 0 {
+		RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("新用户注册赠送 %s", logger.LogQuota(user.Quota)))
 	}
 	if inviterId != 0 {
-		if common.QuotaForInvitee > 0 {
+		if common.QuotaForInvitee > 0 && !user.usesNewUserQuotaPoolPolicy() {
 			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
 			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(common.QuotaForInvitee)))
 		}
@@ -488,7 +509,9 @@ func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 			return err
 		}
 	}
-	user.Quota = common.QuotaForNewUser
+	if err := user.applyNewUserQuotaPolicy(tx); err != nil {
+		return err
+	}
 	user.AffCode = common.GetRandomString(4)
 
 	// 初始化用户设置
@@ -521,11 +544,11 @@ func (user *User) FinalizeOAuthUserCreation(inviterId int) {
 		}
 	}
 
-	if common.QuotaForNewUser > 0 {
-		RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("新用户注册赠送 %s", logger.LogQuota(common.QuotaForNewUser)))
+	if user.Quota > 0 {
+		RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("新用户注册赠送 %s", logger.LogQuota(user.Quota)))
 	}
 	if inviterId != 0 {
-		if common.QuotaForInvitee > 0 {
+		if common.QuotaForInvitee > 0 && !user.usesNewUserQuotaPoolPolicy() {
 			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
 			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(common.QuotaForInvitee)))
 		}

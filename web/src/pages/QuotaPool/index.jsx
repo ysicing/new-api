@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Banner,
   Button,
   Card,
   DatePicker,
@@ -51,6 +52,7 @@ import { renderQuota, timestamp2string } from '../../helpers';
 import { useQuotaPoolsData } from '../../hooks/quota-pools/useQuotaPoolsData';
 
 const QUOTA_PER_UNIT = 500000;
+const QUOTA_POOL_TYPE_NEW_USER = 'new_user';
 const TRANSACTION_TYPE_LABELS = {
   initial_fund: '初始入池',
   manual_refill: '临时额度',
@@ -158,6 +160,10 @@ const QuotaPool = () => {
     }
   }, [showAddMember, loadCandidates]);
 
+  const isNewUserPool = (pool) => pool?.pool_type === QUOTA_POOL_TYPE_NEW_USER;
+  const isProtectedSystemPool = (pool) =>
+    pool?.is_default || isNewUserPool(pool);
+
   const poolOptions = useMemo(
     () =>
       pools
@@ -174,7 +180,9 @@ const QuotaPool = () => {
       pools
         .filter(
           (pool) =>
-            pool.id !== selectedPool?.id && (pool.is_default || pool.enabled),
+            pool.id !== selectedPool?.id &&
+            !isNewUserPool(pool) &&
+            (pool.is_default || pool.enabled),
         )
         .map((pool) => ({
           label: pool.is_default ? t('默认额度池') : pool.name,
@@ -183,7 +191,8 @@ const QuotaPool = () => {
     [pools, selectedPool?.id, t],
   );
 
-  const canOperateSelectedPool = selectedPool && !selectedPool.is_default;
+  const canOperateSelectedPool =
+    selectedPool && !isProtectedSystemPool(selectedPool);
   const canUseActivePool = canOperateSelectedPool && selectedPool.enabled;
   const canMoveMembers =
     canUseGlobalApi && canManagePoolMembers && canOperateSelectedPool;
@@ -193,7 +202,7 @@ const QuotaPool = () => {
     canUseActivePool && (canManagePoolMembers || canManagePoolAdmins);
   const canConfigurePoolRules = (pool) =>
     !!pool &&
-    !pool.is_default &&
+    !isProtectedSystemPool(pool) &&
     (canConfigurePools ||
       (canUseGlobalApi && canConfigureRechargeRules) ||
       (canConfigureRechargeRules && quotaPoolAdmin?.pool_id === pool.id));
@@ -230,6 +239,9 @@ const QuotaPool = () => {
     if (pool.is_default) {
       return <Tag color='blue'>{t('默认')}</Tag>;
     }
+    if (isNewUserPool(pool)) {
+      return <Tag color='cyan'>{t('新用户')}</Tag>;
+    }
     return (
       <Tag color={pool.enabled ? 'green' : 'red'}>
         {pool.enabled ? t('已启用') : t('已禁用')}
@@ -238,7 +250,7 @@ const QuotaPool = () => {
   };
 
   const renderPoolQuota = (pool) => {
-    if (pool.is_default) {
+    if (pool.is_default || isNewUserPool(pool)) {
       return `${t('不限额')} / ${t('不限额')}`;
     }
     return `${renderQuota(pool.quota)} / ${renderQuota(pool.base_quota)}`;
@@ -260,6 +272,7 @@ const QuotaPool = () => {
 
   const renderRechargeRule = (pool) => {
     if (pool.is_default) return t('系统默认');
+    if (isNewUserPool(pool)) return t('关闭');
     if (pool.auto_recharge_amount < 0) {
       const systemConfig = pool.system_auto_recharge || {};
       const systemValue =
@@ -295,6 +308,13 @@ const QuotaPool = () => {
 
   const renderAutoRechargeRuleSummary = (pool) => {
     const systemConfig = pool?.system_auto_recharge || {};
+    if (isNewUserPool(pool)) {
+      return (
+        <Typography.Text type='secondary'>
+          {t('新用户额度池不支持自动充值。')}
+        </Typography.Text>
+      );
+    }
     if (pool?.is_default) {
       return (
         <Typography.Text type='secondary'>
@@ -394,7 +414,7 @@ const QuotaPool = () => {
   const canDeletePool = (pool) =>
     canConfigurePools &&
     pool &&
-    !pool.is_default &&
+    !isProtectedSystemPool(pool) &&
     (pool.member_count || 0) === 0;
 
   const openPoolDetail = (pool) => {
@@ -495,7 +515,7 @@ const QuotaPool = () => {
               {t('配置')}
             </Button>
           )}
-          {canConfigurePools && !record.is_default && (
+          {canConfigurePools && !isProtectedSystemPool(record) && (
             <Popconfirm
               title={
                 record.enabled
@@ -800,6 +820,15 @@ const QuotaPool = () => {
                 </Space>
               </div>
             </Card>
+
+            {isNewUserPool(selectedPool) && (
+              <Banner
+                type='warning'
+                description={t(
+                  '请尽快联系部门 iCode 额度管理员添加到对应额度池。',
+                )}
+              />
+            )}
 
             <div
               className={`grid grid-cols-1 md:grid-cols-2 ${

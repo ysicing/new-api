@@ -20,6 +20,10 @@ const (
 	QuotaPoolDefaultUserPoolId = 0
 	QuotaPoolUnlimitedQuota    = -1
 
+	QuotaPoolTypeNormal  = "normal"
+	QuotaPoolTypeDefault = "default"
+	QuotaPoolTypeNewUser = "new_user"
+
 	QuotaPoolAutoRechargeInherit = -1
 	QuotaPoolAutoRechargeOff     = 0
 
@@ -45,6 +49,7 @@ var (
 	ErrQuotaPoolAdjustLimited         = errors.New("下调后额度池可用额度不能小于 0")
 	ErrQuotaPoolMemberMismatch        = errors.New("用户不属于该额度池")
 	ErrQuotaPoolSamePool              = errors.New("用户已在该额度池")
+	ErrQuotaPoolSystemReadonly        = errors.New("系统额度池不支持该操作")
 )
 
 type quotaPoolAdjustLimitedError struct {
@@ -62,6 +67,7 @@ func (e quotaPoolAdjustLimitedError) Unwrap() error {
 type QuotaPool struct {
 	Id                   int            `json:"id"`
 	Name                 string         `json:"name" gorm:"type:varchar(64);index"`
+	PoolType             string         `json:"pool_type" gorm:"type:varchar(32);default:'normal';column:pool_type;index"`
 	Enabled              bool           `json:"enabled" gorm:"default:true"`
 	IsDefault            bool           `json:"is_default" gorm:"default:false;index"`
 	BaseQuota            int            `json:"base_quota" gorm:"type:int;default:0;column:base_quota"`
@@ -227,6 +233,7 @@ func quotaPoolMemberRoles() []int {
 func newDefaultQuotaPool() *QuotaPool {
 	return &QuotaPool{
 		Name:               "系统默认额度池",
+		PoolType:           QuotaPoolTypeDefault,
 		Enabled:            true,
 		IsDefault:          true,
 		BaseQuota:          QuotaPoolUnlimitedQuota,
@@ -236,6 +243,39 @@ func newDefaultQuotaPool() *QuotaPool {
 		MonthlyLimit:       QuotaPoolAutoRechargeInherit,
 		MonthlyRefillDay:   1,
 	}
+}
+
+func newNewUserQuotaPool() *QuotaPool {
+	return &QuotaPool{
+		Name:                 "新用户额度池",
+		PoolType:             QuotaPoolTypeNewUser,
+		Enabled:              true,
+		IsDefault:            false,
+		BaseQuota:            QuotaPoolUnlimitedQuota,
+		Quota:                QuotaPoolUnlimitedQuota,
+		AutoRechargeAmount:   QuotaPoolAutoRechargeOff,
+		WeeklyLimit:          QuotaPoolAutoRechargeOff,
+		MonthlyLimit:         QuotaPoolAutoRechargeOff,
+		MonthlyRefillEnabled: false,
+		MonthlyRefillDay:     1,
+	}
+}
+
+func (pool *QuotaPool) IsNewUserPool() bool {
+	return pool != nil && pool.PoolType == QuotaPoolTypeNewUser
+}
+
+func (pool *QuotaPool) IsSystemPool() bool {
+	return pool != nil && (pool.IsDefault || pool.PoolType == QuotaPoolTypeDefault || pool.PoolType == QuotaPoolTypeNewUser)
+}
+
+func IsQuotaPoolCandidateSourcePoolId(poolId int) bool {
+	poolId = normalizeQuotaPoolId(poolId)
+	if poolId == QuotaPoolDefaultUserPoolId {
+		return true
+	}
+	pool, err := GetNewUserQuotaPool()
+	return err == nil && pool.Id == poolId
 }
 
 func GetDefaultQuotaPool() (*QuotaPool, error) {
@@ -249,10 +289,21 @@ func GetDefaultQuotaPool() (*QuotaPool, error) {
 	return pool, nil
 }
 
+func GetNewUserQuotaPool() (*QuotaPool, error) {
+	pool := &QuotaPool{}
+	if err := DB.Where("pool_type = ?", QuotaPoolTypeNewUser).Order("id asc").First(pool).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrQuotaPoolNotFound
+		}
+		return nil, err
+	}
+	return pool, nil
+}
+
 func SyncDefaultQuotaPool() (*QuotaPool, error) {
 	pool, err := GetDefaultQuotaPool()
 	if err == nil {
-		return pool, nil
+		return normalizeDefaultQuotaPool(DB, pool)
 	}
 	if !errors.Is(err, ErrQuotaPoolNotFound) {
 		return nil, err
@@ -262,6 +313,111 @@ func SyncDefaultQuotaPool() (*QuotaPool, error) {
 		return nil, err
 	}
 	return pool, nil
+}
+
+func normalizeDefaultQuotaPool(tx *gorm.DB, pool *QuotaPool) (*QuotaPool, error) {
+	if pool.PoolType == QuotaPoolTypeDefault {
+		return pool, nil
+	}
+	if err := tx.Model(&QuotaPool{}).Where("id = ?", pool.Id).Update("pool_type", QuotaPoolTypeDefault).Error; err != nil {
+		return nil, err
+	}
+	pool.PoolType = QuotaPoolTypeDefault
+	return pool, nil
+}
+
+func SyncNewUserQuotaPool() (*QuotaPool, error) {
+	return syncNewUserQuotaPool(DB)
+}
+
+func SyncSystemQuotaPools() error {
+	if _, err := SyncDefaultQuotaPool(); err != nil {
+		return err
+	}
+	if _, err := SyncNewUserQuotaPool(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func syncNewUserQuotaPool(tx *gorm.DB) (*QuotaPool, error) {
+	pool := &QuotaPool{}
+	err := tx.Where("pool_type = ?", QuotaPoolTypeNewUser).Order("id asc").First(pool).Error
+	if err == nil {
+		return normalizeNewUserQuotaPool(tx, pool)
+	}
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	pool = newNewUserQuotaPool()
+	if err := tx.Create(pool).Error; err != nil {
+		return nil, err
+	}
+	return normalizeNewUserQuotaPool(tx, pool)
+}
+
+func normalizeNewUserQuotaPool(tx *gorm.DB, pool *QuotaPool) (*QuotaPool, error) {
+	updates := map[string]interface{}{
+		"pool_type":              QuotaPoolTypeNewUser,
+		"enabled":                true,
+		"is_default":             false,
+		"base_quota":             QuotaPoolUnlimitedQuota,
+		"quota":                  QuotaPoolUnlimitedQuota,
+		"auto_recharge_amount":   QuotaPoolAutoRechargeOff,
+		"weekly_limit":           QuotaPoolAutoRechargeOff,
+		"monthly_limit":          QuotaPoolAutoRechargeOff,
+		"monthly_refill_enabled": false,
+		"monthly_refill_amount":  0,
+		"monthly_refill_day":     1,
+	}
+	if !newUserQuotaPoolNeedsNormalize(pool) {
+		return pool, nil
+	}
+	if err := tx.Model(&QuotaPool{}).Where("id = ?", pool.Id).Updates(updates).Error; err != nil {
+		return nil, err
+	}
+	for key, value := range updates {
+		switch key {
+		case "pool_type":
+			pool.PoolType = value.(string)
+		case "enabled":
+			pool.Enabled = value.(bool)
+		case "is_default":
+			pool.IsDefault = value.(bool)
+		case "base_quota":
+			pool.BaseQuota = value.(int)
+		case "quota":
+			pool.Quota = value.(int)
+		case "auto_recharge_amount":
+			pool.AutoRechargeAmount = value.(int)
+		case "weekly_limit":
+			pool.WeeklyLimit = value.(int)
+		case "monthly_limit":
+			pool.MonthlyLimit = value.(int)
+		case "monthly_refill_enabled":
+			pool.MonthlyRefillEnabled = value.(bool)
+		case "monthly_refill_amount":
+			pool.MonthlyRefillAmount = value.(int)
+		case "monthly_refill_day":
+			pool.MonthlyRefillDay = value.(int)
+		}
+	}
+	return pool, nil
+}
+
+func newUserQuotaPoolNeedsNormalize(pool *QuotaPool) bool {
+	return pool.PoolType != QuotaPoolTypeNewUser ||
+		!pool.Enabled ||
+		pool.IsDefault ||
+		pool.BaseQuota != QuotaPoolUnlimitedQuota ||
+		pool.Quota != QuotaPoolUnlimitedQuota ||
+		pool.AutoRechargeAmount != QuotaPoolAutoRechargeOff ||
+		pool.WeeklyLimit != QuotaPoolAutoRechargeOff ||
+		pool.MonthlyLimit != QuotaPoolAutoRechargeOff ||
+		pool.MonthlyRefillEnabled ||
+		pool.MonthlyRefillAmount != 0 ||
+		pool.MonthlyRefillDay != 1
 }
 
 func GetQuotaPoolAdminSummary(userId int) (*QuotaPoolAdminSummary, error) {
@@ -303,6 +459,11 @@ func GetQuotaPoolById(poolId int) (*QuotaPool, error) {
 }
 
 func ListQuotaPools() ([]QuotaPoolListItem, error) {
+	if common.QuotaPoolEnabled {
+		if err := SyncSystemQuotaPools(); err != nil {
+			return nil, err
+		}
+	}
 	var pools []QuotaPool
 	if err := DB.Order("is_default desc, id desc").Find(&pools).Error; err != nil {
 		return nil, err
@@ -459,7 +620,13 @@ func ListQuotaPoolMembers(poolId int, pageInfo *common.PageInfo) ([]*QuotaPoolMe
 }
 
 func ListDefaultQuotaPoolCandidates(keyword string, pageInfo *common.PageInfo) ([]*QuotaPoolCandidate, int64, error) {
-	query := DB.Model(&User{}).Where("quota_pool_id = ? AND role IN ? AND status = ?", QuotaPoolDefaultUserPoolId, quotaPoolMemberRoles(), common.UserStatusEnabled)
+	poolIds := []int{QuotaPoolDefaultUserPoolId}
+	if pool, err := GetNewUserQuotaPool(); err == nil {
+		poolIds = append(poolIds, pool.Id)
+	} else if !errors.Is(err, ErrQuotaPoolNotFound) {
+		return nil, 0, err
+	}
+	query := DB.Model(&User{}).Where("quota_pool_id IN ? AND role IN ? AND status = ?", poolIds, quotaPoolMemberRoles(), common.UserStatusEnabled)
 	if keyword != "" {
 		like := "%" + keyword + "%"
 		if userId, err := strconv.Atoi(keyword); err == nil {
@@ -616,6 +783,7 @@ func CreateQuotaPool(name string, baseQuota int, operatorId int) (*QuotaPool, er
 		}
 		pool = &QuotaPool{
 			Name:                 name,
+			PoolType:             QuotaPoolTypeNormal,
 			Enabled:              true,
 			IsDefault:            false,
 			BaseQuota:            baseQuota,
@@ -659,8 +827,8 @@ func UpdateQuotaPoolConfig(poolId int, updates map[string]interface{}, operatorI
 			}
 			return err
 		}
-		if pool.IsDefault {
-			return ErrQuotaPoolDefaultReadonly
+		if pool.IsSystemPool() {
+			return ErrQuotaPoolSystemReadonly
 		}
 		if nameVal, ok := updates["name"].(string); ok && nameVal != "" && nameVal != pool.Name {
 			exists, err := quotaPoolNameExists(tx, nameVal, poolId)
@@ -721,8 +889,8 @@ func SetQuotaPoolEnabled(poolId int, enabled bool) error {
 			}
 			return err
 		}
-		if pool.IsDefault {
-			return ErrQuotaPoolDefaultReadonly
+		if pool.IsSystemPool() {
+			return ErrQuotaPoolSystemReadonly
 		}
 		return tx.Model(&QuotaPool{}).Where("id = ?", poolId).Update("enabled", enabled).Error
 	})
@@ -740,8 +908,8 @@ func DeleteQuotaPool(poolId int) error {
 			}
 			return err
 		}
-		if pool.IsDefault {
-			return ErrQuotaPoolDefaultReadonly
+		if pool.IsSystemPool() {
+			return ErrQuotaPoolSystemReadonly
 		}
 		var count int64
 		if err := tx.Model(&User{}).Where("quota_pool_id = ?", poolId).Count(&count).Error; err != nil {
@@ -778,8 +946,8 @@ func TransferQuotaFromPoolToUser(poolId int, userId int, amount int) (*QuotaPool
 			}
 			return err
 		}
-		if pool.IsDefault {
-			return ErrQuotaPoolDefaultReadonly
+		if pool.IsSystemPool() {
+			return ErrQuotaPoolSystemReadonly
 		}
 		if !pool.Enabled {
 			return ErrQuotaPoolDisabled
@@ -840,8 +1008,8 @@ func ReclaimQuotaFromUserToPool(poolId int, userId int, amount int, autoRecharge
 			}
 			return err
 		}
-		if pool.IsDefault {
-			return ErrQuotaPoolDefaultReadonly
+		if pool.IsSystemPool() {
+			return ErrQuotaPoolSystemReadonly
 		}
 		if !pool.Enabled {
 			return ErrQuotaPoolDisabled
@@ -914,8 +1082,8 @@ func MoveUserQuotaPool(userId int, targetPoolId int) (*QuotaPoolMoveResult, erro
 				}
 				return err
 			}
-			if target.IsDefault {
-				return ErrQuotaPoolDefaultReadonly
+			if target.IsSystemPool() {
+				return ErrQuotaPoolSystemReadonly
 			}
 			if !target.Enabled {
 				return ErrQuotaPoolDisabled
@@ -933,14 +1101,21 @@ func MoveUserQuotaPool(userId int, targetPoolId int) (*QuotaPoolMoveResult, erro
 			return ErrQuotaPoolSamePool
 		}
 
-		if oldPoolId != QuotaPoolDefaultUserPoolId && user.Quota > 0 {
-			oldPool := &QuotaPool{}
+		var oldPool *QuotaPool
+		shouldReclaimOldPool := oldPoolId != QuotaPoolDefaultUserPoolId && user.Quota > 0
+		if shouldReclaimOldPool {
+			oldPool = &QuotaPool{}
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(oldPool, "id = ?", oldPoolId).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					return ErrQuotaPoolNotFound
 				}
 				return err
 			}
+			if oldPool.IsNewUserPool() {
+				shouldReclaimOldPool = false
+			}
+		}
+		if shouldReclaimOldPool {
 			before := oldPool.Quota
 			if err := tx.Model(&QuotaPool{}).Where("id = ?", oldPoolId).Update("quota", gorm.Expr("quota + ?", user.Quota)).Error; err != nil {
 				return err
@@ -989,8 +1164,8 @@ func GrantQuotaPoolAdmin(poolId int, userId int, level int) error {
 			}
 			return err
 		}
-		if pool.IsDefault {
-			return ErrQuotaPoolDefaultReadonly
+		if pool.IsSystemPool() {
+			return ErrQuotaPoolSystemReadonly
 		}
 		if !pool.Enabled {
 			return ErrQuotaPoolDisabled
@@ -1031,8 +1206,8 @@ func RevokeQuotaPoolAdmin(poolId int, userId int) error {
 		}
 		return err
 	}
-	if pool.IsDefault {
-		return ErrQuotaPoolDefaultReadonly
+	if pool.IsSystemPool() {
+		return ErrQuotaPoolSystemReadonly
 	}
 	return DB.Where("pool_id = ? AND user_id = ?", poolId, userId).Delete(&QuotaPoolAdmin{}).Error
 }
@@ -1080,8 +1255,8 @@ func AddQuotaPoolManualRefill(poolId int, amount int, operatorId int) (*QuotaPoo
 			}
 			return err
 		}
-		if pool.IsDefault {
-			return ErrQuotaPoolDefaultReadonly
+		if pool.IsSystemPool() {
+			return ErrQuotaPoolSystemReadonly
 		}
 		if !pool.Enabled {
 			return ErrQuotaPoolDisabled

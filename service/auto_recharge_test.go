@@ -384,6 +384,47 @@ func TestTryAutoRechargeUser_NonDefaultPoolInsufficientSkips(t *testing.T) {
 	}
 }
 
+func TestTryAutoRechargeUser_NewUserPoolSkips(t *testing.T) {
+	db, _, cleanup := setupAutoRechargeTestDB(t)
+	defer cleanup()
+
+	pool := &model.QuotaPool{
+		Name:               "new-user",
+		PoolType:           model.QuotaPoolTypeNewUser,
+		Enabled:            true,
+		BaseQuota:          model.QuotaPoolUnlimitedQuota,
+		Quota:              model.QuotaPoolUnlimitedQuota,
+		AutoRechargeAmount: 20,
+		WeeklyLimit:        model.QuotaPoolAutoRechargeInherit,
+		MonthlyLimit:       model.QuotaPoolAutoRechargeInherit,
+		MonthlyRefillDay:   1,
+	}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	user := &model.User{
+		Id:          1,
+		Username:    "new_user_pool_member",
+		Password:    "12345678",
+		Status:      common.UserStatusEnabled,
+		Quota:       10,
+		QuotaPoolId: pool.Id,
+	}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("create user failed: %v", err)
+	}
+
+	result := tryAutoRechargeUser(&operation_setting.AutoRechargeSetting{}, user, 50, 50)
+	if result.Recharged || result.Reason != "new_user_quota_pool_auto_recharge_disabled" {
+		t.Fatalf("unexpected recharge result: %+v", result)
+	}
+	var gotUser model.User
+	_ = db.First(&gotUser, user.Id).Error
+	if gotUser.Quota != 10 {
+		t.Fatalf("user quota = %d, want unchanged 10", gotUser.Quota)
+	}
+}
+
 func TestRefillMonthlyQuotaPoolsCatchesUpCurrentMonth(t *testing.T) {
 	db, _, cleanup := setupAutoRechargeTestDB(t)
 	defer cleanup()

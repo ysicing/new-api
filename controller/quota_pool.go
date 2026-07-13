@@ -302,6 +302,10 @@ func SyncDefaultQuotaPool(c *gin.Context) {
 	if !requireQuotaPoolEnabled(c) {
 		return
 	}
+	if err := model.SyncSystemQuotaPools(); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	pool, err := model.SyncDefaultQuotaPool()
 	if err != nil {
 		common.ApiError(c, err)
@@ -889,7 +893,7 @@ func GrantQuotaPoolAdmin(c *gin.Context) {
 		common.ApiError(c, errors.New("只能任命普通用户、池超级管理员或系统子管理员为额度池管理员"))
 		return
 	}
-	if user.QuotaPoolId == model.QuotaPoolDefaultUserPoolId {
+	if model.IsQuotaPoolCandidateSourcePoolId(user.QuotaPoolId) {
 		if _, err := moveUserToQuotaPoolForController(c, id, req.UserId, true); err != nil {
 			common.ApiError(c, err)
 			return
@@ -1039,8 +1043,8 @@ func AddSelfQuotaPoolMember(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if user.QuotaPoolId != model.QuotaPoolDefaultUserPoolId {
-		common.ApiError(c, errors.New("池管理员只能添加默认池用户"))
+	if !model.IsQuotaPoolCandidateSourcePoolId(user.QuotaPoolId) {
+		common.ApiError(c, errors.New("池管理员只能添加默认池或新用户池用户"))
 		return
 	}
 	addUserToQuotaPool(c, admin.PoolId, req.UserId, true, "将用户加入")

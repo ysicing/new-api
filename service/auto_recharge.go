@@ -214,6 +214,9 @@ func tryAutoRechargeUser(
 			return QuotaPoolAutoRechargeResult{Reason: "quota_pool_not_found"}
 		}
 	}
+	if pool != nil && pool.IsNewUserPool() {
+		return QuotaPoolAutoRechargeResult{Reason: "new_user_quota_pool_auto_recharge_disabled"}
+	}
 	if pool != nil && !pool.IsDefault && !pool.Enabled {
 		return QuotaPoolAutoRechargeResult{Reason: "quota_pool_disabled"}
 	}

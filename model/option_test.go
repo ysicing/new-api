@@ -21,7 +21,7 @@ func setupOptionTestDB(t *testing.T) {
 		t.Fatalf("failed to open sqlite db: %v", err)
 	}
 	DB = db
-	if err := db.AutoMigrate(&Option{}); err != nil {
+	if err := db.AutoMigrate(&Option{}, &QuotaPool{}); err != nil {
 		t.Fatalf("failed to migrate option table: %v", err)
 	}
 	common.OptionMap = map[string]string{}
