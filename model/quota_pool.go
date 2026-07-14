@@ -111,9 +111,26 @@ type QuotaPoolTransactionItem struct {
 	OperatorName string `json:"operator_name"`
 }
 
+type QuotaPoolOperationLog struct {
+	Id            int    `json:"id"`
+	UserId        int    `json:"user_id"`
+	Username      string `json:"username"`
+	Content       string `json:"content"`
+	CreatedAt     int64  `json:"created_at"`
+	AdminId       int    `json:"admin_id"`
+	AdminUsername string `json:"admin_username"`
+	QuotaPoolId   int    `json:"quota_pool_id"`
+}
+
 type QuotaPoolTransactionFilter struct {
 	UserKeyword    string
 	Types          []string
+	StartTimestamp int64
+	EndTimestamp   int64
+}
+
+type QuotaPoolOperationLogFilter struct {
+	Keyword        string
 	StartTimestamp int64
 	EndTimestamp   int64
 }
@@ -590,6 +607,111 @@ func buildQuotaPoolTransactionItems(txs []*QuotaPoolTransaction) ([]*QuotaPoolTr
 		})
 	}
 	return items, nil
+}
+
+func ListQuotaPoolOperationLogs(poolId int, pageInfo *common.PageInfo, filter *QuotaPoolOperationLogFilter) ([]*QuotaPoolOperationLog, int64, error) {
+	query := LOG_DB.Model(&Log{}).Where("type = ?", LogTypeManage)
+	query = applyQuotaPoolOperationLogFilter(query, poolId, filter)
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var logs []*Log
+	if err := query.Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&logs).Error; err != nil {
+		return nil, 0, err
+	}
+	items := make([]*QuotaPoolOperationLog, 0, len(logs))
+	for _, log := range logs {
+		item, ok := quotaPoolOperationLogFromLog(log, poolId)
+		if ok {
+			items = append(items, item)
+		}
+	}
+	return items, total, nil
+}
+
+func applyQuotaPoolOperationLogFilter(query *gorm.DB, poolId int, filter *QuotaPoolOperationLogFilter) *gorm.DB {
+	poolIdPatternObjectEnd := fmt.Sprintf("%%{\"quota_pool_id\":%d}%%", poolId)
+	poolIdPatternObjectComma := fmt.Sprintf("%%{\"quota_pool_id\":%d,%%", poolId)
+	poolIdPatternFieldEnd := fmt.Sprintf("%%,\"quota_pool_id\":%d}%%", poolId)
+	poolIdPatternFieldComma := fmt.Sprintf("%%,\"quota_pool_id\":%d,%%", poolId)
+	query = query.Where(
+		"(other LIKE ? OR other LIKE ? OR other LIKE ? OR other LIKE ?)",
+		poolIdPatternObjectEnd,
+		poolIdPatternObjectComma,
+		poolIdPatternFieldEnd,
+		poolIdPatternFieldComma,
+	)
+	if filter == nil {
+		return query
+	}
+	if filter.StartTimestamp > 0 {
+		query = query.Where("created_at >= ?", filter.StartTimestamp)
+	}
+	if filter.EndTimestamp > 0 {
+		query = query.Where("created_at <= ?", filter.EndTimestamp)
+	}
+	keyword := strings.TrimSpace(filter.Keyword)
+	if keyword == "" {
+		return query
+	}
+	likePattern, err := sanitizeLikePattern("%" + keyword + "%")
+	if err != nil {
+		return query
+	}
+	query = query.Where("(content LIKE ? ESCAPE '!' OR username LIKE ? ESCAPE '!' OR other LIKE ? ESCAPE '!')", likePattern, likePattern, likePattern)
+	return query
+}
+
+func quotaPoolOperationLogFromLog(log *Log, poolId int) (*QuotaPoolOperationLog, bool) {
+	if log == nil || log.Other == "" {
+		return nil, false
+	}
+	other, err := common.StrToMap(log.Other)
+	if err != nil {
+		return nil, false
+	}
+	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	if !ok {
+		return nil, false
+	}
+	logPoolId := intFromLogValue(adminInfo["quota_pool_id"])
+	if logPoolId != poolId {
+		return nil, false
+	}
+	return &QuotaPoolOperationLog{
+		Id:            log.Id,
+		UserId:        log.UserId,
+		Username:      log.Username,
+		Content:       log.Content,
+		CreatedAt:     log.CreatedAt,
+		AdminId:       intFromLogValue(adminInfo["admin_id"]),
+		AdminUsername: stringFromLogValue(adminInfo["admin_username"]),
+		QuotaPoolId:   logPoolId,
+	}, true
+}
+
+func intFromLogValue(value interface{}) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case string:
+		n, _ := strconv.Atoi(v)
+		return n
+	default:
+		return 0
+	}
+}
+
+func stringFromLogValue(value interface{}) string {
+	if s, ok := value.(string); ok {
+		return s
+	}
+	return ""
 }
 
 func ListQuotaPoolMembers(poolId int, pageInfo *common.PageInfo) ([]*QuotaPoolMember, int64, error) {

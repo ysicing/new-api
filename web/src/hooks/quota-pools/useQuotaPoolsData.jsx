@@ -65,6 +65,27 @@ const buildTransactionParams = (page, pageSize, filters) => {
   return params.toString();
 };
 
+const buildOperationLogParams = (page, pageSize, filters) => {
+  const params = new URLSearchParams({
+    p: String(page),
+    page_size: String(pageSize),
+  });
+  const keyword = filters.keyword?.trim();
+  if (keyword) {
+    params.append('keyword', keyword);
+  }
+  const [startTime, endTime] = filters.dateRange || [];
+  const startTimestamp = toUnixTimestamp(startTime);
+  const endTimestamp = toUnixTimestamp(endTime);
+  if (startTimestamp > 0) {
+    params.append('start_timestamp', String(startTimestamp));
+  }
+  if (endTimestamp > 0) {
+    params.append('end_timestamp', String(endTimestamp));
+  }
+  return params.toString();
+};
+
 export const useQuotaPoolsData = () => {
   const { t } = useTranslation();
   const [userState] = useContext(UserContext);
@@ -109,6 +130,10 @@ export const useQuotaPoolsData = () => {
   const [transactionsPage, setTransactionsPage] = useState(1);
   const [transactionsPageSize, setTransactionsPageSize] = useState(20);
   const [transactionsTotal, setTransactionsTotal] = useState(0);
+  const [operationLogs, setOperationLogs] = useState([]);
+  const [operationLogsPage, setOperationLogsPage] = useState(1);
+  const [operationLogsPageSize, setOperationLogsPageSize] = useState(20);
+  const [operationLogsTotal, setOperationLogsTotal] = useState(0);
   const [transactionFilters, setTransactionFilters] = useState(() => ({
     user: '',
     transactionType: '',
@@ -118,6 +143,16 @@ export const useQuotaPoolsData = () => {
     () => ({
       user: '',
       transactionType: '',
+      dateRange: getDefaultTransactionDateRange(),
+    }),
+  );
+  const [operationLogFilters, setOperationLogFilters] = useState(() => ({
+    keyword: '',
+    dateRange: getDefaultTransactionDateRange(),
+  }));
+  const [appliedOperationLogFilters, setAppliedOperationLogFilters] = useState(
+    () => ({
+      keyword: '',
       dateRange: getDefaultTransactionDateRange(),
     }),
   );
@@ -227,6 +262,35 @@ export const useQuotaPoolsData = () => {
     ],
   );
 
+  const loadOperationLogs = useCallback(
+    async (page, pageSize, filters = appliedOperationLogFilters) => {
+      if (!canViewPoolManagement || !selectedPoolId) {
+        setOperationLogs([]);
+        setOperationLogsTotal(0);
+        return;
+      }
+      const url = canUseGlobalApi
+        ? `/api/quota_pool/${selectedPoolId}/operation_logs`
+        : '/api/quota_pool/self/operation_logs';
+      const res = await API.get(
+        `${url}?${buildOperationLogParams(page, pageSize, filters)}`,
+      );
+      const { success, message, data } = res.data;
+      if (success) {
+        setOperationLogs(data?.items || []);
+        setOperationLogsTotal(data?.total || 0);
+      } else {
+        showError(message);
+      }
+    },
+    [
+      appliedOperationLogFilters,
+      canUseGlobalApi,
+      canViewPoolManagement,
+      selectedPoolId,
+    ],
+  );
+
   const loadStats = useCallback(async () => {
     if (!canViewPoolManagement || !selectedPoolId) {
       setStats({
@@ -285,9 +349,18 @@ export const useQuotaPoolsData = () => {
     await loadTransactions(transactionsPage, transactionsPageSize);
   }, [loadTransactions, transactionsPage, transactionsPageSize]);
 
+  const refreshOperationLogs = useCallback(async () => {
+    await loadOperationLogs(operationLogsPage, operationLogsPageSize);
+  }, [loadOperationLogs, operationLogsPage, operationLogsPageSize]);
+
   const refreshDetail = useCallback(async () => {
-    await Promise.all([refreshMembers(), refreshTransactions(), loadStats()]);
-  }, [refreshMembers, refreshTransactions, loadStats]);
+    await Promise.all([
+      refreshMembers(),
+      refreshTransactions(),
+      refreshOperationLogs(),
+      loadStats(),
+    ]);
+  }, [refreshMembers, refreshTransactions, refreshOperationLogs, loadStats]);
 
   const refreshLatestTransactions = useCallback(async () => {
     setTransactionsPage(1);
@@ -312,8 +385,24 @@ export const useQuotaPoolsData = () => {
     setTransactionsPageSize(pageSize);
   }, []);
 
+  const handleOperationLogsPageChange = useCallback((page) => {
+    setOperationLogsPage(page);
+  }, []);
+
+  const handleOperationLogsPageSizeChange = useCallback((pageSize) => {
+    setOperationLogsPage(1);
+    setOperationLogsPageSize(pageSize);
+  }, []);
+
   const updateTransactionFilter = useCallback((field, value) => {
     setTransactionFilters((filters) => ({
+      ...filters,
+      [field]: value,
+    }));
+  }, []);
+
+  const updateOperationLogFilter = useCallback((field, value) => {
+    setOperationLogFilters((filters) => ({
       ...filters,
       [field]: value,
     }));
@@ -323,6 +412,11 @@ export const useQuotaPoolsData = () => {
     setTransactionsPage(1);
     setAppliedTransactionFilters(transactionFilters);
   }, [transactionFilters]);
+
+  const searchOperationLogs = useCallback(() => {
+    setOperationLogsPage(1);
+    setAppliedOperationLogFilters(operationLogFilters);
+  }, [operationLogFilters]);
 
   const resetTransactionFilters = useCallback(() => {
     const filters = {
@@ -335,6 +429,16 @@ export const useQuotaPoolsData = () => {
     setAppliedTransactionFilters(filters);
   }, []);
 
+  const resetOperationLogFilters = useCallback(() => {
+    const filters = {
+      keyword: '',
+      dateRange: getDefaultTransactionDateRange(),
+    };
+    setOperationLogsPage(1);
+    setOperationLogFilters(filters);
+    setAppliedOperationLogFilters(filters);
+  }, []);
+
   useEffect(() => {
     loadPools();
   }, [loadPools]);
@@ -342,6 +446,7 @@ export const useQuotaPoolsData = () => {
   useEffect(() => {
     setMembersPage(1);
     setTransactionsPage(1);
+    setOperationLogsPage(1);
   }, [selectedPoolId]);
 
   useEffect(() => {
@@ -353,6 +458,10 @@ export const useQuotaPoolsData = () => {
   }, [refreshTransactions]);
 
   useEffect(() => {
+    refreshOperationLogs();
+  }, [refreshOperationLogs]);
+
+  useEffect(() => {
     loadStats();
   }, [loadStats]);
 
@@ -362,6 +471,7 @@ export const useQuotaPoolsData = () => {
     if (success) {
       showSuccess(t('操作成功完成！'));
       await loadPools();
+      await refreshOperationLogs();
     } else {
       showError(message);
     }
@@ -440,7 +550,11 @@ export const useQuotaPoolsData = () => {
       await loadPools();
       setMembersPage(1);
       await loadMembers(1, membersPageSize);
-      await Promise.all([refreshLatestTransactions(), loadStats()]);
+      await Promise.all([
+        refreshLatestTransactions(),
+        refreshOperationLogs(),
+        loadStats(),
+      ]);
     } else {
       showError(message);
     }
@@ -499,6 +613,7 @@ export const useQuotaPoolsData = () => {
     if (success) {
       showSuccess(t('操作成功完成！'));
       await loadMembers(membersPage, membersPageSize);
+      await refreshOperationLogs();
     } else {
       showError(message);
     }
@@ -513,6 +628,7 @@ export const useQuotaPoolsData = () => {
     if (success) {
       showSuccess(t('操作成功完成！'));
       await loadMembers(membersPage, membersPageSize);
+      await refreshOperationLogs();
     } else {
       showError(message);
     }
@@ -535,12 +651,22 @@ export const useQuotaPoolsData = () => {
     transactionsPage,
     transactionsPageSize,
     transactionsTotal,
+    operationLogs,
+    operationLogsPage,
+    operationLogsPageSize,
+    operationLogsTotal,
     transactionFilters,
+    operationLogFilters,
     handleTransactionsPageChange,
     handleTransactionsPageSizeChange,
+    handleOperationLogsPageChange,
+    handleOperationLogsPageSizeChange,
     updateTransactionFilter,
+    updateOperationLogFilter,
     searchTransactions,
+    searchOperationLogs,
     resetTransactionFilters,
+    resetOperationLogFilters,
     stats,
     statsLoading,
     statsPeriod,

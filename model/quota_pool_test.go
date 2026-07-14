@@ -968,6 +968,79 @@ func TestListQuotaPoolTransactionsFilters(t *testing.T) {
 	}
 }
 
+func TestListQuotaPoolOperationLogsFiltersByPool(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 1000)
+	otherPool := createQuotaPoolForTest(t, db, 1000)
+	operator := createQuotaPoolTestUser(t, db, 1, 0, pool.Id)
+	member := createQuotaPoolTestUser(t, db, 2, 0, pool.Id)
+	now := time.Now().Unix()
+	adminInfo := func(poolId int) string {
+		return common.MapToJsonStr(map[string]interface{}{
+			"admin_info": map[string]interface{}{
+				"admin_id":        operator.Id,
+				"admin_username":  operator.Username,
+				"quota_pool_id":   poolId,
+				"quota_pool_name": "unused",
+			},
+		})
+	}
+	logs := []*Log{
+		{
+			UserId:    member.Id,
+			Username:  member.Username,
+			Type:      LogTypeManage,
+			Content:   "给成员充值成功",
+			CreatedAt: now - 60,
+			Other:     adminInfo(pool.Id),
+		},
+		{
+			UserId:    member.Id,
+			Username:  member.Username,
+			Type:      LogTypeManage,
+			Content:   "给成员充值成功",
+			CreatedAt: now - 30,
+			Other:     adminInfo(otherPool.Id),
+		},
+		{
+			UserId:    member.Id,
+			Username:  member.Username,
+			Type:      LogTypeManage,
+			Content:   "给成员充值成功",
+			CreatedAt: now - 20,
+			Other:     adminInfo(pool.Id * 10),
+		},
+		{
+			UserId:    member.Id,
+			Username:  member.Username,
+			Type:      LogTypeManage,
+			Content:   "给成员充值成功",
+			CreatedAt: now - 8*24*60*60,
+			Other:     adminInfo(pool.Id),
+		},
+	}
+	if err := db.Create(&logs).Error; err != nil {
+		t.Fatalf("create operation logs failed: %v", err)
+	}
+
+	items, total, err := ListQuotaPoolOperationLogs(pool.Id, &common.PageInfo{Page: 1, PageSize: 10}, &QuotaPoolOperationLogFilter{
+		Keyword:        "成员充值",
+		StartTimestamp: now - 7*24*60*60,
+		EndTimestamp:   now,
+	})
+	if err != nil {
+		t.Fatalf("list filtered operation logs failed: %v", err)
+	}
+	if total != 1 || len(items) != 1 {
+		t.Fatalf("expected 1 filtered operation log, got total=%d len=%d", total, len(items))
+	}
+	if items[0].QuotaPoolId != pool.Id || items[0].AdminId != operator.Id || items[0].AdminUsername != operator.Username {
+		t.Fatalf("unexpected operation log item: %#v", items[0])
+	}
+}
+
 func TestGetQuotaPoolStatsScopesUsageAndRechargeToPool(t *testing.T) {
 	db, cleanup := setupQuotaPoolTestDB(t)
 	defer cleanup()

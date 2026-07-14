@@ -113,13 +113,23 @@ const QuotaPool = () => {
     transactionsPage,
     transactionsPageSize,
     transactionsTotal,
+    operationLogs,
+    operationLogsPage,
+    operationLogsPageSize,
+    operationLogsTotal,
     adminContacts,
     transactionFilters,
+    operationLogFilters,
     handleTransactionsPageChange,
     handleTransactionsPageSizeChange,
+    handleOperationLogsPageChange,
+    handleOperationLogsPageSizeChange,
     updateTransactionFilter,
+    updateOperationLogFilter,
     searchTransactions,
+    searchOperationLogs,
     resetTransactionFilters,
+    resetOperationLogFilters,
     stats,
     statsLoading,
     statsPeriod,
@@ -679,6 +689,38 @@ const QuotaPool = () => {
     },
   ];
 
+  const operationLogColumns = [
+    {
+      title: t('ID'),
+      dataIndex: 'id',
+      width: 80,
+    },
+    {
+      title: t('操作内容'),
+      dataIndex: 'content',
+      width: 240,
+    },
+    {
+      title: t('关联用户'),
+      dataIndex: 'user_id',
+      width: 150,
+      render: (value, record) => renderTransactionUser(value, record.username),
+    },
+    {
+      title: t('操作人'),
+      dataIndex: 'admin_id',
+      width: 150,
+      render: (value, record) =>
+        renderTransactionUser(value, record.admin_username),
+    },
+    {
+      title: t('时间'),
+      dataIndex: 'created_at',
+      width: 170,
+      render: (value) => timestamp2string(value),
+    },
+  ];
+
   const usageStatColumns = [
     { title: t('ID'), dataIndex: 'user_id', width: 80 },
     { title: t('用户名'), dataIndex: 'username', width: 180 },
@@ -1001,6 +1043,57 @@ const QuotaPool = () => {
                         pageSizeOptions: [10, 20, 50, 100],
                         onPageChange: handleTransactionsPageChange,
                         onPageSizeChange: handleTransactionsPageSizeChange,
+                      }}
+                    />
+                  </TabPane>
+                  <TabPane itemKey='operation_logs' tab={t('操作日志')}>
+                    <div className='flex flex-col gap-2 py-3'>
+                      <div className='grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2'>
+                        <Input
+                          value={operationLogFilters.keyword}
+                          placeholder={t('操作内容/用户/操作人')}
+                          showClear
+                          pure
+                          onChange={(value) =>
+                            updateOperationLogFilter('keyword', value)
+                          }
+                        />
+                        <div className='md:col-span-2 xl:col-span-3'>
+                          <DatePicker
+                            type='dateTimeRange'
+                            density='compact'
+                            value={operationLogFilters.dateRange}
+                            placeholder={[t('开始时间'), t('结束时间')]}
+                            onChange={(value) =>
+                              updateOperationLogFilter('dateRange', value || [])
+                            }
+                            style={{ width: '100%' }}
+                          />
+                        </div>
+                      </div>
+                      <Space>
+                        <Button type='primary' onClick={searchOperationLogs}>
+                          {t('查询')}
+                        </Button>
+                        <Button onClick={resetOperationLogFilters}>
+                          {t('重置')}
+                        </Button>
+                      </Space>
+                    </div>
+                    <Table
+                      size='small'
+                      columns={operationLogColumns}
+                      dataSource={operationLogs}
+                      rowKey='id'
+                      scroll={{ x: 'max-content' }}
+                      pagination={{
+                        currentPage: operationLogsPage,
+                        pageSize: operationLogsPageSize,
+                        total: operationLogsTotal,
+                        showSizeChanger: true,
+                        pageSizeOptions: [10, 20, 50, 100],
+                        onPageChange: handleOperationLogsPageChange,
+                        onPageSizeChange: handleOperationLogsPageSizeChange,
                       }}
                     />
                   </TabPane>

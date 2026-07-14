@@ -80,6 +80,16 @@ func quotaPoolTransactionFilter(c *gin.Context) *model.QuotaPoolTransactionFilte
 	}
 }
 
+func quotaPoolOperationLogFilter(c *gin.Context) *model.QuotaPoolOperationLogFilter {
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	return &model.QuotaPoolOperationLogFilter{
+		Keyword:        c.Query("keyword"),
+		StartTimestamp: startTimestamp,
+		EndTimestamp:   endTimestamp,
+	}
+}
+
 func quotaPoolTransactionTypes(transactionType string) []string {
 	switch strings.TrimSpace(transactionType) {
 	case "":
@@ -593,6 +603,22 @@ func GetQuotaPoolTransactions(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{"items": items, "total": total})
 }
 
+func GetQuotaPoolOperationLogs(c *gin.Context) {
+	if !requireQuotaPoolEnabled(c) {
+		return
+	}
+	id, ok := parseQuotaPoolId(c)
+	if !ok {
+		return
+	}
+	items, total, err := model.ListQuotaPoolOperationLogs(id, quotaPoolPageInfo(c), quotaPoolOperationLogFilter(c))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"items": items, "total": total})
+}
+
 func GetQuotaPoolMembers(c *gin.Context) {
 	if !requireQuotaPoolEnabled(c) {
 		return
@@ -975,6 +1001,22 @@ func GetSelfQuotaPoolTransactions(c *gin.Context) {
 		return
 	}
 	items, total, err := model.ListQuotaPoolTransactions(admin.PoolId, quotaPoolPageInfo(c), quotaPoolTransactionFilter(c))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"items": items, "total": total})
+}
+
+func GetSelfQuotaPoolOperationLogs(c *gin.Context) {
+	if !requireQuotaPoolEnabled(c) {
+		return
+	}
+	admin, ok := requireQuotaPoolAdmin(c, model.QuotaPoolAdminLevelV1)
+	if !ok {
+		return
+	}
+	items, total, err := model.ListQuotaPoolOperationLogs(admin.PoolId, quotaPoolPageInfo(c), quotaPoolOperationLogFilter(c))
 	if err != nil {
 		common.ApiError(c, err)
 		return
