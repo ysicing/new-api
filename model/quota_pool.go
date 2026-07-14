@@ -1468,5 +1468,5 @@ func AddQuotaPoolManualRefill(poolId int, amount int, operatorId int) (*QuotaPoo
 }
 
 func FormatQuotaPoolTransferLog(operatorId int, amount int) string {
-	return fmt.Sprintf("额度池管理员(ID:%d)添加%s临时额度", operatorId, logger.LogQuota(amount))
+	return fmt.Sprintf("池管理员(ID:%d)添加%s临时额度", operatorId, logger.LogQuota(amount))
 }

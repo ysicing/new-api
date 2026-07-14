@@ -529,7 +529,7 @@ func TestGrantAndRevokeQuotaPoolAdminWriteManageLogs(t *testing.T) {
 	if len(logs) != 2 {
 		t.Fatalf("expected two manage logs, got %d", len(logs))
 	}
-	if !strings.Contains(logs[0].Content, "任命") || !strings.Contains(logs[0].Content, "池管理员 v1") {
+	if !strings.Contains(logs[0].Content, "任命") || !strings.Contains(logs[0].Content, "池管理员") {
 		t.Fatalf("unexpected grant log: %q", logs[0].Content)
 	}
 	if !strings.Contains(logs[1].Content, "撤销额度池管理员") {
@@ -661,6 +661,44 @@ func TestQuotaPoolSuperAdminCanRechargeReclaimAndMoveMembers(t *testing.T) {
 	if response := decodeQuotaPoolResponse(t, reclaimRecorder); response["success"] != true {
 		t.Fatalf("expected quota pool super admin reclaim success, got %#v", response)
 	}
+	var logs []model.Log
+	if err := db.Where("user_id = ? AND type = ?", user.Id, model.LogTypeManage).Order("id asc").Find(&logs).Error; err != nil {
+		t.Fatalf("load quota pool recharge logs failed: %v", err)
+	}
+	if len(logs) < 2 {
+		t.Fatalf("expected recharge and reclaim logs, got %d", len(logs))
+	}
+	if !strings.Contains(logs[0].Content, "池管理员(ID:99)添加") {
+		t.Fatalf("unexpected recharge log content: %q", logs[0].Content)
+	}
+	if strings.Contains(logs[0].Content, "额度池管理员") {
+		t.Fatalf("recharge log should use short pool admin label: %q", logs[0].Content)
+	}
+	if !strings.Contains(logs[1].Content, "池管理员(ID:99)减少") {
+		t.Fatalf("unexpected reclaim log content: %q", logs[1].Content)
+	}
+	if strings.Contains(logs[1].Content, "额度池管理员") {
+		t.Fatalf("reclaim log should use short pool admin label: %q", logs[1].Content)
+	}
+	operationLogs, total, err := model.ListQuotaPoolOperationLogs(pool.Id, &common.PageInfo{Page: 1, PageSize: 10}, nil)
+	if err != nil {
+		t.Fatalf("list quota pool operation logs failed: %v", err)
+	}
+	if total < 2 || len(operationLogs) < 2 {
+		t.Fatalf("expected quota pool operation logs, got total=%d len=%d", total, len(operationLogs))
+	}
+	if !strings.Contains(operationLogs[1].Content, "池管理员(ID:99)添加") {
+		t.Fatalf("unexpected operation recharge log content: %q", operationLogs[1].Content)
+	}
+	if strings.Contains(operationLogs[1].Content, "额度池管理员") {
+		t.Fatalf("operation recharge log should use short pool admin label: %q", operationLogs[1].Content)
+	}
+	if !strings.Contains(operationLogs[0].Content, "池管理员(ID:99)减少") {
+		t.Fatalf("unexpected operation reclaim log content: %q", operationLogs[0].Content)
+	}
+	if strings.Contains(operationLogs[0].Content, "额度池管理员") {
+		t.Fatalf("operation reclaim log should use short pool admin label: %q", operationLogs[0].Content)
+	}
 
 	moveCtx, moveRecorder := quotaPoolTestContext(t, http.MethodPut, fmt.Sprintf("/api/quota_pool/users/%d", user.Id), quotaPoolMoveRequest{
 		PoolId: otherPool.Id,
@@ -718,7 +756,7 @@ func TestQuotaPoolSuperAdminGrantAndRevokeWriteManageLogs(t *testing.T) {
 	if len(logs) != 2 {
 		t.Fatalf("expected two manage logs, got %d", len(logs))
 	}
-	if !strings.Contains(logs[0].Content, "任命") || !strings.Contains(logs[0].Content, "池管理员 v1") {
+	if !strings.Contains(logs[0].Content, "任命") || !strings.Contains(logs[0].Content, "池管理员") {
 		t.Fatalf("unexpected grant log: %q", logs[0].Content)
 	}
 	if !strings.Contains(logs[1].Content, "撤销额度池管理员") {

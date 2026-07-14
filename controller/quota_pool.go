@@ -132,7 +132,7 @@ func quotaPoolStatsRange(c *gin.Context) (int64, int64) {
 
 func quotaPoolAdminLevelName(level int) string {
 	if level == model.QuotaPoolAdminLevelV1 {
-		return "池管理员 v1"
+		return "池管理员"
 	}
 	return "成员"
 }
@@ -811,7 +811,7 @@ func rechargeQuotaPoolMember(c *gin.Context, poolId int, userId int) error {
 	if err != nil {
 		return err
 	}
-	content := formatAdminTempQuotaLog(c.GetInt("id"), amount)
+	content := model.FormatQuotaPoolTransferLog(c.GetInt("id"), amount)
 	adminInfo := map[string]interface{}{
 		"admin_id":       c.GetInt("id"),
 		"admin_username": c.GetString("username"),
@@ -836,7 +836,7 @@ func reclaimQuotaPoolMember(c *gin.Context, poolId int, userId int) error {
 	if err != nil {
 		return err
 	}
-	content := fmt.Sprintf("额度池管理员(ID:%d)减少%s临时额度", c.GetInt("id"), logger.LogQuota(amount))
+	content := fmt.Sprintf("池管理员(ID:%d)减少%s临时额度", c.GetInt("id"), logger.LogQuota(amount))
 	recordQuotaPoolMemberManageLog(c, poolId, userId, content)
 	if transfer != nil && transfer.PoolChanged {
 		model.RecordQuotaPoolTransaction(poolId, model.QuotaPoolTransactionReclaimUser, transfer.Change.Amount, transfer.Change.QuotaBefore, transfer.Change.QuotaAfter, userId, c.GetInt("id"))
