@@ -195,7 +195,7 @@ const QuotaPool = () => {
             (pool.is_default || pool.enabled),
         )
         .map((pool) => ({
-          label: pool.is_default ? t('默认额度池') : pool.name,
+          label: pool.name || t('默认额度池'),
           value: pool.is_default ? 0 : pool.id,
         })),
     [pools, selectedPool?.id, t],
@@ -247,10 +247,10 @@ const QuotaPool = () => {
 
   const renderPoolStatus = (pool) => {
     if (pool.is_default) {
-      return <Tag color='blue'>{t('默认')}</Tag>;
+      return <Tag color='blue'>{t('存量')}</Tag>;
     }
     if (isNewUserPool(pool)) {
-      return <Tag color='cyan'>{t('新用户')}</Tag>;
+      return <Tag color='cyan'>{t('默认')}</Tag>;
     }
     return (
       <Tag color={pool.enabled ? 'green' : 'red'}>
@@ -321,7 +321,7 @@ const QuotaPool = () => {
     if (isNewUserPool(pool)) {
       return (
         <Typography.Text type='secondary'>
-          {t('新用户额度池不支持自动充值。')}
+          {t('该额度池不支持自动充值。')}
         </Typography.Text>
       );
     }

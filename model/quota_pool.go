@@ -25,6 +25,9 @@ const (
 	QuotaPoolTypeDefault = "default"
 	QuotaPoolTypeNewUser = "new_user"
 
+	QuotaPoolDefaultName = "产研中心默认额度池(存量)"
+	QuotaPoolNewUserName = "默认额度池"
+
 	QuotaPoolAutoRechargeInherit = -1
 	QuotaPoolAutoRechargeOff     = 0
 
@@ -250,7 +253,7 @@ func quotaPoolMemberRoles() []int {
 
 func newDefaultQuotaPool() *QuotaPool {
 	return &QuotaPool{
-		Name:               "系统默认额度池",
+		Name:               QuotaPoolDefaultName,
 		PoolType:           QuotaPoolTypeDefault,
 		Enabled:            true,
 		IsDefault:          true,
@@ -265,7 +268,7 @@ func newDefaultQuotaPool() *QuotaPool {
 
 func newNewUserQuotaPool() *QuotaPool {
 	return &QuotaPool{
-		Name:                 "新用户额度池",
+		Name:                 QuotaPoolNewUserName,
 		PoolType:             QuotaPoolTypeNewUser,
 		Enabled:              true,
 		IsDefault:            false,
@@ -334,12 +337,17 @@ func SyncDefaultQuotaPool() (*QuotaPool, error) {
 }
 
 func normalizeDefaultQuotaPool(tx *gorm.DB, pool *QuotaPool) (*QuotaPool, error) {
-	if pool.PoolType == QuotaPoolTypeDefault {
+	if pool.PoolType == QuotaPoolTypeDefault && pool.Name == QuotaPoolDefaultName {
 		return pool, nil
 	}
-	if err := tx.Model(&QuotaPool{}).Where("id = ?", pool.Id).Update("pool_type", QuotaPoolTypeDefault).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":      QuotaPoolDefaultName,
+		"pool_type": QuotaPoolTypeDefault,
+	}
+	if err := tx.Model(&QuotaPool{}).Where("id = ?", pool.Id).Updates(updates).Error; err != nil {
 		return nil, err
 	}
+	pool.Name = QuotaPoolDefaultName
 	pool.PoolType = QuotaPoolTypeDefault
 	return pool, nil
 }
@@ -377,6 +385,7 @@ func syncNewUserQuotaPool(tx *gorm.DB) (*QuotaPool, error) {
 
 func normalizeNewUserQuotaPool(tx *gorm.DB, pool *QuotaPool) (*QuotaPool, error) {
 	updates := map[string]interface{}{
+		"name":                   QuotaPoolNewUserName,
 		"pool_type":              QuotaPoolTypeNewUser,
 		"enabled":                true,
 		"is_default":             false,
@@ -397,6 +406,8 @@ func normalizeNewUserQuotaPool(tx *gorm.DB, pool *QuotaPool) (*QuotaPool, error)
 	}
 	for key, value := range updates {
 		switch key {
+		case "name":
+			pool.Name = value.(string)
 		case "pool_type":
 			pool.PoolType = value.(string)
 		case "enabled":
@@ -425,7 +436,8 @@ func normalizeNewUserQuotaPool(tx *gorm.DB, pool *QuotaPool) (*QuotaPool, error)
 }
 
 func newUserQuotaPoolNeedsNormalize(pool *QuotaPool) bool {
-	return pool.PoolType != QuotaPoolTypeNewUser ||
+	return pool.Name != QuotaPoolNewUserName ||
+		pool.PoolType != QuotaPoolTypeNewUser ||
 		!pool.Enabled ||
 		pool.IsDefault ||
 		pool.BaseQuota != QuotaPoolUnlimitedQuota ||

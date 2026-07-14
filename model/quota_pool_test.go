@@ -246,7 +246,7 @@ func TestSyncDefaultQuotaPoolCreatesDefaultPool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sync default pool failed: %v", err)
 	}
-	if pool.Name != "系统默认额度池" || pool.PoolType != QuotaPoolTypeDefault || !pool.Enabled || !pool.IsDefault {
+	if pool.Name != QuotaPoolDefaultName || pool.PoolType != QuotaPoolTypeDefault || !pool.Enabled || !pool.IsDefault {
 		t.Fatalf("unexpected default pool: %+v", pool)
 	}
 	if pool.BaseQuota != QuotaPoolUnlimitedQuota || pool.Quota != QuotaPoolUnlimitedQuota {
@@ -302,6 +302,9 @@ func TestSyncDefaultQuotaPoolNormalizesExistingPoolType(t *testing.T) {
 	if got.PoolType != QuotaPoolTypeDefault {
 		t.Fatalf("default pool type = %q, want %q", got.PoolType, QuotaPoolTypeDefault)
 	}
+	if got.Name != QuotaPoolDefaultName {
+		t.Fatalf("default pool name = %q, want %q", got.Name, QuotaPoolDefaultName)
+	}
 }
 
 func TestSyncNewUserQuotaPoolCreatesProtectedPool(t *testing.T) {
@@ -312,7 +315,7 @@ func TestSyncNewUserQuotaPoolCreatesProtectedPool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sync new user pool failed: %v", err)
 	}
-	if pool.Name != "新用户额度池" || pool.PoolType != QuotaPoolTypeNewUser || !pool.Enabled || pool.IsDefault {
+	if pool.Name != QuotaPoolNewUserName || pool.PoolType != QuotaPoolTypeNewUser || !pool.Enabled || pool.IsDefault {
 		t.Fatalf("unexpected new user pool: %+v", pool)
 	}
 	if pool.BaseQuota != QuotaPoolUnlimitedQuota || pool.Quota != QuotaPoolUnlimitedQuota {
@@ -341,7 +344,7 @@ func TestSyncNewUserQuotaPoolDoesNotTakeOverSameNameNormalPool(t *testing.T) {
 	defer cleanup()
 
 	existing := &QuotaPool{
-		Name:               "新用户额度池",
+		Name:               QuotaPoolNewUserName,
 		PoolType:           QuotaPoolTypeNormal,
 		Enabled:            true,
 		IsDefault:          false,
