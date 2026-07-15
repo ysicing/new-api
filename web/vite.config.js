@@ -21,11 +21,39 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, transformWithEsbuild } from 'vite';
 import pkg from '@douyinfe/vite-plugin-semi';
 import path from 'path';
+import { execSync } from 'child_process';
 import { codeInspectorPlugin } from 'code-inspector-plugin';
 const { vitePluginSemi } = pkg;
 
+const pad2 = (value) => value.toString().padStart(2, '0');
+
+const getBuildTimestamp = () => {
+  const now = new Date();
+  return `${pad2(now.getMonth() + 1)}${pad2(now.getDate())}${pad2(now.getHours())}`;
+};
+
+const getGitShortCommit = () => {
+  try {
+    return execSync('git rev-parse --short=7 HEAD', {
+      cwd: path.resolve(__dirname, '..'),
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+      .toString()
+      .trim();
+  } catch {
+    return 'unknown';
+  }
+};
+
+const buildVersion =
+  process.env.VITE_BUILD_VERSION ||
+  `${getBuildTimestamp()}-${getGitShortCommit()}`;
+
 // https://vitejs.dev/config/
 export default defineConfig({
+  define: {
+    'import.meta.env.VITE_BUILD_VERSION': JSON.stringify(buildVersion),
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

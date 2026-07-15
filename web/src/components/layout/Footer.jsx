@@ -23,6 +23,8 @@ import { Typography } from '@douyinfe/semi-ui';
 import { getFooterHTML, getLogo, getSystemName } from '../../helpers';
 import { StatusContext } from '../../context/Status';
 
+const buildVersion = import.meta.env.VITE_BUILD_VERSION || '';
+
 const FooterBar = () => {
   const { t } = useTranslation();
   const [footer, setFooter] = useState(getFooterHTML());
@@ -192,6 +194,7 @@ const FooterBar = () => {
           <div className='flex flex-wrap items-center gap-2'>
             <Typography.Text className='text-sm !text-semi-color-text-1'>
               © {currentYear} {systemName}. {t('版权所有')}
+              {buildVersion && ` · ${buildVersion}`}
             </Typography.Text>
           </div>
 
@@ -227,6 +230,11 @@ const FooterBar = () => {
               className='custom-footer na-cb6feafeb3990c78 text-sm !text-semi-color-text-1'
               dangerouslySetInnerHTML={{ __html: footer }}
             ></div>
+            {buildVersion && (
+              <Typography.Text className='text-sm !text-semi-color-text-2'>
+                {buildVersion}
+              </Typography.Text>
+            )}
             <div className='text-sm flex-shrink-0'>
               <span className='!text-semi-color-text-1'>
                 {t('设计与开发由')}{' '}
