@@ -3660,6 +3660,10 @@
     "默认测试模型": "Modèle de test par défaut",
     "默认用户消息": "Bonjour",
     "默认补全倍率": "Taux de complétion par défaut",
-    "池管理员": "Administrateur du pool"
+    "池管理员": "Administrateur du pool",
+    "调整额度池": "Changer le pool de quotas",
+    "目标额度池": "Pool de quotas cible",
+    "默认额度池": "Pool de quotas par défaut",
+    "迁移会清零用户当前额度，并按规则退回原池余额。": "Le déplacement effacera le quota actuel de l'utilisateur et le reversera au pool d'origine selon les règles."
   }
 }

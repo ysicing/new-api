@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { useState, useEffect, useContext } from 'react';
 import { useTranslation } from 'react-i18next';
-import { API, showError, showSuccess } from '../../helpers';
+import { API, isQuotaPoolEnabled, showError, showSuccess } from '../../helpers';
 import { ITEMS_PER_PAGE } from '../../constants';
 import { useTableCompactMode } from '../common/useTableCompactMode';
 import { StatusContext } from '../../context/Status';
@@ -36,6 +36,7 @@ export const useUsersData = () => {
   const [pageSize, setPageSize] = useState(ITEMS_PER_PAGE);
   const [searching, setSearching] = useState(false);
   const [groupOptions, setGroupOptions] = useState([]);
+  const [quotaPools, setQuotaPools] = useState([]);
   const [userCount, setUserCount] = useState(0);
 
   // Modal states
@@ -196,6 +197,47 @@ export const useUsersData = () => {
     }
   };
 
+  const fetchQuotaPools = async () => {
+    if (!isQuotaPoolEnabled()) {
+      setQuotaPools([]);
+      return;
+    }
+    try {
+      const res = await API.get('/api/quota_pool');
+      const { success, message, data } = res.data;
+      if (success) {
+        setQuotaPools(Array.isArray(data) ? data : []);
+      } else {
+        showError(message);
+      }
+    } catch (error) {
+      showError(error.message);
+    }
+  };
+
+  const moveUserQuotaPool = async (userId, poolId) => {
+    setLoading(true);
+    try {
+      const res = await API.put(`/api/quota_pool/users/${userId}`, {
+        pool_id: poolId,
+      });
+      const { success, message } = res.data;
+      if (success) {
+        showSuccess(message || t('操作成功完成！'));
+        await refresh();
+        await fetchQuotaPools();
+        return true;
+      } else {
+        showError(message);
+      }
+    } catch (error) {
+      showError(error.message);
+    } finally {
+      setLoading(false);
+    }
+    return false;
+  };
+
   // Handle page change
   const handlePageChange = (page) => {
     setActivePage(page);
@@ -284,6 +326,7 @@ export const useUsersData = () => {
         showError(reason);
       });
     fetchGroups().then();
+    fetchQuotaPools().then();
   }, []);
 
   return {
@@ -295,6 +338,7 @@ export const useUsersData = () => {
     userCount,
     searching,
     groupOptions,
+    quotaPools,
 
     // Modal state
     showAddUser,
@@ -319,6 +363,7 @@ export const useUsersData = () => {
     loadUsers,
     searchUsers,
     manageUser,
+    moveUserQuotaPool,
     resetUserPasskey,
     resetUserTwoFA,
     handlePageChange,

@@ -33,6 +33,7 @@ import {
 import { IconMore } from '@douyinfe/semi-icons';
 import {
   ROLE_QUOTA_POOL_SUPER_ADMIN,
+  isQuotaPoolEnabled,
   isRoot,
   renderGroup,
   renderNumber,
@@ -246,6 +247,7 @@ const renderOperations = (
     showResetPasskeyModal,
     showResetTwoFAModal,
     showUserSubscriptionsModal,
+    showMoveQuotaPoolModal,
     rechargeUser,
     manageUser,
     t,
@@ -268,6 +270,11 @@ const renderOperations = (
     currentUserIsRoot &&
     ((record.role >= 10 && record.role < 100) ||
       record.role === ROLE_QUOTA_POOL_SUPER_ADMIN);
+  const canMoveQuotaPool =
+    isQuotaPoolEnabled() &&
+    record.status === 1 &&
+    canManageLowerUser &&
+    [1, ROLE_QUOTA_POOL_SUPER_ADMIN, 10].includes(record.role);
 
   const moreMenu = [];
   if (canSetQuotaPoolSuperAdmin) {
@@ -285,6 +292,14 @@ const renderOperations = (
       },
     });
   }
+  moreMenu.push({
+    node: 'item',
+    name: t('编辑'),
+    onClick: () => {
+      setEditingUser(record);
+      setShowEditUser(true);
+    },
+  });
   if (moreMenu.length > 0) {
     moreMenu.push({
       node: 'divider',
@@ -346,16 +361,15 @@ const renderOperations = (
           )}
         </>
       )}
-      <Button
-        type='tertiary'
-        size='small'
-        onClick={() => {
-          setEditingUser(record);
-          setShowEditUser(true);
-        }}
-      >
-        {t('编辑')}
-      </Button>
+      {canMoveQuotaPool && (
+        <Button
+          type='tertiary'
+          size='small'
+          onClick={() => showMoveQuotaPoolModal(record)}
+        >
+          {t('调整额度池')}
+        </Button>
+      )}
       {canPromote && (
         <Button
           type='warning'
@@ -403,6 +417,7 @@ export const getUsersColumns = ({
   showResetPasskeyModal,
   showResetTwoFAModal,
   showUserSubscriptionsModal,
+  showMoveQuotaPoolModal,
   rechargeUser,
   manageUser,
 }) => {
@@ -482,6 +497,7 @@ export const getUsersColumns = ({
           showResetPasskeyModal,
           showResetTwoFAModal,
           showUserSubscriptionsModal,
+          showMoveQuotaPoolModal,
           rechargeUser,
           manageUser,
           t,

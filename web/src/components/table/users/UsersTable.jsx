@@ -32,6 +32,7 @@ import DeleteUserModal from './modals/DeleteUserModal';
 import ResetPasskeyModal from './modals/ResetPasskeyModal';
 import ResetTwoFAModal from './modals/ResetTwoFAModal';
 import UserSubscriptionsModal from './modals/UserSubscriptionsModal';
+import MoveQuotaPoolModal from './modals/MoveQuotaPoolModal';
 
 const UsersTable = (usersData) => {
   const {
@@ -47,6 +48,8 @@ const UsersTable = (usersData) => {
     setEditingUser,
     setShowEditUser,
     manageUser,
+    moveUserQuotaPool,
+    quotaPools,
     refresh,
     resetUserPasskey,
     resetUserTwoFA,
@@ -64,6 +67,7 @@ const UsersTable = (usersData) => {
   const [showResetTwoFAModal, setShowResetTwoFAModal] = useState(false);
   const [showUserSubscriptionsModal, setShowUserSubscriptionsModal] =
     useState(false);
+  const [showMoveQuotaPoolModal, setShowMoveQuotaPoolModal] = useState(false);
 
   // Modal handlers
   const showPromoteUserModal = (user) => {
@@ -100,6 +104,11 @@ const UsersTable = (usersData) => {
   const showUserSubscriptionsUserModal = (user) => {
     setModalUser(user);
     setShowUserSubscriptionsModal(true);
+  };
+
+  const showMoveQuotaPoolUserModal = (user) => {
+    setModalUser(user);
+    setShowMoveQuotaPoolModal(true);
   };
 
   // Modal confirm handlers
@@ -141,6 +150,7 @@ const UsersTable = (usersData) => {
       showResetPasskeyModal: showResetPasskeyUserModal,
       showResetTwoFAModal: showResetTwoFAUserModal,
       showUserSubscriptionsModal: showUserSubscriptionsUserModal,
+      showMoveQuotaPoolModal: showMoveQuotaPoolUserModal,
       rechargeUser: manageUser,
       manageUser,
     });
@@ -155,6 +165,7 @@ const UsersTable = (usersData) => {
     showResetPasskeyUserModal,
     showResetTwoFAUserModal,
     showUserSubscriptionsUserModal,
+    showMoveQuotaPoolUserModal,
     manageUser,
   ]);
 
@@ -262,6 +273,15 @@ const UsersTable = (usersData) => {
         user={modalUser}
         t={t}
         onSuccess={() => refresh?.()}
+      />
+
+      <MoveQuotaPoolModal
+        visible={showMoveQuotaPoolModal}
+        onCancel={() => setShowMoveQuotaPoolModal(false)}
+        onConfirm={moveUserQuotaPool}
+        user={modalUser}
+        quotaPools={quotaPools}
+        t={t}
       />
     </>
   );

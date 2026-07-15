@@ -3810,6 +3810,10 @@
     "调整总额度会按差额同步调整额度池可用额度；下调后可用额度不能小于 0。": "Adjusting the total quota also adjusts the pool's available quota by the difference; available quota cannot be below 0 after a decrease.",
     "特殊值：-1 继承全局配置，0 关闭自动充值，正数为自定义充值金额。": "Special values: -1 inherits the global setting, 0 disables auto recharge, positive numbers set a custom recharge amount.",
     "特殊值：-1 继承全局配置，0 不限制次数，正数为周期内最多充值次数。": "Special values: -1 inherits the global setting, 0 means unlimited, positive numbers set the maximum recharge count in the period.",
-    "池管理员": "Pool admin"
+    "池管理员": "Pool admin",
+    "调整额度池": "Change quota pool",
+    "目标额度池": "Target quota pool",
+    "默认额度池": "Default quota pool",
+    "迁移会清零用户当前额度，并按规则退回原池余额。": "Moving will clear the user's current quota and return it to the original pool according to the rules."
   }
 }

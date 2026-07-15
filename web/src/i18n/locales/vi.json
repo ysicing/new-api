@@ -4194,6 +4194,10 @@
     "默认测试模型": "Mô hình kiểm tra mặc định",
     "默认用户消息": "Xin chào",
     "默认补全倍率": "Tỷ lệ hoàn thành mặc định",
-    "池管理员": "Quản trị viên nhóm"
+    "池管理员": "Quản trị viên nhóm",
+    "调整额度池": "Đổi nhóm hạn mức",
+    "目标额度池": "Nhóm hạn mức đích",
+    "默认额度池": "Nhóm hạn mức mặc định",
+    "迁移会清零用户当前额度，并按规则退回原池余额。": "Việc di chuyển sẽ xóa hạn mức hiện tại của người dùng và hoàn trả về nhóm ban đầu theo quy tắc."
   }
 }
