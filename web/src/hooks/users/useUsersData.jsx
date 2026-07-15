@@ -51,6 +51,7 @@ export const useUsersData = () => {
   const formInitValues = {
     searchKeyword: '',
     searchGroup: '',
+    searchQuotaPoolId: '',
   };
 
   // Form API reference
@@ -62,6 +63,7 @@ export const useUsersData = () => {
     return {
       searchKeyword: formValues.searchKeyword || '',
       searchGroup: formValues.searchGroup || '',
+      searchQuotaPoolId: formValues.searchQuotaPoolId ?? '',
     };
   };
 
@@ -89,29 +91,51 @@ export const useUsersData = () => {
     setLoading(false);
   };
 
-  // Search users with keyword and group
+  // Search users with keyword, group and quota pool
   const searchUsers = async (
     startIdx,
     pageSize,
     searchKeyword = null,
     searchGroup = null,
+    searchQuotaPoolId = null,
   ) => {
     // If no parameters passed, get values from form
-    if (searchKeyword === null || searchGroup === null) {
+    if (
+      searchKeyword === null ||
+      searchGroup === null ||
+      searchQuotaPoolId === null
+    ) {
       const formValues = getFormValues();
       searchKeyword = formValues.searchKeyword;
       searchGroup = formValues.searchGroup;
+      searchQuotaPoolId = formValues.searchQuotaPoolId;
     }
 
-    if (searchKeyword === '' && searchGroup === '') {
+    const normalizedQuotaPoolId =
+      searchQuotaPoolId === undefined || searchQuotaPoolId === null
+        ? ''
+        : `${searchQuotaPoolId}`;
+
+    if (
+      searchKeyword === '' &&
+      searchGroup === '' &&
+      normalizedQuotaPoolId === ''
+    ) {
       // If keyword is blank, load files instead
       await loadUsers(startIdx, pageSize);
       return;
     }
     setSearching(true);
-    const res = await API.get(
-      `/api/user/search?keyword=${searchKeyword}&group=${searchGroup}&p=${startIdx}&page_size=${pageSize}`,
-    );
+    const params = new URLSearchParams({
+      keyword: searchKeyword,
+      group: searchGroup,
+      p: startIdx,
+      page_size: pageSize,
+    });
+    if (normalizedQuotaPoolId !== '') {
+      params.set('quota_pool_id', normalizedQuotaPoolId);
+    }
+    const res = await API.get(`/api/user/search?${params.toString()}`);
     const { success, message, data } = res.data;
     if (success) {
       const newPageData = data.items;
@@ -241,11 +265,21 @@ export const useUsersData = () => {
   // Handle page change
   const handlePageChange = (page) => {
     setActivePage(page);
-    const { searchKeyword, searchGroup } = getFormValues();
-    if (searchKeyword === '' && searchGroup === '') {
+    const { searchKeyword, searchGroup, searchQuotaPoolId } = getFormValues();
+    if (
+      searchKeyword === '' &&
+      searchGroup === '' &&
+      searchQuotaPoolId === ''
+    ) {
       loadUsers(page, pageSize).then();
     } else {
-      searchUsers(page, pageSize, searchKeyword, searchGroup).then();
+      searchUsers(
+        page,
+        pageSize,
+        searchKeyword,
+        searchGroup,
+        searchQuotaPoolId,
+      ).then();
     }
   };
 
@@ -254,7 +288,7 @@ export const useUsersData = () => {
     localStorage.setItem('page-size', size + '');
     setPageSize(size);
     setActivePage(1);
-    loadUsers(activePage, size)
+    refresh(1, size)
       .then()
       .catch((reason) => {
         showError(reason);
@@ -275,12 +309,22 @@ export const useUsersData = () => {
   };
 
   // Refresh data
-  const refresh = async (page = activePage) => {
-    const { searchKeyword, searchGroup } = getFormValues();
-    if (searchKeyword === '' && searchGroup === '') {
-      await loadUsers(page, pageSize);
+  const refresh = async (page = activePage, size = pageSize) => {
+    const { searchKeyword, searchGroup, searchQuotaPoolId } = getFormValues();
+    if (
+      searchKeyword === '' &&
+      searchGroup === '' &&
+      searchQuotaPoolId === ''
+    ) {
+      await loadUsers(page, size);
     } else {
-      await searchUsers(page, pageSize, searchKeyword, searchGroup);
+      await searchUsers(
+        page,
+        size,
+        searchKeyword,
+        searchGroup,
+        searchQuotaPoolId,
+      );
     }
   };
 
@@ -375,6 +419,7 @@ export const useUsersData = () => {
     closeEditUser,
     getFormValues,
     ldapLoginEnabled: statusState?.status?.ldap_login === true,
+    quotaPoolEnabled: isQuotaPoolEnabled(),
 
     // Translation
     t,

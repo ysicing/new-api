@@ -413,8 +413,17 @@ func GetAllUsers(c *gin.Context) {
 func SearchUsers(c *gin.Context) {
 	keyword := c.Query("keyword")
 	group := c.Query("group")
+	quotaPoolId := -1
+	if quotaPoolIdText := c.Query("quota_pool_id"); quotaPoolIdText != "" {
+		var err error
+		quotaPoolId, err = strconv.Atoi(quotaPoolIdText)
+		if err != nil || quotaPoolId < 0 {
+			common.ApiError(c, errors.New("额度池参数无效"))
+			return
+		}
+	}
 	pageInfo := common.GetPageQuery(c)
-	users, total, err := model.SearchUsers(keyword, group, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	users, total, err := model.SearchUsers(keyword, group, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), quotaPoolId)
 	if err != nil {
 		common.ApiError(c, err)
 		return

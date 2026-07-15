@@ -123,7 +123,7 @@ func TestUserListsIncludeQuotaPoolName(t *testing.T) {
 		t.Fatalf("quota pool name = %q, want %q", users[0].QuotaPoolName, pool.Name)
 	}
 
-	users, total, err = SearchUsers(user.Username, "", 0, 10)
+	users, total, err = SearchUsers(user.Username, "", 0, 10, -1)
 	if err != nil {
 		t.Fatalf("search users failed: %v", err)
 	}
@@ -132,6 +132,31 @@ func TestUserListsIncludeQuotaPoolName(t *testing.T) {
 	}
 	if users[0].QuotaPoolName != pool.Name {
 		t.Fatalf("search quota pool name = %q, want %q", users[0].QuotaPoolName, pool.Name)
+	}
+}
+
+func TestSearchUsersByQuotaPool(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := createQuotaPoolForTest(t, db, 1000)
+	defaultUser := createQuotaPoolTestUser(t, db, 1, 100, QuotaPoolDefaultUserPoolId)
+	poolUser := createQuotaPoolTestUser(t, db, 2, 100, pool.Id)
+
+	users, total, err := SearchUsers("", "", 0, 10, QuotaPoolDefaultUserPoolId)
+	if err != nil {
+		t.Fatalf("search default quota pool users failed: %v", err)
+	}
+	if total != 1 || len(users) != 1 || users[0].Id != defaultUser.Id {
+		t.Fatalf("unexpected default pool users total=%d users=%#v", total, users)
+	}
+
+	users, total, err = SearchUsers("", "", 0, 10, pool.Id)
+	if err != nil {
+		t.Fatalf("search quota pool users failed: %v", err)
+	}
+	if total != 1 || len(users) != 1 || users[0].Id != poolUser.Id {
+		t.Fatalf("unexpected pool users total=%d users=%#v", total, users)
 	}
 }
 

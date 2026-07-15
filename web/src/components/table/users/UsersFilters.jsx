@@ -29,11 +29,17 @@ const UsersFilters = ({
   activePage,
   pageSize,
   groupOptions,
+  quotaPools,
+  quotaPoolEnabled,
   loading,
   searching,
   t,
 }) => {
   const formApiRef = useRef(null);
+  const quotaPoolOptions = quotaPools.map((pool) => ({
+    label: pool.name || `${t('额度池')} #${pool.id}`,
+    value: pool.is_default ? 0 : pool.id,
+  }));
 
   const handleReset = () => {
     if (!formApiRef.current) return;
@@ -88,6 +94,25 @@ const UsersFilters = ({
             size='small'
           />
         </div>
+        {quotaPoolEnabled && (
+          <div className='w-full md:w-48'>
+            <Form.Select
+              field='searchQuotaPoolId'
+              placeholder={t('选择额度池')}
+              optionList={quotaPoolOptions}
+              onChange={() => {
+                // Quota pool change triggers automatic search
+                setTimeout(() => {
+                  searchUsers(1, pageSize);
+                }, 100);
+              }}
+              className='w-full'
+              showClear
+              pure
+              size='small'
+            />
+          </div>
+        )}
         <div className='flex gap-2 w-full md:w-auto'>
           <Button
             type='tertiary'

@@ -55,6 +55,8 @@ const UsersPage = () => {
     activePage,
     pageSize,
     groupOptions,
+    quotaPools,
+    quotaPoolEnabled,
     loading,
     searching,
     ldapLoginEnabled,
@@ -114,6 +116,8 @@ const UsersPage = () => {
               activePage={activePage}
               pageSize={pageSize}
               groupOptions={groupOptions}
+              quotaPools={quotaPools}
+              quotaPoolEnabled={quotaPoolEnabled}
               loading={loading}
               searching={searching}
               t={t}

@@ -233,7 +233,7 @@ func GetAllUsers(pageInfo *common.PageInfo) (users []*User, total int64, err err
 	return users, total, nil
 }
 
-func SearchUsers(keyword string, group string, startIdx int, num int) ([]*User, int64, error) {
+func SearchUsers(keyword string, group string, startIdx int, num int, quotaPoolId int) ([]*User, int64, error) {
 	var users []*User
 	var total int64
 	var err error
@@ -260,22 +260,18 @@ func SearchUsers(keyword string, group string, startIdx int, num int) ([]*User, 
 	if err == nil {
 		// 如果是数字，同时搜索ID和其他字段
 		likeCondition = "id = ? OR " + likeCondition
-		if group != "" {
-			query = query.Where("("+likeCondition+") AND "+commonGroupCol+" = ?",
-				keywordInt, "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", group)
-		} else {
-			query = query.Where(likeCondition,
-				keywordInt, "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
-		}
+		query = query.Where("("+likeCondition+")",
+			keywordInt, "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
 	} else {
 		// 非数字关键字，只搜索字符串字段
-		if group != "" {
-			query = query.Where("("+likeCondition+") AND "+commonGroupCol+" = ?",
-				"%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", group)
-		} else {
-			query = query.Where(likeCondition,
-				"%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
-		}
+		query = query.Where("("+likeCondition+")",
+			"%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
+	}
+	if group != "" {
+		query = query.Where(commonGroupCol+" = ?", group)
+	}
+	if quotaPoolId >= 0 {
+		query = query.Where("quota_pool_id = ?", quotaPoolId)
 	}
 
 	// 获取总数
