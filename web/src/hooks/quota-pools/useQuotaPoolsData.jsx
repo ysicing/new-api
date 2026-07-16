@@ -25,6 +25,7 @@ import {
   isQuotaPoolSuperAdminRole,
   isRoot,
   showError,
+  showWarning,
   showSuccess,
 } from '../../helpers';
 import { UserContext } from '../../context/User';
@@ -498,7 +499,11 @@ export const useQuotaPoolsData = () => {
     const res = await API.put(url, values);
     const { success, message } = res.data;
     if (success) {
-      showSuccess(t('操作成功完成！'));
+      if (message) {
+        showWarning(message);
+      } else {
+        showSuccess(t('操作成功完成！'));
+      }
       await loadPools();
     } else {
       showError(message);

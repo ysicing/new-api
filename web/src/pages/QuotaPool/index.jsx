@@ -1243,7 +1243,14 @@ const QuotaPool = () => {
             field='auto_recharge_amount'
             label={t('充值金额')}
             extraText={t(
-              '特殊值：-1 继承全局配置，0 关闭自动充值，正数为自定义充值金额。',
+              '特殊值：-1 继承全局配置，0 关闭自动充值；正数需大于触发充值金额，当前全局触发充值金额为 {{amount}}；超过全局默认充值金额 3 倍仍可保存，但可能存在较大风险。',
+              {
+                amount:
+                  typeof selectedPool?.system_auto_recharge?.threshold ===
+                  'number'
+                    ? renderQuota(selectedPool.system_auto_recharge.threshold)
+                    : '-',
+              },
             )}
           />
           <Form.InputNumber

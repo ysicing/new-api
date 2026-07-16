@@ -53,16 +53,23 @@ func quotaAmountToInternal(amount float64) int {
 	return int(amount * common.QuotaPerUnit)
 }
 
-func quotaPoolAutoRechargeAmountUpdate(amount float64) (int, error) {
+const quotaPoolAutoRechargeRiskWarning = "配置已保存，但自动充值金额超过全局默认充值金额的 3 倍，可能存在较大风险，请确认配置是否合理"
+
+func quotaPoolAutoRechargeAmountUpdate(amount float64) (int, string, error) {
 	if amount < 0 {
-		return model.QuotaPoolAutoRechargeInherit, nil
+		return model.QuotaPoolAutoRechargeInherit, "", nil
 	}
 	amountQuota := quotaAmountToInternal(amount)
-	systemAmountQuota := quotaAmountToInternal(float64(operation_setting.GetAutoRechargeSetting().Amount))
-	if amountQuota > 0 && systemAmountQuota > 0 && amountQuota < systemAmountQuota {
-		return 0, errors.New("自动充值额度小于系统默认充值额度")
+	config := operation_setting.GetAutoRechargeSetting()
+	thresholdQuota := quotaAmountToInternal(float64(config.Threshold))
+	if amount > 0 && amountQuota <= thresholdQuota {
+		return 0, "", errors.New("自动充值金额必须大于触发充值金额")
 	}
-	return amountQuota, nil
+	systemAmountQuota := quotaAmountToInternal(float64(config.Amount))
+	if amountQuota > systemAmountQuota*3 {
+		return amountQuota, quotaPoolAutoRechargeRiskWarning, nil
+	}
+	return amountQuota, "", nil
 }
 
 func quotaPoolPageInfo(c *gin.Context) *common.PageInfo {
@@ -359,6 +366,7 @@ func UpdateQuotaPool(c *gin.Context) {
 		return
 	}
 	updates := map[string]interface{}{}
+	warning := ""
 	if req.Name != nil {
 		if !root {
 			common.ApiError(c, errors.New("无权限调整额度池名称"))
@@ -378,11 +386,12 @@ func UpdateQuotaPool(c *gin.Context) {
 		updates["base_quota"] = quotaAmountToInternal(*req.BaseQuota)
 	}
 	if req.AutoRechargeAmount != nil {
-		amount, err := quotaPoolAutoRechargeAmountUpdate(*req.AutoRechargeAmount)
+		amount, amountWarning, err := quotaPoolAutoRechargeAmountUpdate(*req.AutoRechargeAmount)
 		if err != nil {
 			common.ApiError(c, err)
 			return
 		}
+		warning = amountWarning
 		updates["auto_recharge_amount"] = amount
 	}
 	if req.WeeklyLimit != nil {
@@ -459,7 +468,7 @@ func UpdateQuotaPool(c *gin.Context) {
 	if change != nil && change.Amount != 0 {
 		recordQuotaPoolManageLog(c, id, fmt.Sprintf("调整额度池(ID:%d)总额度，额度池余额从 %s 变为 %s", id, logger.LogQuota(change.QuotaBefore), logger.LogQuota(change.QuotaAfter)))
 	}
-	common.ApiSuccess(c, nil)
+	common.ApiSuccessWithMessage(c, warning, nil)
 }
 
 func UpdateSelfQuotaPool(c *gin.Context) {
@@ -476,12 +485,14 @@ func UpdateSelfQuotaPool(c *gin.Context) {
 		return
 	}
 	updates := map[string]interface{}{}
+	warning := ""
 	if req.AutoRechargeAmount != nil {
-		amount, err := quotaPoolAutoRechargeAmountUpdate(*req.AutoRechargeAmount)
+		amount, amountWarning, err := quotaPoolAutoRechargeAmountUpdate(*req.AutoRechargeAmount)
 		if err != nil {
 			common.ApiError(c, err)
 			return
 		}
+		warning = amountWarning
 		updates["auto_recharge_amount"] = amount
 	}
 	if req.WeeklyLimit != nil {
@@ -506,7 +517,7 @@ func UpdateSelfQuotaPool(c *gin.Context) {
 	if descriptions := quotaPoolConfigChangeDescriptions(beforePool, updates); len(descriptions) > 0 {
 		recordQuotaPoolManageLog(c, admin.PoolId, fmt.Sprintf("修改额度池(ID:%d)配置：%s", admin.PoolId, strings.Join(descriptions, "；")))
 	}
-	common.ApiSuccess(c, nil)
+	common.ApiSuccessWithMessage(c, warning, nil)
 }
 
 func EnableQuotaPool(c *gin.Context) {

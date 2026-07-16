@@ -200,6 +200,14 @@ func ApiSuccess(c *gin.Context, data any) {
 	})
 }
 
+func ApiSuccessWithMessage(c *gin.Context, message string, data any) {
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": message,
+		"data":    data,
+	})
+}
+
 // ApiErrorI18n returns a translated error message based on the user's language preference
 // key is the i18n message key, args is optional template data
 func ApiErrorI18n(c *gin.Context, key string, args ...map[string]any) {

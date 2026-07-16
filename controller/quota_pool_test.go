@@ -312,6 +312,16 @@ func TestGetSelfQuotaPoolIncludesCounts(t *testing.T) {
 
 func TestUpdateSelfQuotaPoolOnlyUpdatesRechargeRules(t *testing.T) {
 	db := setupQuotaPoolControllerTestDB(t)
+	cfg := operation_setting.GetAutoRechargeSetting()
+	originalAmount := cfg.Amount
+	originalThreshold := cfg.Threshold
+	defer func() {
+		cfg.Amount = originalAmount
+		cfg.Threshold = originalThreshold
+	}()
+	cfg.Amount = 200
+	cfg.Threshold = 50
+
 	unit := int(common.QuotaPerUnit)
 	pool := &model.QuotaPool{
 		Name:                 "team",
@@ -360,6 +370,9 @@ func TestUpdateSelfQuotaPoolOnlyUpdatesRechargeRules(t *testing.T) {
 	if response["success"] != true {
 		t.Fatalf("expected success response, got %#v", response)
 	}
+	if response["message"] != "" {
+		t.Fatalf("expected no warning for amount within risk limit, got %q", response["message"])
+	}
 	var got model.QuotaPool
 	if err := db.First(&got, pool.Id).Error; err != nil {
 		t.Fatalf("load pool failed: %v", err)
@@ -372,14 +385,17 @@ func TestUpdateSelfQuotaPoolOnlyUpdatesRechargeRules(t *testing.T) {
 	}
 }
 
-func TestUpdateSelfQuotaPoolRejectsAutoRechargeAmountBelowSystemDefault(t *testing.T) {
+func TestUpdateSelfQuotaPoolRejectsAutoRechargeAmountNotAboveThreshold(t *testing.T) {
 	db := setupQuotaPoolControllerTestDB(t)
 	cfg := operation_setting.GetAutoRechargeSetting()
 	originalAmount := cfg.Amount
+	originalThreshold := cfg.Threshold
 	defer func() {
 		cfg.Amount = originalAmount
+		cfg.Threshold = originalThreshold
 	}()
 	cfg.Amount = 200
+	cfg.Threshold = 50
 
 	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 1000, Quota: 1000, AutoRechargeAmount: model.QuotaPoolAutoRechargeInherit, MonthlyRefillDay: 1}
 	if err := db.Create(pool).Error; err != nil {
@@ -392,7 +408,7 @@ func TestUpdateSelfQuotaPoolRejectsAutoRechargeAmountBelowSystemDefault(t *testi
 	if err := db.Create(&model.QuotaPoolAdmin{PoolId: pool.Id, UserId: operator.Id, Level: model.QuotaPoolAdminLevelV1}).Error; err != nil {
 		t.Fatalf("create operator admin failed: %v", err)
 	}
-	autoRechargeAmount := float64(100)
+	autoRechargeAmount := float64(50)
 	ctx, recorder := quotaPoolTestContext(t, http.MethodPut, "/api/quota_pool/self", quotaPoolUpdateRequest{
 		AutoRechargeAmount: &autoRechargeAmount,
 	}, common.RoleCommonUser, operator.Id)
@@ -403,7 +419,7 @@ func TestUpdateSelfQuotaPoolRejectsAutoRechargeAmountBelowSystemDefault(t *testi
 	if response["success"] == true {
 		t.Fatalf("expected update to be rejected")
 	}
-	if !strings.Contains(response["message"].(string), "自动充值额度小于系统默认充值额度") {
+	if !strings.Contains(response["message"].(string), "自动充值金额必须大于触发充值金额") {
 		t.Fatalf("unexpected message: %s", response["message"].(string))
 	}
 	var got model.QuotaPool
@@ -1279,20 +1295,23 @@ func TestUpdateQuotaPoolRejectsBaseQuotaBelowAllocatedQuota(t *testing.T) {
 	}
 }
 
-func TestUpdateQuotaPoolRejectsAutoRechargeAmountBelowSystemDefault(t *testing.T) {
+func TestUpdateQuotaPoolAllowsRiskyAutoRechargeAmountWithWarning(t *testing.T) {
 	db := setupQuotaPoolControllerTestDB(t)
 	cfg := operation_setting.GetAutoRechargeSetting()
 	originalAmount := cfg.Amount
+	originalThreshold := cfg.Threshold
 	defer func() {
 		cfg.Amount = originalAmount
+		cfg.Threshold = originalThreshold
 	}()
 	cfg.Amount = 200
+	cfg.Threshold = 50
 
 	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 1000, Quota: 1000, AutoRechargeAmount: model.QuotaPoolAutoRechargeInherit, MonthlyRefillDay: 1}
 	if err := db.Create(pool).Error; err != nil {
 		t.Fatalf("create pool failed: %v", err)
 	}
-	autoRechargeAmount := float64(100)
+	autoRechargeAmount := float64(601)
 	ctx, recorder := quotaPoolTestContext(t, http.MethodPut, fmt.Sprintf("/api/quota_pool/%d", pool.Id), quotaPoolUpdateRequest{
 		AutoRechargeAmount: &autoRechargeAmount,
 	}, common.RoleRootUser, 99)
@@ -1301,18 +1320,18 @@ func TestUpdateQuotaPoolRejectsAutoRechargeAmountBelowSystemDefault(t *testing.T
 	UpdateQuotaPool(ctx)
 
 	response := decodeQuotaPoolResponse(t, recorder)
-	if response["success"] == true {
-		t.Fatalf("expected update to be rejected")
+	if response["success"] != true {
+		t.Fatalf("expected update to succeed, got %#v", response)
 	}
-	if !strings.Contains(response["message"].(string), "自动充值额度小于系统默认充值额度") {
+	if !strings.Contains(response["message"].(string), "可能存在较大风险") {
 		t.Fatalf("unexpected message: %s", response["message"].(string))
 	}
 	var got model.QuotaPool
 	if err := db.First(&got, pool.Id).Error; err != nil {
 		t.Fatalf("load pool failed: %v", err)
 	}
-	if got.AutoRechargeAmount != model.QuotaPoolAutoRechargeInherit {
-		t.Fatalf("auto recharge amount should be unchanged, got %d", got.AutoRechargeAmount)
+	if got.AutoRechargeAmount != int(601*common.QuotaPerUnit) {
+		t.Fatalf("auto recharge amount should be updated, got %d", got.AutoRechargeAmount)
 	}
 }
 
@@ -1320,17 +1339,20 @@ func TestQuotaPoolSuperAdminCanUpdateRechargeRulesOnly(t *testing.T) {
 	db := setupQuotaPoolControllerTestDB(t)
 	cfg := operation_setting.GetAutoRechargeSetting()
 	originalAmount := cfg.Amount
+	originalThreshold := cfg.Threshold
 	defer func() {
 		cfg.Amount = originalAmount
+		cfg.Threshold = originalThreshold
 	}()
-	cfg.Amount = 0
+	cfg.Amount = 200
+	cfg.Threshold = 50
 
 	unit := int(common.QuotaPerUnit)
 	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 10 * unit, Quota: 10 * unit, AutoRechargeAmount: model.QuotaPoolAutoRechargeInherit, WeeklyLimit: model.QuotaPoolAutoRechargeInherit, MonthlyLimit: model.QuotaPoolAutoRechargeInherit, MonthlyRefillDay: 1}
 	if err := db.Create(pool).Error; err != nil {
 		t.Fatalf("create pool failed: %v", err)
 	}
-	autoRechargeAmount := float64(2)
+	autoRechargeAmount := float64(100)
 	weeklyLimit := 3
 	monthlyLimit := 8
 	ctx, recorder := quotaPoolTestContext(t, http.MethodPut, fmt.Sprintf("/api/quota_pool/%d", pool.Id), quotaPoolUpdateRequest{
@@ -1350,7 +1372,7 @@ func TestQuotaPoolSuperAdminCanUpdateRechargeRulesOnly(t *testing.T) {
 	if err := db.First(&got, pool.Id).Error; err != nil {
 		t.Fatalf("load pool failed: %v", err)
 	}
-	if got.AutoRechargeAmount != 2*unit || got.WeeklyLimit != weeklyLimit || got.MonthlyLimit != monthlyLimit {
+	if got.AutoRechargeAmount != 100*unit || got.WeeklyLimit != weeklyLimit || got.MonthlyLimit != monthlyLimit {
 		t.Fatalf("unexpected recharge rules: amount=%d weekly=%d monthly=%d", got.AutoRechargeAmount, got.WeeklyLimit, got.MonthlyLimit)
 	}
 	assertQuotaPoolManageLogContains(t, db, 99, "修改额度池")
@@ -1377,10 +1399,13 @@ func TestSelfQuotaPoolAdminUpdateWritesManageLog(t *testing.T) {
 	db := setupQuotaPoolControllerTestDB(t)
 	cfg := operation_setting.GetAutoRechargeSetting()
 	originalAmount := cfg.Amount
+	originalThreshold := cfg.Threshold
 	defer func() {
 		cfg.Amount = originalAmount
+		cfg.Threshold = originalThreshold
 	}()
-	cfg.Amount = 0
+	cfg.Amount = 200
+	cfg.Threshold = 50
 
 	pool := &model.QuotaPool{Name: "self-config", Enabled: true, BaseQuota: 1000, Quota: 1000, AutoRechargeAmount: model.QuotaPoolAutoRechargeInherit, WeeklyLimit: model.QuotaPoolAutoRechargeInherit, MonthlyLimit: model.QuotaPoolAutoRechargeInherit, MonthlyRefillDay: 1}
 	if err := db.Create(pool).Error; err != nil {
@@ -1394,7 +1419,7 @@ func TestSelfQuotaPoolAdminUpdateWritesManageLog(t *testing.T) {
 		t.Fatalf("create admin failed: %v", err)
 	}
 
-	autoRechargeAmount := float64(3)
+	autoRechargeAmount := float64(100)
 	weeklyLimit := 2
 	ctx, recorder := quotaPoolTestContext(t, http.MethodPut, "/api/quota_pool/self", quotaPoolUpdateRequest{
 		AutoRechargeAmount: &autoRechargeAmount,
