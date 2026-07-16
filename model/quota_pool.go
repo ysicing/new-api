@@ -172,11 +172,12 @@ type QuotaPoolTransferResult struct {
 }
 
 type QuotaPoolMoveResult struct {
-	OldPoolId int
-	NewPoolId int
-	UserQuota int
-	Reclaimed bool
-	Change    QuotaPoolBalanceChange
+	OldPoolId         int
+	NewPoolId         int
+	UserQuota         int
+	Reclaimed         bool
+	TargetNewUserPool bool
+	Change            QuotaPoolBalanceChange
 }
 
 type QuotaPoolListItem struct {
@@ -1239,6 +1240,14 @@ func gopoolUpdateUserQuotaCache(userId int) {
 }
 
 func MoveUserQuotaPool(userId int, targetPoolId int) (*QuotaPoolMoveResult, error) {
+	return moveUserQuotaPool(userId, targetPoolId, false)
+}
+
+func MoveUserQuotaPoolAllowSystemTarget(userId int, targetPoolId int) (*QuotaPoolMoveResult, error) {
+	return moveUserQuotaPool(userId, targetPoolId, true)
+}
+
+func moveUserQuotaPool(userId int, targetPoolId int, allowSystemTarget bool) (*QuotaPoolMoveResult, error) {
 	targetPoolId = normalizeQuotaPoolId(targetPoolId)
 	result := &QuotaPoolMoveResult{NewPoolId: targetPoolId}
 
@@ -1251,7 +1260,8 @@ func MoveUserQuotaPool(userId int, targetPoolId int) (*QuotaPoolMoveResult, erro
 				}
 				return err
 			}
-			if target.IsSystemPool() {
+			result.TargetNewUserPool = target.IsNewUserPool()
+			if target.IsSystemPool() && !allowSystemTarget {
 				return ErrQuotaPoolSystemReadonly
 			}
 			if !target.Enabled {

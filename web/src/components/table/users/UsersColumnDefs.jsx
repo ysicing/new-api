@@ -33,6 +33,7 @@ import {
 import { IconMore } from '@douyinfe/semi-icons';
 import {
   ROLE_QUOTA_POOL_SUPER_ADMIN,
+  isAdmin,
   isQuotaPoolEnabled,
   isRoot,
   renderGroup,
@@ -270,11 +271,7 @@ const renderOperations = (
     currentUserIsRoot &&
     ((record.role >= 10 && record.role < 100) ||
       record.role === ROLE_QUOTA_POOL_SUPER_ADMIN);
-  const canMoveQuotaPool =
-    isQuotaPoolEnabled() &&
-    record.status === 1 &&
-    canManageLowerUser &&
-    [1, ROLE_QUOTA_POOL_SUPER_ADMIN, 10].includes(record.role);
+  const canMoveQuotaPool = isQuotaPoolEnabled() && isAdmin();
 
   const moreMenu = [];
   if (canSetQuotaPoolSuperAdmin) {

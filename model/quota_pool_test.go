@@ -1286,6 +1286,51 @@ func TestMoveUserQuotaPoolFromNewUserPoolDoesNotReclaimQuota(t *testing.T) {
 	}
 }
 
+func TestMoveUserQuotaPoolAllowSystemTargetToNewUserPool(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	oldPool := createQuotaPoolForTest(t, db, 500)
+	newUserPool, err := SyncNewUserQuotaPool()
+	if err != nil {
+		t.Fatalf("sync new user pool failed: %v", err)
+	}
+	user := createQuotaPoolTestUser(t, db, 1, 120, oldPool.Id)
+
+	result, err := MoveUserQuotaPoolAllowSystemTarget(user.Id, newUserPool.Id)
+	if err != nil {
+		t.Fatalf("move to new user pool failed: %v", err)
+	}
+	if !result.TargetNewUserPool || !result.Reclaimed {
+		t.Fatalf("unexpected move result: %+v", result)
+	}
+
+	var gotUser User
+	if err := db.First(&gotUser, user.Id).Error; err != nil {
+		t.Fatalf("load user failed: %v", err)
+	}
+	if gotUser.Quota != 0 || gotUser.QuotaPoolId != newUserPool.Id {
+		t.Fatalf("unexpected user after move: quota=%d pool=%d", gotUser.Quota, gotUser.QuotaPoolId)
+	}
+}
+
+func TestMoveUserQuotaPoolRejectsSystemTargetByDefault(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	oldPool := createQuotaPoolForTest(t, db, 500)
+	newUserPool, err := SyncNewUserQuotaPool()
+	if err != nil {
+		t.Fatalf("sync new user pool failed: %v", err)
+	}
+	user := createQuotaPoolTestUser(t, db, 1, 120, oldPool.Id)
+
+	_, err = MoveUserQuotaPool(user.Id, newUserPool.Id)
+	if !errors.Is(err, ErrQuotaPoolSystemReadonly) {
+		t.Fatalf("move to system pool error = %v, want system readonly", err)
+	}
+}
+
 func TestGrantQuotaPoolAdminRejectsDisabledPool(t *testing.T) {
 	db, cleanup := setupQuotaPoolTestDB(t)
 	defer cleanup()

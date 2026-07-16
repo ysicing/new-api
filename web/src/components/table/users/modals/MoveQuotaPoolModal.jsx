@@ -20,8 +20,6 @@ For commercial licensing, please contact support@quantumnous.com
 import React, { useMemo } from 'react';
 import { Button, Form, Modal, Typography } from '@douyinfe/semi-ui';
 
-const QUOTA_POOL_TYPE_NEW_USER = 'new_user';
-
 const MoveQuotaPoolModal = ({
   visible,
   onCancel,
@@ -40,7 +38,6 @@ const MoveQuotaPoolModal = ({
       .filter(
         (pool) =>
           pool.targetValue !== currentPoolId &&
-          pool.pool_type !== QUOTA_POOL_TYPE_NEW_USER &&
           (pool.is_default || pool.enabled),
       )
       .map((pool) => ({

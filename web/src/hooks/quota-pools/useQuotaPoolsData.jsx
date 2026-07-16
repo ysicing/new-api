@@ -120,6 +120,7 @@ export const useQuotaPoolsData = () => {
 
   const [loading, setLoading] = useState(false);
   const [pools, setPools] = useState([]);
+  const [defaultPool, setDefaultPool] = useState(null);
   const [selectedPool, setSelectedPool] = useState(null);
   const [adminContacts, setAdminContacts] = useState([]);
   const [members, setMembers] = useState([]);
@@ -183,6 +184,7 @@ export const useQuotaPoolsData = () => {
         }
         const nextPools = data || [];
         setPools(nextPools);
+        setDefaultPool(null);
         setAdminContacts([]);
         setSelectedPool((current) => {
           if (!current) {
@@ -198,6 +200,7 @@ export const useQuotaPoolsData = () => {
           return;
         }
         setPools(data?.pool ? [data.pool] : []);
+        setDefaultPool(data?.default_pool || null);
         setAdminContacts(data?.admin_contacts || []);
         setSelectedPool((current) => {
           if (!current) return data?.pool || null;
@@ -561,7 +564,10 @@ export const useQuotaPoolsData = () => {
   };
 
   const moveMember = async (userId, poolId) => {
-    const res = await API.put(`/api/quota_pool/users/${userId}`, {
+    const url = canUseGlobalApi
+      ? `/api/quota_pool/users/${userId}`
+      : `/api/quota_pool/self/members/${userId}`;
+    const res = await API.put(url, {
       pool_id: poolId,
     });
     const { success, message } = res.data;
@@ -638,6 +644,7 @@ export const useQuotaPoolsData = () => {
     t,
     loading,
     pools,
+    defaultPool,
     selectedPool,
     setSelectedPool,
     adminContacts,
@@ -687,6 +694,7 @@ export const useQuotaPoolsData = () => {
     grantAdmin,
     revokeAdmin,
     canUseGlobalApi,
+    quotaPoolSuperAdmin,
     canConfigurePools,
     canConfigureRechargeRules,
     canManagePoolAdmins,

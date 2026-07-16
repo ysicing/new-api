@@ -622,7 +622,7 @@ func TestQuotaPoolSuperAdminCanAddMemberButCannotRefillPool(t *testing.T) {
 	}
 }
 
-func TestQuotaPoolSuperAdminCanRechargeReclaimAndMoveMembers(t *testing.T) {
+func TestQuotaPoolSuperAdminCanRechargeAndReclaimMembers(t *testing.T) {
 	db := setupQuotaPoolControllerTestDB(t)
 	cfg := operation_setting.GetAutoRechargeSetting()
 	originalEnabled := cfg.Enabled
@@ -636,12 +636,8 @@ func TestQuotaPoolSuperAdminCanRechargeReclaimAndMoveMembers(t *testing.T) {
 
 	unit := int(common.QuotaPerUnit)
 	pool := &model.QuotaPool{Name: "team", Enabled: true, BaseQuota: 10 * unit, Quota: 10 * unit, AutoRechargeAmount: unit, MonthlyRefillDay: 1}
-	otherPool := &model.QuotaPool{Name: "other", Enabled: true, BaseQuota: 10 * unit, Quota: 10 * unit, AutoRechargeAmount: unit, MonthlyRefillDay: 1}
 	if err := db.Create(pool).Error; err != nil {
 		t.Fatalf("create pool failed: %v", err)
-	}
-	if err := db.Create(otherPool).Error; err != nil {
-		t.Fatalf("create other pool failed: %v", err)
 	}
 	user := &model.User{Id: 2, Username: "member", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id, AffCode: "member-code"}
 	if err := db.Create(user).Error; err != nil {
@@ -700,20 +696,191 @@ func TestQuotaPoolSuperAdminCanRechargeReclaimAndMoveMembers(t *testing.T) {
 		t.Fatalf("operation reclaim log should use short pool admin label: %q", operationLogs[0].Content)
 	}
 
-	moveCtx, moveRecorder := quotaPoolTestContext(t, http.MethodPut, fmt.Sprintf("/api/quota_pool/users/%d", user.Id), quotaPoolMoveRequest{
-		PoolId: otherPool.Id,
+}
+
+func TestQuotaPoolSuperAdminCanMoveUserToNormalPool(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	sourcePool := &model.QuotaPool{Name: "source", Enabled: true, BaseQuota: 1000, Quota: 1000, MonthlyRefillDay: 1}
+	targetPool := &model.QuotaPool{Name: "target", Enabled: true, BaseQuota: 1000, Quota: 1000, MonthlyRefillDay: 1}
+	if err := db.Create(sourcePool).Error; err != nil {
+		t.Fatalf("create source pool failed: %v", err)
+	}
+	if err := db.Create(targetPool).Error; err != nil {
+		t.Fatalf("create target pool failed: %v", err)
+	}
+	user := &model.User{Id: 2, Username: "member", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Quota: 120, QuotaPoolId: sourcePool.Id, AffCode: "member-code"}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("create user failed: %v", err)
+	}
+
+	ctx, recorder := quotaPoolTestContext(t, http.MethodPut, fmt.Sprintf("/api/quota_pool/users/%d", user.Id), quotaPoolMoveRequest{
+		PoolId: targetPool.Id,
 	}, common.RoleQuotaPoolSuperAdmin, 99)
-	moveCtx.Params = gin.Params{{Key: "user_id", Value: fmt.Sprintf("%d", user.Id)}}
-	MoveUserQuotaPool(moveCtx)
-	if response := decodeQuotaPoolResponse(t, moveRecorder); response["success"] != true {
+	ctx.Params = gin.Params{{Key: "user_id", Value: fmt.Sprintf("%d", user.Id)}}
+	MoveUserQuotaPool(ctx)
+
+	response := decodeQuotaPoolResponse(t, recorder)
+	if response["success"] != true {
 		t.Fatalf("expected quota pool super admin move success, got %#v", response)
 	}
 	var gotUser model.User
 	if err := db.First(&gotUser, user.Id).Error; err != nil {
 		t.Fatalf("load user failed: %v", err)
 	}
-	if gotUser.QuotaPoolId != otherPool.Id {
-		t.Fatalf("user quota_pool_id = %d, want %d", gotUser.QuotaPoolId, otherPool.Id)
+	if gotUser.QuotaPoolId != targetPool.Id || gotUser.Quota != 0 {
+		t.Fatalf("unexpected user after move: quota=%d pool=%d", gotUser.Quota, gotUser.QuotaPoolId)
+	}
+	newUserPool, err := model.SyncNewUserQuotaPool()
+	if err != nil {
+		t.Fatalf("sync new user pool failed: %v", err)
+	}
+	ctx, recorder = quotaPoolTestContext(t, http.MethodPut, fmt.Sprintf("/api/quota_pool/users/%d", user.Id), quotaPoolMoveRequest{
+		PoolId: newUserPool.Id,
+	}, common.RoleQuotaPoolSuperAdmin, 99)
+	ctx.Params = gin.Params{{Key: "user_id", Value: fmt.Sprintf("%d", user.Id)}}
+	MoveUserQuotaPool(ctx)
+	if response := decodeQuotaPoolResponse(t, recorder); response["success"] != true {
+		t.Fatalf("expected quota pool super admin move to default pool success, got %#v", response)
+	}
+	if err := db.First(&gotUser, user.Id).Error; err != nil {
+		t.Fatalf("reload user failed: %v", err)
+	}
+	if gotUser.QuotaPoolId != newUserPool.Id {
+		t.Fatalf("user quota_pool_id = %d, want %d", gotUser.QuotaPoolId, newUserPool.Id)
+	}
+}
+
+func TestQuotaPoolSuperAdminCannotMoveToLegacyDefaultPoolAlias(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	sourcePool := &model.QuotaPool{Name: "source", Enabled: true, BaseQuota: 1000, Quota: 1000, MonthlyRefillDay: 1}
+	if err := db.Create(sourcePool).Error; err != nil {
+		t.Fatalf("create source pool failed: %v", err)
+	}
+	legacyDefaultPool, err := model.SyncDefaultQuotaPool()
+	if err != nil {
+		t.Fatalf("sync legacy default pool failed: %v", err)
+	}
+	user := &model.User{Id: 2, Username: "member", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Quota: 120, QuotaPoolId: sourcePool.Id, AffCode: "member-code"}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("create user failed: %v", err)
+	}
+
+	for _, targetPoolId := range []int{legacyDefaultPool.Id, -1} {
+		ctx, recorder := quotaPoolTestContext(t, http.MethodPut, fmt.Sprintf("/api/quota_pool/users/%d", user.Id), quotaPoolMoveRequest{
+			PoolId: targetPoolId,
+		}, common.RoleQuotaPoolSuperAdmin, 99)
+		ctx.Params = gin.Params{{Key: "user_id", Value: fmt.Sprintf("%d", user.Id)}}
+		MoveUserQuotaPool(ctx)
+		if response := decodeQuotaPoolResponse(t, recorder); response["success"] == true {
+			t.Fatalf("expected legacy default target %d to be rejected", targetPoolId)
+		}
+	}
+	var gotUser model.User
+	if err := db.First(&gotUser, user.Id).Error; err != nil {
+		t.Fatalf("load user failed: %v", err)
+	}
+	if gotUser.QuotaPoolId != sourcePool.Id || gotUser.Quota != 120 {
+		t.Fatalf("user changed after rejected moves: quota=%d pool=%d", gotUser.Quota, gotUser.QuotaPoolId)
+	}
+}
+
+func TestPoolAdminCanMoveMemberToDefaultPool(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	sourcePool := &model.QuotaPool{Name: "source", Enabled: true, BaseQuota: 1000, Quota: 1000, MonthlyRefillDay: 1}
+	if err := db.Create(sourcePool).Error; err != nil {
+		t.Fatalf("create source pool failed: %v", err)
+	}
+	newUserPool, err := model.SyncNewUserQuotaPool()
+	if err != nil {
+		t.Fatalf("sync new user pool failed: %v", err)
+	}
+	admin := &model.User{Id: 1, Username: "pool-admin", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: sourcePool.Id, AffCode: "pool-admin-code"}
+	user := &model.User{Id: 2, Username: "member", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Quota: 120, QuotaPoolId: sourcePool.Id, AffCode: "member-code"}
+	if err := db.Create(admin).Error; err != nil {
+		t.Fatalf("create pool admin failed: %v", err)
+	}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("create member failed: %v", err)
+	}
+	if err := db.Create(&model.QuotaPoolAdmin{PoolId: sourcePool.Id, UserId: admin.Id, Level: model.QuotaPoolAdminLevelV1}).Error; err != nil {
+		t.Fatalf("create pool admin relation failed: %v", err)
+	}
+
+	ctx, recorder := quotaPoolTestContext(t, http.MethodPut, fmt.Sprintf("/api/quota_pool/self/members/%d", user.Id), quotaPoolMoveRequest{
+		PoolId: newUserPool.Id,
+	}, common.RoleCommonUser, admin.Id)
+	ctx.Params = gin.Params{{Key: "user_id", Value: fmt.Sprintf("%d", user.Id)}}
+	MoveSelfQuotaPoolMember(ctx)
+
+	response := decodeQuotaPoolResponse(t, recorder)
+	if response["success"] != true {
+		t.Fatalf("expected pool admin default-pool move success, got %#v", response)
+	}
+	var gotUser model.User
+	if err := db.First(&gotUser, user.Id).Error; err != nil {
+		t.Fatalf("load member failed: %v", err)
+	}
+	if gotUser.QuotaPoolId != newUserPool.Id || gotUser.Quota != 0 {
+		t.Fatalf("unexpected member after default-pool move: quota=%d pool=%d", gotUser.Quota, gotUser.QuotaPoolId)
+	}
+	targetPool := &model.QuotaPool{Name: "target", Enabled: true, BaseQuota: 1000, Quota: 1000, MonthlyRefillDay: 1}
+	if err := db.Create(targetPool).Error; err != nil {
+		t.Fatalf("create target pool failed: %v", err)
+	}
+	secondUser := &model.User{Id: 3, Username: "second-member", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Quota: 80, QuotaPoolId: sourcePool.Id, AffCode: "second-member-code"}
+	if err := db.Create(secondUser).Error; err != nil {
+		t.Fatalf("create second member failed: %v", err)
+	}
+	ctx, recorder = quotaPoolTestContext(t, http.MethodPut, fmt.Sprintf("/api/quota_pool/self/members/%d", secondUser.Id), quotaPoolMoveRequest{
+		PoolId: targetPool.Id,
+	}, common.RoleCommonUser, admin.Id)
+	ctx.Params = gin.Params{{Key: "user_id", Value: fmt.Sprintf("%d", secondUser.Id)}}
+	MoveSelfQuotaPoolMember(ctx)
+	if response := decodeQuotaPoolResponse(t, recorder); response["success"] == true {
+		t.Fatalf("expected pool admin move to normal pool to be rejected")
+	}
+}
+
+func TestSystemAdminCanMoveAnyUserToNewUserPool(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	oldPool := &model.QuotaPool{Name: "source", Enabled: true, BaseQuota: 1000, Quota: 500, MonthlyRefillDay: 1}
+	if err := db.Create(oldPool).Error; err != nil {
+		t.Fatalf("create source pool failed: %v", err)
+	}
+	newUserPool, err := model.SyncNewUserQuotaPool()
+	if err != nil {
+		t.Fatalf("sync new user pool failed: %v", err)
+	}
+	target := &model.User{
+		Id:          2,
+		Username:    "root-target",
+		Password:    "password",
+		Role:        common.RoleRootUser,
+		Status:      common.UserStatusDisabled,
+		Quota:       120,
+		QuotaPoolId: oldPool.Id,
+		AffCode:     "root-target-code",
+	}
+	if err := db.Create(target).Error; err != nil {
+		t.Fatalf("create target user failed: %v", err)
+	}
+
+	ctx, recorder := quotaPoolTestContext(t, http.MethodPut, fmt.Sprintf("/api/quota_pool/users/%d", target.Id), quotaPoolMoveRequest{
+		PoolId: newUserPool.Id,
+	}, common.RoleAdminUser, 99)
+	ctx.Params = gin.Params{{Key: "user_id", Value: fmt.Sprintf("%d", target.Id)}}
+	MoveUserQuotaPool(ctx)
+
+	response := decodeQuotaPoolResponse(t, recorder)
+	if response["success"] != true {
+		t.Fatalf("expected system admin move success, got %#v", response)
+	}
+	var gotUser model.User
+	if err := db.First(&gotUser, target.Id).Error; err != nil {
+		t.Fatalf("load target user failed: %v", err)
+	}
+	if gotUser.Quota != 0 || gotUser.QuotaPoolId != newUserPool.Id {
+		t.Fatalf("unexpected target user after move: quota=%d pool=%d", gotUser.Quota, gotUser.QuotaPoolId)
 	}
 }
 

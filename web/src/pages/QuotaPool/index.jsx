@@ -101,6 +101,7 @@ const QuotaPool = () => {
   const {
     t,
     pools,
+    defaultPool,
     selectedPool,
     setSelectedPool,
     members,
@@ -150,6 +151,7 @@ const QuotaPool = () => {
     grantAdmin,
     revokeAdmin,
     canUseGlobalApi,
+    quotaPoolSuperAdmin,
     canConfigurePools,
     canConfigureRechargeRules,
     canManagePoolAdmins,
@@ -185,27 +187,42 @@ const QuotaPool = () => {
     [pools],
   );
 
-  const targetPoolOptions = useMemo(
-    () =>
-      pools
-        .filter(
-          (pool) =>
-            pool.id !== selectedPool?.id &&
-            !isNewUserPool(pool) &&
-            (pool.is_default || pool.enabled),
-        )
-        .map((pool) => ({
-          label: pool.name || t('默认额度池'),
-          value: pool.is_default ? 0 : pool.id,
-        })),
-    [pools, selectedPool?.id, t],
-  );
+  const targetPoolOptions = useMemo(() => {
+    if (!canUseGlobalApi) {
+      return defaultPool
+        ? [
+            {
+              label: defaultPool.name || t('默认额度池'),
+              value: defaultPool.id,
+            },
+          ]
+        : [];
+    }
+    return pools
+      .filter(
+        (pool) =>
+          pool.id !== selectedPool?.id &&
+          (quotaPoolSuperAdmin
+            ? !pool.is_default && pool.enabled
+            : pool.is_default || pool.enabled),
+      )
+      .map((pool) => ({
+        label: pool.name || t('默认额度池'),
+        value: pool.is_default ? 0 : pool.id,
+      }));
+  }, [
+    canUseGlobalApi,
+    defaultPool,
+    pools,
+    quotaPoolSuperAdmin,
+    selectedPool?.id,
+    t,
+  ]);
 
   const canOperateSelectedPool =
     selectedPool && !isProtectedSystemPool(selectedPool);
   const canUseActivePool = canOperateSelectedPool && selectedPool.enabled;
-  const canMoveMembers =
-    canUseGlobalApi && canManagePoolMembers && canOperateSelectedPool;
+  const canMoveMembers = canManagePoolMembers && canOperateSelectedPool;
   const canRechargeMembers = canUseActivePool && canManagePoolMembers;
   const canReclaimMembers = canUseActivePool && canManagePoolMembers;
   const canAddMembers =

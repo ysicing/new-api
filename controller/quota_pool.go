@@ -699,7 +699,7 @@ func addUserToQuotaPool(c *gin.Context, poolId int, userId int, initialRecharge 
 		recordQuotaPoolMemberManageLog(c, poolId, userId, fmt.Sprintf("任命用户为%s", quotaPoolAdminLevelName(model.QuotaPoolAdminLevelV1)))
 	}
 	warning := ""
-	if initialRecharge && poolId != model.QuotaPoolDefaultUserPoolId {
+	if initialRecharge && poolId != model.QuotaPoolDefaultUserPoolId && !result.TargetNewUserPool {
 		result := service.TryAutoRechargeUserById(userId)
 		if !result.Recharged {
 			warning = result.Reason
@@ -709,11 +709,17 @@ func addUserToQuotaPool(c *gin.Context, poolId int, userId int, initialRecharge 
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": "成员已添加，自动充值未完成：" + warning, "data": gin.H{"member_added": true, "initial_recharge_success": false}})
 		return
 	}
-	common.ApiSuccess(c, gin.H{"member_added": true, "initial_recharge_success": initialRecharge && poolId != model.QuotaPoolDefaultUserPoolId})
+	common.ApiSuccess(c, gin.H{"member_added": true, "initial_recharge_success": initialRecharge && poolId != model.QuotaPoolDefaultUserPoolId && !result.TargetNewUserPool})
 }
 
-func moveUserToQuotaPoolForController(c *gin.Context, poolId int, userId int, initialRecharge bool) (string, error) {
-	result, err := model.MoveUserQuotaPool(userId, poolId)
+func moveUserToQuotaPoolForController(c *gin.Context, poolId int, userId int, initialRecharge bool, allowSystemTarget bool) (string, error) {
+	var result *model.QuotaPoolMoveResult
+	var err error
+	if allowSystemTarget {
+		result, err = model.MoveUserQuotaPoolAllowSystemTarget(userId, poolId)
+	} else {
+		result, err = model.MoveUserQuotaPool(userId, poolId)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -721,7 +727,7 @@ func moveUserToQuotaPoolForController(c *gin.Context, poolId int, userId int, in
 		model.RecordQuotaPoolTransaction(result.Change.PoolId, model.QuotaPoolTransactionReclaimUser, result.Change.Amount, result.Change.QuotaBefore, result.Change.QuotaAfter, userId, c.GetInt("id"))
 	}
 	recordQuotaPoolMemberManageLog(c, poolId, userId, fmt.Sprintf("将用户迁移到额度池(ID:%d)", poolId))
-	if initialRecharge && poolId != model.QuotaPoolDefaultUserPoolId {
+	if initialRecharge && poolId != model.QuotaPoolDefaultUserPoolId && !result.TargetNewUserPool {
 		result := service.TryAutoRechargeUserById(userId)
 		if !result.Recharged {
 			return result.Reason, nil
@@ -757,7 +763,8 @@ func MoveUserQuotaPool(c *gin.Context) {
 	if !requireQuotaPoolEnabled(c) {
 		return
 	}
-	if !requireQuotaPoolAdminManager(c) {
+	if !isSystemAdmin(c) && !isQuotaPoolSuperAdmin(c) {
+		common.ApiError(c, errors.New("无额度池迁移权限"))
 		return
 	}
 	userId, err := strconv.Atoi(c.Param("user_id"))
@@ -770,7 +777,73 @@ func MoveUserQuotaPool(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	addUserToQuotaPool(c, req.PoolId, userId, req.PoolId != model.QuotaPoolDefaultUserPoolId, "将用户迁移到")
+	systemAdmin := isSystemAdmin(c)
+	if !systemAdmin {
+		targetPool, err := model.GetQuotaPoolById(req.PoolId)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if targetPool.IsDefault || targetPool.PoolType == model.QuotaPoolTypeDefault {
+			common.ApiError(c, errors.New("池超管不能迁移到产研存量额度池"))
+			return
+		}
+	}
+	warning, err := moveUserToQuotaPoolForController(c, req.PoolId, userId, true, systemAdmin || isQuotaPoolSuperAdmin(c))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if warning != "" {
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "用户已迁移，自动充值未完成：" + warning, "data": gin.H{"user_moved": true, "initial_recharge_success": false}})
+		return
+	}
+	common.ApiSuccess(c, gin.H{"user_moved": true})
+}
+
+func MoveSelfQuotaPoolMember(c *gin.Context) {
+	if !requireQuotaPoolEnabled(c) {
+		return
+	}
+	admin, ok := requireQuotaPoolAdmin(c, model.QuotaPoolAdminLevelV1)
+	if !ok {
+		return
+	}
+	userId, err := strconv.Atoi(c.Param("user_id"))
+	if err != nil {
+		common.ApiError(c, errors.New("用户 ID 无效"))
+		return
+	}
+	var req quotaPoolMoveRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	defaultPool, err := model.GetNewUserQuotaPool()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if req.PoolId != defaultPool.Id {
+		common.ApiError(c, errors.New("池管理员只能将用户迁移到默认额度池"))
+		return
+	}
+	user := &model.User{}
+	if err := model.DB.First(user, "id = ?", userId).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if user.QuotaPoolId != admin.PoolId {
+		common.ApiError(c, errors.New("用户不是当前额度池成员"))
+		return
+	}
+	if warning, err := moveUserToQuotaPoolForController(c, req.PoolId, userId, false, true); err != nil {
+		common.ApiError(c, err)
+	} else if warning != "" {
+		common.ApiError(c, errors.New(warning))
+	} else {
+		common.ApiSuccess(c, gin.H{"user_moved": true})
+	}
 }
 
 func quotaPoolRechargeAmount(poolId int) (int, error) {
@@ -920,7 +993,7 @@ func GrantQuotaPoolAdmin(c *gin.Context) {
 		return
 	}
 	if model.IsQuotaPoolCandidateSourcePoolId(user.QuotaPoolId) {
-		if _, err := moveUserToQuotaPoolForController(c, id, req.UserId, true); err != nil {
+		if _, err := moveUserToQuotaPoolForController(c, id, req.UserId, true, false); err != nil {
 			common.ApiError(c, err)
 			return
 		}
@@ -989,7 +1062,18 @@ func GetSelfQuotaPool(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"pool": pool, "admin": admin, "admin_contacts": adminContacts})
+	var defaultPool *model.QuotaPoolListItem
+	if newUserPool, err := model.GetNewUserQuotaPool(); err == nil {
+		defaultPool, err = model.GetQuotaPoolListItemById(newUserPool.Id)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	} else if !errors.Is(err, model.ErrQuotaPoolNotFound) {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"pool": pool, "admin": admin, "admin_contacts": adminContacts, "default_pool": defaultPool})
 }
 
 func GetSelfQuotaPoolTransactions(c *gin.Context) {
