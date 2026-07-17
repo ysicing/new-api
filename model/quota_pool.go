@@ -302,7 +302,8 @@ func IsQuotaPoolCandidateSourcePoolId(poolId int) bool {
 
 func GetDefaultQuotaPool() (*QuotaPool, error) {
 	pool := &QuotaPool{}
-	if err := DB.Where("is_default = ?", true).Order("id asc").First(pool).Error; err != nil {
+	if err := DB.Where("is_default = ? OR pool_type = ?", true, QuotaPoolTypeDefault).
+		Order("is_default desc, id asc").First(pool).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrQuotaPoolNotFound
 		}
@@ -338,18 +339,20 @@ func SyncDefaultQuotaPool() (*QuotaPool, error) {
 }
 
 func normalizeDefaultQuotaPool(tx *gorm.DB, pool *QuotaPool) (*QuotaPool, error) {
-	if pool.PoolType == QuotaPoolTypeDefault && pool.Name == QuotaPoolDefaultName {
+	if pool.PoolType == QuotaPoolTypeDefault && pool.Name == QuotaPoolDefaultName && pool.IsDefault {
 		return pool, nil
 	}
 	updates := map[string]interface{}{
-		"name":      QuotaPoolDefaultName,
-		"pool_type": QuotaPoolTypeDefault,
+		"name":       QuotaPoolDefaultName,
+		"pool_type":  QuotaPoolTypeDefault,
+		"is_default": true,
 	}
 	if err := tx.Model(&QuotaPool{}).Where("id = ?", pool.Id).Updates(updates).Error; err != nil {
 		return nil, err
 	}
 	pool.Name = QuotaPoolDefaultName
 	pool.PoolType = QuotaPoolTypeDefault
+	pool.IsDefault = true
 	return pool, nil
 }
 

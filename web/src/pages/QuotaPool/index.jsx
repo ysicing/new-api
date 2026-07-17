@@ -52,6 +52,7 @@ import { renderQuota, timestamp2string } from '../../helpers';
 import { useQuotaPoolsData } from '../../hooks/quota-pools/useQuotaPoolsData';
 
 const QUOTA_PER_UNIT = 500000;
+const QUOTA_POOL_TYPE_DEFAULT = 'default';
 const QUOTA_POOL_TYPE_NEW_USER = 'new_user';
 const TRANSACTION_TYPE_LABELS = {
   initial_fund: '初始入池',
@@ -209,17 +210,17 @@ const QuotaPool = () => {
 
   const isNewUserPool = (pool) => pool?.pool_type === QUOTA_POOL_TYPE_NEW_USER;
   const isProtectedSystemPool = (pool) =>
-    pool?.is_default || isNewUserPool(pool);
+    pool?.is_default ||
+    pool?.pool_type === QUOTA_POOL_TYPE_DEFAULT ||
+    isNewUserPool(pool);
 
   const poolOptions = useMemo(
     () =>
-      pools
-        .filter((pool) => !pool.is_default)
-        .map((pool) => ({
-          label: pool.name,
-          value: pool.id,
-        })),
-    [pools],
+      pools.map((pool) => ({
+        label: pool.name || t('默认额度池'),
+        value: pool.is_default ? 0 : pool.id,
+      })),
+    [pools, t],
   );
 
   const targetPoolOptions = useMemo(() => {
@@ -272,7 +273,7 @@ const QuotaPool = () => {
   const hasDefaultPool = pools.some((pool) => pool.is_default);
 
   const getMemberRoleActions = (record) => {
-    if (!canManagePoolAdmins) {
+    if (!canManagePoolAdmins || !canOperateSelectedPool) {
       return [];
     }
     const currentLevel = record.quota_pool_admin_level || ROLE_MEMBER;
@@ -480,9 +481,6 @@ const QuotaPool = () => {
     (pool.member_count || 0) === 0;
 
   const openPoolDetail = (pool) => {
-    if (pool?.is_default) {
-      return;
-    }
     setSelectedPool(pool);
   };
 
@@ -556,15 +554,13 @@ const QuotaPool = () => {
       fixed: 'right',
       render: (_, record) => (
         <Space spacing={6} wrap>
-          {!record.is_default && (
-            <Button
-              size='small'
-              icon={<IconEyeOpened />}
-              onClick={() => openPoolDetail(record)}
-            >
-              {t('查看')}
-            </Button>
-          )}
+          <Button
+            size='small'
+            icon={<IconEyeOpened />}
+            onClick={() => openPoolDetail(record)}
+          >
+            {t('查看')}
+          </Button>
           {canConfigurePoolRules(record) && (
             <Button
               size='small'
@@ -860,10 +856,14 @@ const QuotaPool = () => {
                   {canViewPoolManagement ? (
                     <Select
                       style={{ width: 240 }}
-                      value={selectedPool?.id}
+                      value={selectedPool?.is_default ? 0 : selectedPool?.id}
                       optionList={poolOptions}
                       onChange={(id) =>
-                        setSelectedPool(pools.find((pool) => pool.id === id))
+                        setSelectedPool(
+                          pools.find(
+                            (pool) => (pool.is_default ? 0 : pool.id) === id,
+                          ),
+                        )
                       }
                     />
                   ) : (

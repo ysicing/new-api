@@ -330,6 +330,45 @@ func TestSyncDefaultQuotaPoolNormalizesExistingPoolType(t *testing.T) {
 	if got.Name != QuotaPoolDefaultName {
 		t.Fatalf("default pool name = %q, want %q", got.Name, QuotaPoolDefaultName)
 	}
+	if !got.IsDefault {
+		t.Fatal("default pool is_default = false, want true")
+	}
+}
+
+func TestSyncDefaultQuotaPoolNormalizesLegacyDefaultFlag(t *testing.T) {
+	db, cleanup := setupQuotaPoolTestDB(t)
+	defer cleanup()
+
+	pool := &QuotaPool{
+		Name:               QuotaPoolDefaultName,
+		PoolType:           QuotaPoolTypeDefault,
+		Enabled:            true,
+		IsDefault:          false,
+		BaseQuota:          QuotaPoolUnlimitedQuota,
+		Quota:              QuotaPoolUnlimitedQuota,
+		AutoRechargeAmount: QuotaPoolAutoRechargeInherit,
+		WeeklyLimit:        QuotaPoolAutoRechargeInherit,
+		MonthlyLimit:       QuotaPoolAutoRechargeInherit,
+		MonthlyRefillDay:   1,
+	}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create legacy default pool failed: %v", err)
+	}
+
+	synced, err := SyncDefaultQuotaPool()
+	if err != nil {
+		t.Fatalf("sync legacy default pool failed: %v", err)
+	}
+	if !synced.IsDefault {
+		t.Fatal("synced default pool is_default = false, want true")
+	}
+	var got QuotaPool
+	if err := db.First(&got, pool.Id).Error; err != nil {
+		t.Fatalf("load legacy default pool failed: %v", err)
+	}
+	if !got.IsDefault {
+		t.Fatal("legacy default pool is_default = false, want true")
+	}
 }
 
 func TestSyncNewUserQuotaPoolCreatesProtectedPool(t *testing.T) {

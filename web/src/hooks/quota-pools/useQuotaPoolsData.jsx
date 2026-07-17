@@ -166,7 +166,11 @@ export const useQuotaPoolsData = () => {
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsPeriod, setStatsPeriod] = useState('week');
 
-  const selectedPoolId = selectedPool?.id || poolAdmin?.pool_id || 0;
+  const selectedPoolId = selectedPool?.is_default
+    ? 0
+    : selectedPool?.id || poolAdmin?.pool_id || 0;
+  const hasSelectedPool =
+    !!selectedPool || (!canUseGlobalApi && (poolAdmin?.pool_id || 0) > 0);
 
   const poolBaseUrl = useMemo(() => {
     if (canUseGlobalApi) return '/api/quota_pool';
@@ -217,7 +221,7 @@ export const useQuotaPoolsData = () => {
 
   const loadMembers = useCallback(
     async (page, pageSize) => {
-      if (!canViewPoolManagement || !selectedPoolId) {
+      if (!canViewPoolManagement || !hasSelectedPool) {
         setMembers([]);
         setMembersTotal(0);
         return;
@@ -234,12 +238,12 @@ export const useQuotaPoolsData = () => {
         showError(message);
       }
     },
-    [canUseGlobalApi, canViewPoolManagement, selectedPoolId],
+    [canUseGlobalApi, canViewPoolManagement, hasSelectedPool, selectedPoolId],
   );
 
   const loadTransactions = useCallback(
     async (page, pageSize, filters = appliedTransactionFilters) => {
-      if (!canViewPoolManagement || !selectedPoolId) {
+      if (!canViewPoolManagement || !hasSelectedPool) {
         setTransactions([]);
         setTransactionsTotal(0);
         return;
@@ -262,13 +266,14 @@ export const useQuotaPoolsData = () => {
       appliedTransactionFilters,
       canUseGlobalApi,
       canViewPoolManagement,
+      hasSelectedPool,
       selectedPoolId,
     ],
   );
 
   const loadOperationLogs = useCallback(
     async (page, pageSize, filters = appliedOperationLogFilters) => {
-      if (!canViewPoolManagement || !selectedPoolId) {
+      if (!canViewPoolManagement || !hasSelectedPool) {
         setOperationLogs([]);
         setOperationLogsTotal(0);
         return;
@@ -291,12 +296,13 @@ export const useQuotaPoolsData = () => {
       appliedOperationLogFilters,
       canUseGlobalApi,
       canViewPoolManagement,
+      hasSelectedPool,
       selectedPoolId,
     ],
   );
 
   const loadStats = useCallback(async () => {
-    if (!canViewPoolManagement || !selectedPoolId) {
+    if (!canViewPoolManagement || !hasSelectedPool) {
       setStats({
         usage: [],
         total_usage: 0,
@@ -323,7 +329,14 @@ export const useQuotaPoolsData = () => {
     } finally {
       setStatsLoading(false);
     }
-  }, [canUseGlobalApi, canViewPoolManagement, selectedPoolId, statsPeriod, t]);
+  }, [
+    canUseGlobalApi,
+    canViewPoolManagement,
+    hasSelectedPool,
+    selectedPoolId,
+    statsPeriod,
+    t,
+  ]);
 
   const loadCandidates = useCallback(
     async (keyword = '') => {
