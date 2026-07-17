@@ -96,6 +96,41 @@ const formatCandidateLabel = (user) => {
   }`;
 };
 
+const RECLAIM_PARTIAL_FACTORS = [50, 40, 30, 20, 10];
+
+const getReclaimAmountOptions = (pool, userQuota) => {
+  const systemConfig = pool?.system_auto_recharge || {};
+  let autoRechargeAmount = 0;
+  if (pool?.is_default || pool?.auto_recharge_amount < 0) {
+    autoRechargeAmount = systemConfig.amount || 0;
+  } else if (pool?.auto_recharge_amount > 0) {
+    autoRechargeAmount = pool.auto_recharge_amount;
+  }
+  const threshold = systemConfig.enabled ? systemConfig.threshold || 0 : -1;
+  if (
+    autoRechargeAmount <= 0 ||
+    typeof userQuota !== 'number' ||
+    userQuota <= threshold
+  ) {
+    return [];
+  }
+  if (
+    userQuota > autoRechargeAmount &&
+    userQuota - autoRechargeAmount > threshold
+  ) {
+    return [{ amount: autoRechargeAmount, isFull: true }];
+  }
+  const amounts = RECLAIM_PARTIAL_FACTORS.map((factor) =>
+    Math.floor((autoRechargeAmount * factor) / 100),
+  ).filter(
+    (amount, index, allAmounts) =>
+      amount > 0 &&
+      userQuota - amount > threshold &&
+      allAmounts.indexOf(amount) === index,
+  );
+  return amounts.map((amount) => ({ amount, isFull: false }));
+};
+
 const QuotaPool = () => {
   const data = useQuotaPoolsData();
   const {
@@ -610,16 +645,26 @@ const QuotaPool = () => {
       fixed: 'right',
       render: (_, record) => {
         const dropdownItems = [];
+        const reclaimAmounts = getReclaimAmountOptions(
+          selectedPool,
+          record.quota,
+        );
         if (canReclaimMembers) {
-          dropdownItems.push(
-            <Dropdown.Item
-              key='reclaim'
-              type='danger'
-              onClick={() => reclaimMember(record.id)}
-            >
-              {t('降额')}
-            </Dropdown.Item>,
-          );
+          reclaimAmounts.forEach((reclaimOption) => {
+            dropdownItems.push(
+              <Dropdown.Item
+                key={`reclaim-${reclaimOption.amount}`}
+                type='danger'
+                onClick={() => reclaimMember(record.id, reclaimOption.amount)}
+              >
+                {reclaimOption.isFull
+                  ? t('降额')
+                  : t('降额 {{amount}}', {
+                      amount: renderQuota(reclaimOption.amount),
+                    })}
+              </Dropdown.Item>,
+            );
+          });
         }
         if (canMoveMembers) {
           dropdownItems.push(

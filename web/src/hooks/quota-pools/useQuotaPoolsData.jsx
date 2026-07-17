@@ -600,11 +600,11 @@ export const useQuotaPoolsData = () => {
     }
   };
 
-  const reclaimMember = async (userId) => {
+  const reclaimMember = async (userId, amount) => {
     const url = canUseGlobalApi
       ? `/api/quota_pool/${selectedPoolId}/members/${userId}/reclaim`
       : `/api/quota_pool/self/members/${userId}/reclaim`;
-    const res = await API.post(url);
+    const res = await API.post(url, { amount });
     const { success, message } = res.data;
     if (success) {
       showSuccess(t('操作成功完成！'));

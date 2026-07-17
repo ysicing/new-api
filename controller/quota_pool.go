@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -49,8 +50,44 @@ type quotaPoolAdminRequest struct {
 	Level  int `json:"level"`
 }
 
+type quotaPoolReclaimRequest struct {
+	Amount *int `json:"amount"`
+}
+
+var quotaPoolReclaimFactors = []int{50, 40, 30, 20, 10}
+
 func quotaAmountToInternal(amount float64) int {
 	return int(amount * common.QuotaPerUnit)
+}
+
+func quotaPoolReclaimAmount(c *gin.Context, poolId int) (int, error) {
+	baseAmount, err := quotaPoolRechargeAmount(poolId)
+	if err != nil {
+		return 0, err
+	}
+	if c.Request.ContentLength == 0 {
+		return baseAmount, nil
+	}
+	var req quotaPoolReclaimRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		if errors.Is(err, io.EOF) {
+			return baseAmount, nil
+		}
+		return 0, err
+	}
+	if req.Amount == nil {
+		return baseAmount, nil
+	}
+	allowedAmounts := []int{baseAmount}
+	for _, factor := range quotaPoolReclaimFactors {
+		allowedAmounts = append(allowedAmounts, int(int64(baseAmount)*int64(factor)/100))
+	}
+	for _, allowedAmount := range allowedAmounts {
+		if allowedAmount > 0 && *req.Amount == allowedAmount {
+			return allowedAmount, nil
+		}
+	}
+	return 0, errors.New("降额金额必须为当前自动充值金额或其 50% 至 10% 选项")
 }
 
 const quotaPoolAutoRechargeRiskWarning = "配置已保存，但自动充值金额超过全局默认充值金额的 3 倍，可能存在较大风险，请确认配置是否合理"
@@ -912,7 +949,7 @@ func reclaimQuotaPoolMember(c *gin.Context, poolId int, userId int) error {
 	if poolId == model.QuotaPoolDefaultUserPoolId {
 		return model.ErrQuotaPoolDefaultReadonly
 	}
-	amount, err := quotaPoolRechargeAmount(poolId)
+	amount, err := quotaPoolReclaimAmount(c, poolId)
 	if err != nil {
 		return err
 	}
