@@ -27,6 +27,7 @@ import {
 } from '../constants/playground.constants';
 import { TABLE_COMPACT_MODES_KEY } from '../constants';
 import { MOBILE_BREAKPOINT } from '../hooks/common/useIsMobile';
+import i18n from '../i18n/i18n';
 
 export const ROLE_QUOTA_POOL_SUPER_ADMIN = 2;
 
@@ -142,6 +143,14 @@ if (isMobileScreen) {
   // showNoticeOptions.transition = 'flip';
 }
 
+const translateToastMessage = (message) =>
+  typeof message === 'string'
+    ? i18n.t(message, { defaultValue: message })
+    : message;
+
+const formatErrorMessage = (message) =>
+  `${i18n.t('错误：', { defaultValue: '错误：' })}${translateToastMessage(message)}`;
+
 export function showError(error) {
   console.error(error);
   if (error.message) {
@@ -154,42 +163,42 @@ export function showError(error) {
           window.location.href = '/login?expired=true';
           break;
         case 429:
-          Toast.error('错误：请求次数过多，请稍后再试！');
+          Toast.error(formatErrorMessage('请求次数过多，请稍后再试！'));
           break;
         case 500:
-          Toast.error('错误：服务器内部错误，请联系管理员！');
+          Toast.error(formatErrorMessage('服务器内部错误，请联系管理员！'));
           break;
         case 405:
-          Toast.info('本站仅作演示之用，无服务端！');
+          Toast.info(translateToastMessage('本站仅作演示之用，无服务端！'));
           break;
         default:
-          Toast.error('错误：' + error.message);
+          Toast.error(formatErrorMessage(error.message));
       }
       return;
     }
-    Toast.error('错误：' + error.message);
+    Toast.error(formatErrorMessage(error.message));
   } else {
-    Toast.error('错误：' + error);
+    Toast.error(formatErrorMessage(error));
   }
 }
 
 export function showWarning(message) {
-  Toast.warning(message);
+  Toast.warning(translateToastMessage(message));
 }
 
 export function showSuccess(message) {
-  Toast.success(message);
+  Toast.success(translateToastMessage(message));
 }
 
 export function showInfo(message) {
-  Toast.info(message);
+  Toast.info(translateToastMessage(message));
 }
 
 export function showNotice(message, isHTML = false) {
   if (isHTML) {
     toast(<HTMLToastContent htmlContent={message} />, showNoticeOptions);
   } else {
-    Toast.info(message);
+    Toast.info(translateToastMessage(message));
   }
 }
 
