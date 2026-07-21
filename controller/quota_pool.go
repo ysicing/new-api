@@ -712,6 +712,28 @@ func GetQuotaPoolCandidates(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{"items": items, "total": total})
 }
 
+var quotaPoolInitialRechargeFailureMessages = map[string]string{
+	"user_not_found":                             "用户不存在",
+	"missing_user":                               "用户不存在",
+	"quota_above_threshold":                      "用户额度高于自动充值触发阈值",
+	"quota_pool_not_found":                       "额度池不存在",
+	"new_user_quota_pool_auto_recharge_disabled": "新用户额度池不支持自动充值",
+	"quota_pool_disabled":                        "额度池已禁用",
+	"amount_not_configured":                      "自动充值金额未配置或已关闭",
+	"count_weekly_failed":                        "读取本周自动充值次数失败",
+	"weekly_limited":                             "已达到本周自动充值次数上限",
+	"count_monthly_failed":                       "读取本月自动充值次数失败",
+	"monthly_limited":                            "已达到本月自动充值次数上限",
+	"increase_user_quota_failed":                 "更新用户额度失败",
+}
+
+func quotaPoolInitialRechargeFailureMessage(reason string) string {
+	if message, ok := quotaPoolInitialRechargeFailureMessages[reason]; ok {
+		return message
+	}
+	return reason
+}
+
 func addUserToQuotaPool(c *gin.Context, poolId int, userId int, initialRecharge bool, logAction string) {
 	user := &model.User{}
 	if err := model.DB.First(user, "id = ?", userId).Error; err != nil {
@@ -750,7 +772,7 @@ func addUserToQuotaPool(c *gin.Context, poolId int, userId int, initialRecharge 
 	if initialRecharge && poolId != model.QuotaPoolDefaultUserPoolId && !result.TargetNewUserPool {
 		result := service.TryAutoRechargeUserById(userId)
 		if !result.Recharged {
-			warning = result.Reason
+			warning = quotaPoolInitialRechargeFailureMessage(result.Reason)
 		}
 	}
 	if warning != "" {
@@ -778,7 +800,7 @@ func moveUserToQuotaPoolForController(c *gin.Context, poolId int, userId int, in
 	if initialRecharge && poolId != model.QuotaPoolDefaultUserPoolId && !result.TargetNewUserPool {
 		result := service.TryAutoRechargeUserById(userId)
 		if !result.Recharged {
-			return result.Reason, nil
+			return quotaPoolInitialRechargeFailureMessage(result.Reason), nil
 		}
 	}
 	return "", nil

@@ -1022,7 +1022,7 @@ func TestAddQuotaPoolMemberInitialRechargeUsesAutoRechargeLimits(t *testing.T) {
 	if response["success"] != true {
 		t.Fatalf("expected add member success, got %#v", response)
 	}
-	if !strings.Contains(fmt.Sprint(response["message"]), "weekly_limited") {
+	if !strings.Contains(fmt.Sprint(response["message"]), "已达到本周自动充值次数上限") {
 		t.Fatalf("expected threshold warning, got %#v", response)
 	}
 	var gotUser model.User
@@ -1039,6 +1039,62 @@ func TestAddQuotaPoolMemberInitialRechargeUsesAutoRechargeLimits(t *testing.T) {
 	_ = db.Model(&model.QuotaPoolTransaction{}).Where("pool_id = ? AND type = ?", pool.Id, model.QuotaPoolTransactionAllocateManual).Count(&txCount).Error
 	if txCount != 0 {
 		t.Fatalf("initial recharge should not write manual allocation, got %d", txCount)
+	}
+}
+
+func TestAddQuotaPoolMemberInitialRechargeUsesReadableFailureMessage(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	cfg := operation_setting.GetAutoRechargeSetting()
+	originalAmount := cfg.Amount
+	originalThreshold := cfg.Threshold
+	defer func() {
+		cfg.Amount = originalAmount
+		cfg.Threshold = originalThreshold
+	}()
+	cfg.Amount = 0
+	cfg.Threshold = 10
+
+	pool := &model.QuotaPool{
+		Name:               "team",
+		Enabled:            true,
+		BaseQuota:          int(100 * common.QuotaPerUnit),
+		Quota:              int(100 * common.QuotaPerUnit),
+		AutoRechargeAmount: model.QuotaPoolAutoRechargeInherit,
+		WeeklyLimit:        model.QuotaPoolAutoRechargeInherit,
+		MonthlyLimit:       model.QuotaPoolAutoRechargeInherit,
+		MonthlyRefillDay:   1,
+	}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	user := &model.User{
+		Username: "member-readable-warning",
+		Password: "password",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+		AffCode:  "member-readable-warning-code",
+	}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("create user failed: %v", err)
+	}
+
+	ctx, recorder := quotaPoolTestContext(t, http.MethodPost, fmt.Sprintf("/api/quota_pool/%d/members", pool.Id), quotaPoolMemberRequest{
+		UserId: user.Id,
+	}, common.RoleAdminUser, 99)
+	ctx.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", pool.Id)}}
+
+	AddQuotaPoolMember(ctx)
+
+	response := decodeQuotaPoolResponse(t, recorder)
+	if response["success"] != true {
+		t.Fatalf("expected add member success, got %#v", response)
+	}
+	message := fmt.Sprint(response["message"])
+	if !strings.Contains(message, "自动充值金额未配置或已关闭") {
+		t.Fatalf("expected readable auto recharge warning, got %q", message)
+	}
+	if strings.Contains(message, "amount_not_configured") {
+		t.Fatalf("warning should not expose internal reason code, got %q", message)
 	}
 }
 
