@@ -80,6 +80,7 @@ type QuotaPool struct {
 	WeeklyLimit          int            `json:"weekly_limit" gorm:"type:int;default:-1;column:weekly_limit"`
 	MonthlyLimit         int            `json:"monthly_limit" gorm:"type:int;default:-1;column:monthly_limit"`
 	MonthlyRefillEnabled bool           `json:"monthly_refill_enabled" gorm:"default:false;column:monthly_refill_enabled"`
+	MonthlyRefillTopUp   bool           `json:"monthly_refill_top_up" gorm:"default:false;column:monthly_refill_top_up"`
 	MonthlyRefillAmount  int            `json:"monthly_refill_amount" gorm:"type:int;default:0;column:monthly_refill_amount"`
 	MonthlyRefillDay     int            `json:"monthly_refill_day" gorm:"type:int;default:1;column:monthly_refill_day"`
 	LastRefillMonth      int            `json:"last_refill_month" gorm:"type:int;default:0;column:last_refill_month"`

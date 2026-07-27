@@ -57,7 +57,7 @@ const QUOTA_POOL_TYPE_NEW_USER = 'new_user';
 const TRANSACTION_TYPE_LABELS = {
   initial_fund: '初始入池',
   manual_refill: '临时额度',
-  monthly_refill: '月度扩容',
+  monthly_refill: '月度自动充值',
   allocate_auto: '自动分配',
   allocate_manual: '手动分配',
   reclaim_user: '回收用户额度',
@@ -201,12 +201,19 @@ const QuotaPool = () => {
   const [showRefill, setShowRefill] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
   const [moveMemberRecord, setMoveMemberRecord] = useState(null);
+  const [monthlyRefillEnabled, setMonthlyRefillEnabled] = useState(false);
 
   useEffect(() => {
     if (showAddMember) {
       loadCandidates('');
     }
   }, [showAddMember, loadCandidates]);
+
+  useEffect(() => {
+    if (showConfig) {
+      setMonthlyRefillEnabled(!!selectedPool?.monthly_refill_enabled);
+    }
+  }, [selectedPool?.id, selectedPool?.monthly_refill_enabled, showConfig]);
 
   const isNewUserPool = (pool) => pool?.pool_type === QUOTA_POOL_TYPE_NEW_USER;
   const isProtectedSystemPool = (pool) =>
@@ -1254,6 +1261,7 @@ const QuotaPool = () => {
             weekly_limit: selectedPool?.weekly_limit,
             monthly_limit: selectedPool?.monthly_limit,
             monthly_refill_enabled: selectedPool?.monthly_refill_enabled,
+            monthly_refill_top_up: selectedPool?.monthly_refill_top_up || false,
             monthly_refill_amount:
               selectedPool?.monthly_refill_amount > 0
                 ? selectedPool.monthly_refill_amount / QUOTA_PER_UNIT
@@ -1316,17 +1324,30 @@ const QuotaPool = () => {
             <>
               <Form.Switch
                 field='monthly_refill_enabled'
-                label={t('月度扩容')}
+                label={t('月度自动充值')}
+                onChange={setMonthlyRefillEnabled}
               />
+              {monthlyRefillEnabled && (
+                <Form.Switch
+                  field='monthly_refill_top_up'
+                  label={t('额度补齐')}
+                />
+              )}
               <Form.InputNumber
                 field='monthly_refill_amount'
-                label={t('月扩容金额')}
+                label={t('月度充值金额')}
+                extraText={t(
+                  '关闭额度补齐时，每月固定增加该金额；开启后，该金额表示执行日的目标可用额度。',
+                )}
               />
               <Form.InputNumber
                 field='monthly_refill_day'
-                label={t('扩容日期')}
+                label={t('执行日')}
                 min={1}
                 max={28}
+                extraText={t(
+                  '每月仅执行一次；即使无需补充额度，也会记录为本月已执行。',
+                )}
               />
             </>
           )}

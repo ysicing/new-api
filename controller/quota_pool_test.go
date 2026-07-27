@@ -1638,3 +1638,77 @@ func TestUpdateQuotaPoolRejectsEnabledMonthlyRefillWithoutAmount(t *testing.T) {
 		t.Fatalf("expected enabled monthly refill without amount to fail")
 	}
 }
+
+func TestUpdateQuotaPoolRootCanEnableMonthlyRefillTopUp(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	pool := &model.QuotaPool{
+		Name:                 "monthly-top-up",
+		Enabled:              true,
+		BaseQuota:            1000,
+		Quota:                1000,
+		MonthlyRefillEnabled: true,
+		MonthlyRefillAmount:  1000,
+		MonthlyRefillDay:     1,
+	}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	topUp := true
+	ctx, recorder := quotaPoolTestContext(t, http.MethodPut, fmt.Sprintf("/api/quota_pool/%d", pool.Id), quotaPoolUpdateRequest{
+		MonthlyRefillTopUp: &topUp,
+	}, common.RoleRootUser, 99)
+	ctx.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", pool.Id)}}
+
+	UpdateQuotaPool(ctx)
+
+	response := decodeQuotaPoolResponse(t, recorder)
+	if response["success"] != true {
+		t.Fatalf("expected monthly refill top-up update success, got %#v", response)
+	}
+	var got model.QuotaPool
+	if err := db.First(&got, pool.Id).Error; err != nil {
+		t.Fatalf("load pool failed: %v", err)
+	}
+	if !got.MonthlyRefillTopUp {
+		t.Fatalf("expected monthly refill top-up to be enabled")
+	}
+	assertQuotaPoolManageLogContains(t, db, 99, "月度额度补齐 关闭 -> 启用")
+}
+
+func TestUpdateQuotaPoolNonRootCannotChangeMonthlyRefillTopUp(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	pool := &model.QuotaPool{
+		Name:                 "monthly-top-up-permission",
+		Enabled:              true,
+		BaseQuota:            1000,
+		Quota:                1000,
+		MonthlyRefillEnabled: true,
+		MonthlyRefillAmount:  1000,
+		MonthlyRefillDay:     1,
+	}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	topUp := true
+	ctx, recorder := quotaPoolTestContext(t, http.MethodPut, fmt.Sprintf("/api/quota_pool/%d", pool.Id), quotaPoolUpdateRequest{
+		MonthlyRefillTopUp: &topUp,
+	}, common.RoleQuotaPoolSuperAdmin, 99)
+	ctx.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", pool.Id)}}
+
+	UpdateQuotaPool(ctx)
+
+	response := decodeQuotaPoolResponse(t, recorder)
+	if response["success"] == true {
+		t.Fatalf("expected non-root monthly refill top-up update to fail")
+	}
+	if !strings.Contains(response["message"].(string), "无权限调整月度自动充值") {
+		t.Fatalf("unexpected message: %s", response["message"].(string))
+	}
+	var got model.QuotaPool
+	if err := db.First(&got, pool.Id).Error; err != nil {
+		t.Fatalf("load pool failed: %v", err)
+	}
+	if got.MonthlyRefillTopUp {
+		t.Fatalf("monthly refill top-up should remain disabled")
+	}
+}

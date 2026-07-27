@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var (
@@ -132,29 +134,43 @@ func refillMonthlyQuotaPools() {
 	}
 
 	for _, pool := range pools {
-		before := pool.Quota
-		after := before + pool.MonthlyRefillAmount
 		err := model.DB.Transaction(func(tx *gorm.DB) error {
-			result := tx.Model(&model.QuotaPool{}).
+			var currentPool model.QuotaPool
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 				Where("id = ? AND enabled = ? AND monthly_refill_enabled = ? AND monthly_refill_amount > ? AND monthly_refill_day <= ? AND last_refill_month <> ?",
 					pool.Id, true, true, 0, day, currentMonth).
-				Updates(map[string]interface{}{
-					"quota":             gorm.Expr("quota + ?", pool.MonthlyRefillAmount),
-					"base_quota":        gorm.Expr("base_quota + ?", pool.MonthlyRefillAmount),
-					"last_refill_month": currentMonth,
-				})
-			if result.Error != nil {
-				return result.Error
+				First(&currentPool).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return nil
+				}
+				return err
 			}
-			if result.RowsAffected == 0 {
+
+			actualAmount := currentPool.MonthlyRefillAmount
+			if currentPool.MonthlyRefillTopUp {
+				actualAmount = currentPool.MonthlyRefillAmount - currentPool.Quota
+				if actualAmount < 0 {
+					actualAmount = 0
+				}
+			}
+
+			updates := map[string]interface{}{"last_refill_month": currentMonth}
+			if actualAmount > 0 {
+				updates["quota"] = gorm.Expr("quota + ?", actualAmount)
+				updates["base_quota"] = gorm.Expr("base_quota + ?", actualAmount)
+			}
+			if err := tx.Model(&model.QuotaPool{}).Where("id = ?", currentPool.Id).Updates(updates).Error; err != nil {
+				return err
+			}
+			if actualAmount == 0 {
 				return nil
 			}
 			return tx.Create(&model.QuotaPoolTransaction{
-				PoolId:      pool.Id,
+				PoolId:      currentPool.Id,
 				Type:        model.QuotaPoolTransactionMonthlyRefill,
-				Amount:      pool.MonthlyRefillAmount,
-				QuotaBefore: before,
-				QuotaAfter:  after,
+				Amount:      actualAmount,
+				QuotaBefore: currentPool.Quota,
+				QuotaAfter:  currentPool.Quota + actualAmount,
 			}).Error
 		})
 		if err != nil {

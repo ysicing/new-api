@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -425,46 +426,138 @@ func TestTryAutoRechargeUser_NewUserPoolSkips(t *testing.T) {
 	}
 }
 
-func TestRefillMonthlyQuotaPoolsCatchesUpCurrentMonth(t *testing.T) {
+func TestRefillMonthlyQuotaPools(t *testing.T) {
+	tests := []struct {
+		name              string
+		topUp             bool
+		quota             int
+		expectedQuota     int
+		expectedBaseQuota int
+		expectedAmount    int
+		expectedTxCount   int64
+	}{
+		{name: "fixed refill adds configured amount", quota: 3000, expectedQuota: 9000, expectedBaseQuota: 9000, expectedAmount: 6000, expectedTxCount: 1},
+		{name: "top up fills to target", topUp: true, quota: 3000, expectedQuota: 6000, expectedBaseQuota: 6000, expectedAmount: 3000, expectedTxCount: 1},
+		{name: "top up at target only marks month", topUp: true, quota: 6000, expectedQuota: 6000, expectedBaseQuota: 6000, expectedTxCount: 0},
+		{name: "top up above target only marks month", topUp: true, quota: 7000, expectedQuota: 7000, expectedBaseQuota: 7000, expectedTxCount: 0},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db, _, cleanup := setupAutoRechargeTestDB(t)
+			defer cleanup()
+
+			now := time.Now()
+			currentMonth := now.Year()*100 + int(now.Month())
+			pool := &model.QuotaPool{
+				Name:                 "monthly",
+				Enabled:              true,
+				BaseQuota:            test.quota,
+				Quota:                test.quota,
+				AutoRechargeAmount:   model.QuotaPoolAutoRechargeInherit,
+				WeeklyLimit:          model.QuotaPoolAutoRechargeInherit,
+				MonthlyLimit:         model.QuotaPoolAutoRechargeInherit,
+				MonthlyRefillEnabled: true,
+				MonthlyRefillTopUp:   test.topUp,
+				MonthlyRefillAmount:  6000,
+				MonthlyRefillDay:     1,
+				LastRefillMonth:      0,
+			}
+			if err := db.Create(pool).Error; err != nil {
+				t.Fatalf("create pool failed: %v", err)
+			}
+
+			refillMonthlyQuotaPools()
+
+			var got model.QuotaPool
+			if err := db.First(&got, pool.Id).Error; err != nil {
+				t.Fatalf("get pool failed: %v", err)
+			}
+			if got.Quota != test.expectedQuota {
+				t.Fatalf("pool quota = %d, want %d", got.Quota, test.expectedQuota)
+			}
+			if got.BaseQuota != test.expectedBaseQuota {
+				t.Fatalf("pool base quota = %d, want %d", got.BaseQuota, test.expectedBaseQuota)
+			}
+			if got.LastRefillMonth != currentMonth {
+				t.Fatalf("last_refill_month = %d, want %d", got.LastRefillMonth, currentMonth)
+			}
+
+			var transactions []model.QuotaPoolTransaction
+			if err := db.Where("pool_id = ? AND type = ?", pool.Id, model.QuotaPoolTransactionMonthlyRefill).Find(&transactions).Error; err != nil {
+				t.Fatalf("list monthly refill transactions failed: %v", err)
+			}
+			if int64(len(transactions)) != test.expectedTxCount {
+				t.Fatalf("monthly refill transaction count = %d, want %d", len(transactions), test.expectedTxCount)
+			}
+			if len(transactions) == 1 && transactions[0].Amount != test.expectedAmount {
+				t.Fatalf("monthly refill amount = %d, want %d", transactions[0].Amount, test.expectedAmount)
+			}
+
+			if test.topUp && test.expectedAmount == 0 {
+				loweredQuota := 5000
+				if err := db.Model(&model.QuotaPool{}).Where("id = ?", pool.Id).Update("quota", loweredQuota).Error; err != nil {
+					t.Fatalf("lower pool quota failed: %v", err)
+				}
+				refillMonthlyQuotaPools()
+				if err := db.First(&got, pool.Id).Error; err != nil {
+					t.Fatalf("get pool after second run failed: %v", err)
+				}
+				if got.Quota != loweredQuota {
+					t.Fatalf("pool quota after second run = %d, want unchanged %d", got.Quota, loweredQuota)
+				}
+			}
+		})
+	}
+}
+
+func TestRefillMonthlyQuotaPoolsRollsBackWhenTransactionCreateFails(t *testing.T) {
 	db, _, cleanup := setupAutoRechargeTestDB(t)
 	defer cleanup()
 
-	now := time.Now()
-	currentMonth := now.Year()*100 + int(now.Month())
 	pool := &model.QuotaPool{
-		Name:                 "monthly",
+		Name:                 "monthly-rollback",
 		Enabled:              true,
-		BaseQuota:            100,
-		Quota:                100,
+		BaseQuota:            3000,
+		Quota:                3000,
 		AutoRechargeAmount:   model.QuotaPoolAutoRechargeInherit,
 		WeeklyLimit:          model.QuotaPoolAutoRechargeInherit,
 		MonthlyLimit:         model.QuotaPoolAutoRechargeInherit,
 		MonthlyRefillEnabled: true,
-		MonthlyRefillAmount:  30,
+		MonthlyRefillTopUp:   true,
+		MonthlyRefillAmount:  6000,
 		MonthlyRefillDay:     1,
-		LastRefillMonth:      0,
 	}
 	if err := db.Create(pool).Error; err != nil {
 		t.Fatalf("create pool failed: %v", err)
 	}
 
-	refillMonthlyQuotaPools()
+	callbackName := "test:fail_monthly_refill_transaction"
+	if err := db.Callback().Create().Before("gorm:create").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement.Schema != nil && tx.Statement.Schema.Name == "QuotaPoolTransaction" {
+			tx.AddError(errors.New("forced monthly refill transaction failure"))
+		}
+	}); err != nil {
+		t.Fatalf("register create callback failed: %v", err)
+	}
+	defer func() {
+		_ = db.Callback().Create().Remove(callbackName)
+	}()
+
 	refillMonthlyQuotaPools()
 
 	var got model.QuotaPool
-	_ = db.First(&got, pool.Id).Error
-	if got.Quota != 130 {
-		t.Fatalf("pool quota = %d, want 130", got.Quota)
+	if err := db.First(&got, pool.Id).Error; err != nil {
+		t.Fatalf("get pool failed: %v", err)
 	}
-	if got.BaseQuota != 130 {
-		t.Fatalf("pool base quota = %d, want 130", got.BaseQuota)
-	}
-	if got.LastRefillMonth != currentMonth {
-		t.Fatalf("last_refill_month = %d, want %d", got.LastRefillMonth, currentMonth)
+	if got.Quota != pool.Quota || got.BaseQuota != pool.BaseQuota || got.LastRefillMonth != 0 {
+		t.Fatalf("pool should roll back after transaction failure, got quota=%d base=%d month=%d", got.Quota, got.BaseQuota, got.LastRefillMonth)
 	}
 	var count int64
-	_ = db.Model(&model.QuotaPoolTransaction{}).Where("pool_id = ? AND type = ?", pool.Id, model.QuotaPoolTransactionMonthlyRefill).Count(&count).Error
-	if count != 1 {
-		t.Fatalf("monthly refill transaction count = %d, want 1", count)
+	if err := db.Model(&model.QuotaPoolTransaction{}).Where("pool_id = ?", pool.Id).Count(&count).Error; err != nil {
+		t.Fatalf("count transactions failed: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("monthly refill transaction count = %d, want 0", count)
 	}
 }

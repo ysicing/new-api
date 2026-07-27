@@ -29,6 +29,7 @@ type quotaPoolUpdateRequest struct {
 	WeeklyLimit          *int     `json:"weekly_limit"`
 	MonthlyLimit         *int     `json:"monthly_limit"`
 	MonthlyRefillEnabled *bool    `json:"monthly_refill_enabled"`
+	MonthlyRefillTopUp   *bool    `json:"monthly_refill_top_up"`
 	MonthlyRefillAmount  *float64 `json:"monthly_refill_amount"`
 	MonthlyRefillDay     *int     `json:"monthly_refill_day"`
 }
@@ -242,13 +243,16 @@ func quotaPoolConfigChangeDescriptions(pool *model.QuotaPool, updates map[string
 		descriptions = append(descriptions, fmt.Sprintf("月自动充值次数 %s -> %s", quotaPoolLimitLabel(pool.MonthlyLimit), quotaPoolLimitLabel(limit)))
 	}
 	if enabled, ok := updates["monthly_refill_enabled"].(bool); ok && enabled != pool.MonthlyRefillEnabled {
-		descriptions = append(descriptions, fmt.Sprintf("月度扩容 %s -> %s", quotaPoolEnabledLabel(pool.MonthlyRefillEnabled), quotaPoolEnabledLabel(enabled)))
+		descriptions = append(descriptions, fmt.Sprintf("月度自动充值 %s -> %s", quotaPoolEnabledLabel(pool.MonthlyRefillEnabled), quotaPoolEnabledLabel(enabled)))
+	}
+	if topUp, ok := updates["monthly_refill_top_up"].(bool); ok && topUp != pool.MonthlyRefillTopUp {
+		descriptions = append(descriptions, fmt.Sprintf("月度额度补齐 %s -> %s", quotaPoolEnabledLabel(pool.MonthlyRefillTopUp), quotaPoolEnabledLabel(topUp)))
 	}
 	if amount, ok := updates["monthly_refill_amount"].(int); ok && amount != pool.MonthlyRefillAmount {
-		descriptions = append(descriptions, fmt.Sprintf("月扩容金额 %s -> %s", logger.LogQuota(pool.MonthlyRefillAmount), logger.LogQuota(amount)))
+		descriptions = append(descriptions, fmt.Sprintf("月度充值金额 %s -> %s", logger.LogQuota(pool.MonthlyRefillAmount), logger.LogQuota(amount)))
 	}
 	if day, ok := updates["monthly_refill_day"].(int); ok && day != pool.MonthlyRefillDay {
-		descriptions = append(descriptions, fmt.Sprintf("扩容日期 %d -> %d", pool.MonthlyRefillDay, day))
+		descriptions = append(descriptions, fmt.Sprintf("执行日 %d -> %d", pool.MonthlyRefillDay, day))
 	}
 	return descriptions
 }
@@ -439,29 +443,36 @@ func UpdateQuotaPool(c *gin.Context) {
 	}
 	if req.MonthlyRefillEnabled != nil {
 		if !root {
-			common.ApiError(c, errors.New("无权限调整月度扩容"))
+			common.ApiError(c, errors.New("无权限调整月度自动充值"))
 			return
 		}
 		updates["monthly_refill_enabled"] = *req.MonthlyRefillEnabled
 	}
+	if req.MonthlyRefillTopUp != nil {
+		if !root {
+			common.ApiError(c, errors.New("无权限调整月度自动充值"))
+			return
+		}
+		updates["monthly_refill_top_up"] = *req.MonthlyRefillTopUp
+	}
 	if req.MonthlyRefillAmount != nil {
 		if !root {
-			common.ApiError(c, errors.New("无权限调整月度扩容"))
+			common.ApiError(c, errors.New("无权限调整月度自动充值"))
 			return
 		}
 		if *req.MonthlyRefillAmount < 0 {
-			common.ApiError(c, errors.New("月度扩容金额不能小于 0"))
+			common.ApiError(c, errors.New("月度充值金额不能小于 0"))
 			return
 		}
 		updates["monthly_refill_amount"] = quotaAmountToInternal(*req.MonthlyRefillAmount)
 	}
 	if req.MonthlyRefillDay != nil {
 		if !root {
-			common.ApiError(c, errors.New("无权限调整月度扩容"))
+			common.ApiError(c, errors.New("无权限调整月度自动充值"))
 			return
 		}
 		if *req.MonthlyRefillDay < 1 || *req.MonthlyRefillDay > 28 {
-			common.ApiError(c, errors.New("月度扩容日期必须在 1 到 28 之间"))
+			common.ApiError(c, errors.New("月度自动充值执行日必须在 1 到 28 之间"))
 			return
 		}
 		updates["monthly_refill_day"] = *req.MonthlyRefillDay
@@ -481,7 +492,7 @@ func UpdateQuotaPool(c *gin.Context) {
 			effectiveAmount = quotaAmountToInternal(*req.MonthlyRefillAmount)
 		}
 		if effectiveEnabled && effectiveAmount <= 0 {
-			common.ApiError(c, errors.New("启用月度扩容时扩容金额必须大于 0"))
+			common.ApiError(c, errors.New("启用月度自动充值时月度充值金额必须大于 0"))
 			return
 		}
 	}
