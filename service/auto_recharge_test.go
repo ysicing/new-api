@@ -426,6 +426,152 @@ func TestTryAutoRechargeUser_NewUserPoolSkips(t *testing.T) {
 	}
 }
 
+func TestGetWeeklyAutoRechargeUsageLimited(t *testing.T) {
+	db, _, cleanup := setupAutoRechargeTestDB(t)
+	defer cleanup()
+
+	cfg := operation_setting.GetAutoRechargeSetting()
+	originalEnabled := cfg.Enabled
+	originalAmount := cfg.Amount
+	originalWeeklyLimit := cfg.WeeklyLimit
+	defer func() {
+		cfg.Enabled = originalEnabled
+		cfg.Amount = originalAmount
+		cfg.WeeklyLimit = originalWeeklyLimit
+	}()
+	cfg.Enabled = true
+	cfg.Amount = 100
+	cfg.WeeklyLimit = 5
+
+	pool := &model.QuotaPool{
+		Name:               "weekly-usage",
+		Enabled:            true,
+		BaseQuota:          1000,
+		Quota:              1000,
+		AutoRechargeAmount: 100,
+		WeeklyLimit:        5,
+		MonthlyLimit:       model.QuotaPoolAutoRechargeInherit,
+	}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	user := &model.User{Id: 1, Username: "member", QuotaPoolId: pool.Id}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("create user failed: %v", err)
+	}
+	now := time.Now()
+	for index := 0; index < 2; index++ {
+		if err := db.Create(&model.Log{
+			UserId:    user.Id,
+			Type:      model.LogTypeSystem,
+			Content:   "额度池weekly-usage自动赠送 100",
+			CreatedAt: now.Unix(),
+		}).Error; err != nil {
+			t.Fatalf("create auto recharge log failed: %v", err)
+		}
+	}
+
+	usage, err := GetWeeklyAutoRechargeUsage(user, pool, now)
+	if err != nil {
+		t.Fatalf("get weekly auto recharge usage failed: %v", err)
+	}
+	if !usage.Enabled || usage.Used != 2 || usage.Limit != 5 || usage.Remaining != 3 {
+		t.Fatalf("unexpected weekly usage: %+v", usage)
+	}
+}
+
+func TestGetWeeklyAutoRechargeUsageBoundaries(t *testing.T) {
+	tests := []struct {
+		name        string
+		poolAmount  int
+		poolLimit   int
+		poolQuota   int
+		poolType    string
+		systemOn    bool
+		systemLimit int
+		wantEnabled bool
+		wantLimit   int
+	}{
+		{name: "unlimited only reports used count", poolAmount: 100, poolLimit: 0, poolQuota: 1000, systemOn: true, systemLimit: 5, wantEnabled: true},
+		{name: "inherits global weekly limit", poolAmount: model.QuotaPoolAutoRechargeInherit, poolLimit: model.QuotaPoolAutoRechargeInherit, poolQuota: 1000, systemOn: true, systemLimit: 4, wantEnabled: true, wantLimit: 4},
+		{name: "pool disables auto recharge", poolAmount: model.QuotaPoolAutoRechargeOff, poolLimit: 5, poolQuota: 1000, systemOn: true, systemLimit: 5},
+		{name: "empty pool hides usage", poolAmount: 100, poolLimit: 5, poolQuota: 0, systemOn: true, systemLimit: 5},
+		{name: "system disables auto recharge", poolAmount: 100, poolLimit: 5, poolQuota: 1000, systemLimit: 5},
+		{name: "new user pool disables auto recharge", poolAmount: 100, poolLimit: 5, poolQuota: 1000, poolType: model.QuotaPoolTypeNewUser, systemOn: true, systemLimit: 5},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db, _, cleanup := setupAutoRechargeTestDB(t)
+			defer cleanup()
+
+			cfg := operation_setting.GetAutoRechargeSetting()
+			originalEnabled := cfg.Enabled
+			originalAmount := cfg.Amount
+			originalWeeklyLimit := cfg.WeeklyLimit
+			defer func() {
+				cfg.Enabled = originalEnabled
+				cfg.Amount = originalAmount
+				cfg.WeeklyLimit = originalWeeklyLimit
+			}()
+			cfg.Enabled = test.systemOn
+			cfg.Amount = 100
+			cfg.WeeklyLimit = test.systemLimit
+
+			pool := &model.QuotaPool{
+				Name:               "weekly-boundary",
+				PoolType:           test.poolType,
+				Enabled:            true,
+				BaseQuota:          1000,
+				Quota:              test.poolQuota,
+				AutoRechargeAmount: test.poolAmount,
+				WeeklyLimit:        test.poolLimit,
+				MonthlyLimit:       model.QuotaPoolAutoRechargeInherit,
+			}
+			if err := db.Create(pool).Error; err != nil {
+				t.Fatalf("create pool failed: %v", err)
+			}
+			if err := db.Model(&model.QuotaPool{}).Where("id = ?", pool.Id).Updates(map[string]interface{}{
+				"auto_recharge_amount": test.poolAmount,
+				"weekly_limit":         test.poolLimit,
+				"quota":                test.poolQuota,
+			}).Error; err != nil {
+				t.Fatalf("update pool zero values failed: %v", err)
+			}
+			pool.AutoRechargeAmount = test.poolAmount
+			pool.WeeklyLimit = test.poolLimit
+			pool.Quota = test.poolQuota
+			user := &model.User{Id: 1, Username: "member", QuotaPoolId: pool.Id}
+			if err := db.Create(user).Error; err != nil {
+				t.Fatalf("create user failed: %v", err)
+			}
+			now := time.Now()
+			if err := db.Create(&model.Log{
+				UserId:    user.Id,
+				Type:      model.LogTypeSystem,
+				Content:   "额度池weekly-boundary自动赠送 100",
+				CreatedAt: now.Unix(),
+			}).Error; err != nil {
+				t.Fatalf("create auto recharge log failed: %v", err)
+			}
+
+			usage, err := GetWeeklyAutoRechargeUsage(user, pool, now)
+			if err != nil {
+				t.Fatalf("get weekly auto recharge usage failed: %v", err)
+			}
+			if usage.Enabled != test.wantEnabled || usage.Limit != test.wantLimit {
+				t.Fatalf("unexpected weekly usage: %+v", usage)
+			}
+			if test.wantEnabled && usage.Used != 1 {
+				t.Fatalf("weekly used = %d, want 1", usage.Used)
+			}
+			if !test.wantEnabled && (usage.Used != 0 || usage.Remaining != 0) {
+				t.Fatalf("disabled usage should not expose counts: %+v", usage)
+			}
+		})
+	}
+}
+
 func TestRefillMonthlyQuotaPools(t *testing.T) {
 	tests := []struct {
 		name              string

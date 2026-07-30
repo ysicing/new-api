@@ -155,6 +155,7 @@ const QuotaPool = () => {
     operationLogsPageSize,
     operationLogsTotal,
     adminContacts,
+    weeklyAutoRechargeUsage,
     transactionFilters,
     operationLogFilters,
     handleTransactionsPageChange,
@@ -375,6 +376,9 @@ const QuotaPool = () => {
     if (pool.auto_recharge_amount === 0) return true;
     return pool.auto_recharge_amount < 0 && (systemConfig.amount || 0) <= 0;
   };
+
+  const showMemberWeeklyAutoRechargeUsage =
+    !canViewPoolManagement && weeklyAutoRechargeUsage?.enabled;
 
   const renderAutoRechargeRuleSummary = (pool) => {
     const systemConfig = pool?.system_auto_recharge || {};
@@ -945,7 +949,9 @@ const QuotaPool = () => {
               className={`grid grid-cols-1 md:grid-cols-2 ${
                 isAutoRechargeClosed(selectedPool)
                   ? 'xl:grid-cols-3'
-                  : 'xl:grid-cols-5'
+                  : canViewPoolManagement || showMemberWeeklyAutoRechargeUsage
+                    ? 'xl:grid-cols-5'
+                    : 'xl:grid-cols-4'
               } gap-3`}
             >
               <Card title={t('本月可用额度/累计总额度')}>
@@ -960,14 +966,32 @@ const QuotaPool = () => {
               </Card>
               {!isAutoRechargeClosed(selectedPool) && (
                 <>
-                  <Card title={t('周自动充值次数')}>
-                    <Typography.Text>
-                      {renderLimit(
-                        selectedPool.weekly_limit,
-                        selectedPool.system_auto_recharge?.weekly_limit,
-                      )}
-                    </Typography.Text>
-                  </Card>
+                  {canViewPoolManagement ? (
+                    <Card title={t('周自动充值次数')}>
+                      <Typography.Text>
+                        {renderLimit(
+                          selectedPool.weekly_limit,
+                          selectedPool.system_auto_recharge?.weekly_limit,
+                        )}
+                      </Typography.Text>
+                    </Card>
+                  ) : (
+                    showMemberWeeklyAutoRechargeUsage && (
+                      <Card title={t('本周自动充值')}>
+                        <div className='flex flex-col gap-1' aria-live='polite'>
+                          <Typography.Text>
+                            {t('已充值次数')}：{weeklyAutoRechargeUsage.used}
+                          </Typography.Text>
+                          {weeklyAutoRechargeUsage.limit > 0 && (
+                            <Typography.Text type='secondary'>
+                              {t('理论剩余次数')}：
+                              {weeklyAutoRechargeUsage.remaining}
+                            </Typography.Text>
+                          )}
+                        </div>
+                      </Card>
+                    )
+                  )}
                   <Card title={t('月自动充值次数')}>
                     <Typography.Text>
                       {renderLimit(

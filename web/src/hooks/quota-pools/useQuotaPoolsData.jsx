@@ -124,6 +124,7 @@ export const useQuotaPoolsData = () => {
   const [defaultPool, setDefaultPool] = useState(null);
   const [selectedPool, setSelectedPool] = useState(null);
   const [adminContacts, setAdminContacts] = useState([]);
+  const [weeklyAutoRechargeUsage, setWeeklyAutoRechargeUsage] = useState(null);
   const [members, setMembers] = useState([]);
   const [membersPage, setMembersPage] = useState(1);
   const [membersPageSize, setMembersPageSize] = useState(20);
@@ -191,6 +192,7 @@ export const useQuotaPoolsData = () => {
         setPools(nextPools);
         setDefaultPool(null);
         setAdminContacts([]);
+        setWeeklyAutoRechargeUsage(null);
         setSelectedPool((current) => {
           if (!current) {
             return null;
@@ -207,6 +209,7 @@ export const useQuotaPoolsData = () => {
         setPools(data?.pool ? [data.pool] : []);
         setDefaultPool(data?.default_pool || null);
         setAdminContacts(data?.admin_contacts || []);
+        setWeeklyAutoRechargeUsage(data?.weekly_auto_recharge_usage || null);
         setSelectedPool((current) => {
           if (!current) return data?.pool || null;
           return data?.pool || null;
@@ -666,6 +669,7 @@ export const useQuotaPoolsData = () => {
     selectedPool,
     setSelectedPool,
     adminContacts,
+    weeklyAutoRechargeUsage,
     members,
     membersPage,
     membersPageSize,

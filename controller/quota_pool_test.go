@@ -310,6 +310,64 @@ func TestGetSelfQuotaPoolIncludesCounts(t *testing.T) {
 	}
 }
 
+func TestGetSelfQuotaPoolIncludesWeeklyAutoRechargeUsage(t *testing.T) {
+	db := setupQuotaPoolControllerTestDB(t)
+	cfg := operation_setting.GetAutoRechargeSetting()
+	originalEnabled := cfg.Enabled
+	originalAmount := cfg.Amount
+	originalWeeklyLimit := cfg.WeeklyLimit
+	defer func() {
+		cfg.Enabled = originalEnabled
+		cfg.Amount = originalAmount
+		cfg.WeeklyLimit = originalWeeklyLimit
+	}()
+	cfg.Enabled = true
+	cfg.Amount = 100
+	cfg.WeeklyLimit = 5
+
+	pool := &model.QuotaPool{
+		Name:               "member-usage",
+		Enabled:            true,
+		BaseQuota:          1000,
+		Quota:              1000,
+		AutoRechargeAmount: 100,
+		WeeklyLimit:        5,
+		MonthlyLimit:       model.QuotaPoolAutoRechargeInherit,
+		MonthlyRefillDay:   1,
+	}
+	if err := db.Create(pool).Error; err != nil {
+		t.Fatalf("create pool failed: %v", err)
+	}
+	member := &model.User{Id: 1, Username: "member", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id}
+	if err := db.Create(member).Error; err != nil {
+		t.Fatalf("create member failed: %v", err)
+	}
+	if err := db.Create(&model.Log{
+		UserId:    member.Id,
+		Type:      model.LogTypeSystem,
+		Content:   "额度池member-usage自动赠送 100",
+		CreatedAt: time.Now().Unix(),
+	}).Error; err != nil {
+		t.Fatalf("create auto recharge log failed: %v", err)
+	}
+
+	ctx, recorder := quotaPoolTestContext(t, http.MethodGet, "/api/quota_pool/self", nil, common.RoleCommonUser, member.Id)
+	GetSelfQuotaPool(ctx)
+
+	response := decodeQuotaPoolResponse(t, recorder)
+	if response["success"] != true {
+		t.Fatalf("expected success response, got %#v", response)
+	}
+	data := response["data"].(map[string]interface{})
+	usage, ok := data["weekly_auto_recharge_usage"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected weekly auto recharge usage, got %#v", data["weekly_auto_recharge_usage"])
+	}
+	if usage["enabled"] != true || usage["used"].(float64) != 1 || usage["limit"].(float64) != 5 || usage["remaining"].(float64) != 4 {
+		t.Fatalf("unexpected weekly auto recharge usage: %#v", usage)
+	}
+}
+
 func TestUpdateSelfQuotaPoolOnlyUpdatesRechargeRules(t *testing.T) {
 	db := setupQuotaPoolControllerTestDB(t)
 	cfg := operation_setting.GetAutoRechargeSetting()

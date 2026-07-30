@@ -72,6 +72,13 @@ type QuotaPoolAutoRechargeResult struct {
 	Amount    int
 }
 
+type WeeklyAutoRechargeUsage struct {
+	Enabled   bool  `json:"enabled"`
+	Used      int64 `json:"used"`
+	Limit     int   `json:"limit"`
+	Remaining int64 `json:"remaining"`
+}
+
 func formatAutoRechargeLog(pool *model.QuotaPool, amountQuota int) string {
 	quotaText := logger.LogQuota(amountQuota)
 	if pool != nil && !pool.IsDefault {
@@ -115,6 +122,43 @@ func resolveAutoRechargePolicy(cfg *operation_setting.AutoRechargeSetting, pool 
 		policy.MonthlyLimit = pool.MonthlyLimit
 	}
 	return policy
+}
+
+func weekStartTimestamp(now time.Time) int64 {
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	return time.Date(now.Year(), now.Month(), now.Day()-weekday+1, 0, 0, 0, 0, now.Location()).Unix()
+}
+
+func GetWeeklyAutoRechargeUsage(user *model.User, pool *model.QuotaPool, now time.Time) (WeeklyAutoRechargeUsage, error) {
+	usage := WeeklyAutoRechargeUsage{}
+	cfg := operation_setting.GetAutoRechargeSetting()
+	if user == nil || pool == nil || !cfg.Enabled || !pool.Enabled || pool.IsNewUserPool() || pool.Quota <= 0 {
+		return usage, nil
+	}
+
+	systemAmountQuota := int(float64(cfg.Amount) * common.QuotaPerUnit)
+	policy := resolveAutoRechargePolicy(cfg, pool, systemAmountQuota)
+	if policy.AmountQuota <= 0 {
+		return usage, nil
+	}
+
+	used, err := model.CountAutoRechargeLogs(user.Id, weekStartTimestamp(now))
+	if err != nil {
+		return usage, err
+	}
+	usage.Enabled = true
+	usage.Used = used
+	usage.Limit = policy.WeeklyLimit
+	if policy.WeeklyLimit > 0 {
+		usage.Remaining = int64(policy.WeeklyLimit) - used
+		if usage.Remaining < 0 {
+			usage.Remaining = 0
+		}
+	}
+	return usage, nil
 }
 
 func refillMonthlyQuotaPools() {
@@ -243,11 +287,7 @@ func tryAutoRechargeUser(
 	}
 
 	now := time.Now()
-	weekday := int(now.Weekday())
-	if weekday == 0 {
-		weekday = 7
-	}
-	weekStart := time.Date(now.Year(), now.Month(), now.Day()-weekday+1, 0, 0, 0, 0, now.Location()).Unix()
+	weekStart := weekStartTimestamp(now)
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).Unix()
 
 	if policy.WeeklyLimit > 0 {
