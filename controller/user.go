@@ -1109,7 +1109,9 @@ func ManageUser(c *gin.Context) {
 		return
 	}
 	myRole := c.GetInt("role")
-	if myRole <= user.Role && myRole != common.RoleRootUser {
+	// 充值只增加额度，不修改用户角色、状态或权限，因此不受目标用户角色等级限制。
+	isRecharge := req.Action == "recharge_auto"
+	if myRole <= user.Role && myRole != common.RoleRootUser && !isRecharge {
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
 		return
 	}

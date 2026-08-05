@@ -572,6 +572,47 @@ func TestManageUserRechargeAutoRecordsAdminInfo(t *testing.T) {
 	}
 }
 
+func TestManageUserRechargeAutoAllowsHigherRoleUser(t *testing.T) {
+	db := setupUserManageTestDB(t)
+	cfg := operation_setting.GetAutoRechargeSetting()
+	originalAmount := cfg.Amount
+	defer func() {
+		cfg.Amount = originalAmount
+	}()
+	cfg.Amount = 2
+
+	target := &model.User{
+		Username: "target-root",
+		Password: "password",
+		Role:     common.RoleRootUser,
+		Status:   common.UserStatusEnabled,
+		Quota:    100,
+		Group:    "default",
+	}
+	if err := db.Create(target).Error; err != nil {
+		t.Fatalf("failed to create target root user: %v", err)
+	}
+
+	ctx, recorder := newManageUserContext(t, ManageRequest{
+		Id:     target.Id,
+		Action: "recharge_auto",
+	}, common.RoleAdminUser, 99)
+	ManageUser(ctx)
+
+	response := decodeManageUserResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected higher-role user recharge to succeed, got %q", response.Message)
+	}
+	amountQuota := int(float64(cfg.Amount) * common.QuotaPerUnit)
+	var updated model.User
+	if err := db.First(&updated, target.Id).Error; err != nil {
+		t.Fatalf("failed to reload target root user: %v", err)
+	}
+	if updated.Quota != target.Quota+amountQuota {
+		t.Fatalf("quota = %d, want %d", updated.Quota, target.Quota+amountQuota)
+	}
+}
+
 func TestManageUserRootCanAdjustDefaultPoolUserQuota(t *testing.T) {
 	db := setupUserManageTestDB(t)
 	target := &model.User{
