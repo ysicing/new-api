@@ -108,3 +108,14 @@ func quotaPoolPage(c *gin.Context, items any, total int64) {
 	page.SetTotal(int(total))
 	common.ApiSuccess(c, page)
 }
+
+func recordQuotaPoolAudit(c *gin.Context, poolId int, action string, params map[string]any) {
+	if params == nil {
+		params = map[string]any{}
+	}
+	params["quota_pool_id"] = poolId
+	model.RecordOperationAuditLog(
+		c.GetInt("id"), action, c.ClientIP(), action, params,
+		map[string]any{"admin_id": c.GetInt("id"), "admin_username": c.GetString("username"), "quota_pool_id": poolId}, nil,
+	)
+}

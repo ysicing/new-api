@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"strconv"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -49,6 +51,7 @@ func AddQuotaPoolMember(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	recordQuotaPoolAudit(c, id, "quota_pool.member_add", map[string]any{"user_id": req.UserId})
 	recharge := service.TryAutoRechargeUserById(req.UserId)
 	common.ApiSuccess(c, gin.H{"move": result, "initial_recharge": recharge})
 }
@@ -68,6 +71,7 @@ func MoveUserQuotaPool(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	recordQuotaPoolAudit(c, req.PoolId, "quota_pool.member_move", map[string]any{"user_id": userId})
 	common.ApiSuccess(c, result)
 }
 
@@ -90,6 +94,7 @@ func RechargeQuotaPoolMember(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	recordQuotaPoolAudit(c, id, "quota_pool.member_recharge", map[string]any{"user_id": userId, "amount": -change.Amount})
 	common.ApiSuccess(c, change)
 }
 
@@ -125,6 +130,7 @@ func ReclaimQuotaPoolMember(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	recordQuotaPoolAudit(c, id, "quota_pool.member_reclaim", map[string]any{"user_id": userId, "amount": change.Amount})
 	common.ApiSuccess(c, change)
 }
 
@@ -142,6 +148,7 @@ func GrantQuotaPoolAdmin(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	recordQuotaPoolAudit(c, id, "quota_pool.admin_grant", map[string]any{"user_id": req.UserId, "level": req.Level})
 	common.ApiSuccess(c, nil)
 }
 
@@ -158,6 +165,7 @@ func RevokeQuotaPoolAdmin(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	recordQuotaPoolAudit(c, id, "quota_pool.admin_revoke", map[string]any{"user_id": userId})
 	common.ApiSuccess(c, nil)
 }
 
@@ -176,9 +184,30 @@ func GetQuotaPoolTransactions(c *gin.Context) {
 }
 
 func GetQuotaPoolOperationLogs(c *gin.Context) {
-	common.ApiSuccess(c, gin.H{"items": []any{}, "total": 0})
+	id, ok := parseQuotaPoolID(c)
+	if !ok || !requireQuotaPoolFeature(c) {
+		return
+	}
+	page := common.GetPageQuery(c)
+	items, total, err := model.ListQuotaPoolOperationLogs(id, page)
+	if err != nil {
+		writeQuotaPoolError(c, err)
+		return
+	}
+	quotaPoolPage(c, items, total)
 }
 
 func GetQuotaPoolStats(c *gin.Context) {
-	common.ApiSuccess(c, gin.H{"usage": []any{}, "recharge": []any{}})
+	id, ok := parseQuotaPoolID(c)
+	if !ok || !requireQuotaPoolFeature(c) {
+		return
+	}
+	start, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	end, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	stats, err := model.GetQuotaPoolStats(id, start, end)
+	if err != nil {
+		writeQuotaPoolError(c, err)
+		return
+	}
+	common.ApiSuccess(c, stats)
 }

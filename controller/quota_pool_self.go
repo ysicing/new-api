@@ -82,6 +82,7 @@ func UpdateSelfQuotaPool(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	recordQuotaPoolAudit(c, pool.Id, "quota_pool.self_update", map[string]any{"fields": len(updates)})
 	common.ApiSuccess(c, nil)
 }
 
@@ -113,8 +114,32 @@ func GetSelfQuotaPoolTransactions(c *gin.Context) {
 	quotaPoolPage(c, items, total)
 }
 
-func GetSelfQuotaPoolOperationLogs(c *gin.Context) { GetQuotaPoolOperationLogs(c) }
-func GetSelfQuotaPoolStats(c *gin.Context)         { GetQuotaPoolStats(c) }
+func GetSelfQuotaPoolOperationLogs(c *gin.Context) {
+	pool, _, ok := selfQuotaPool(c)
+	if !ok {
+		return
+	}
+	page := common.GetPageQuery(c)
+	items, total, err := model.ListQuotaPoolOperationLogs(pool.Id, page)
+	if err != nil {
+		writeQuotaPoolError(c, err)
+		return
+	}
+	quotaPoolPage(c, items, total)
+}
+
+func GetSelfQuotaPoolStats(c *gin.Context) {
+	pool, _, ok := selfQuotaPool(c)
+	if !ok {
+		return
+	}
+	stats, err := model.GetQuotaPoolStats(pool.Id, 0, 0)
+	if err != nil {
+		writeQuotaPoolError(c, err)
+		return
+	}
+	common.ApiSuccess(c, stats)
+}
 
 func GetSelfQuotaPoolCandidates(c *gin.Context) {
 	if _, _, ok := selfQuotaPool(c); !ok {
@@ -138,6 +163,7 @@ func AddSelfQuotaPoolMember(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	recordQuotaPoolAudit(c, pool.Id, "quota_pool.member_add", map[string]any{"user_id": req.UserId})
 	recharge := service.TryAutoRechargeUserById(req.UserId)
 	common.ApiSuccess(c, gin.H{"move": result, "initial_recharge": recharge})
 }
@@ -160,6 +186,7 @@ func RechargeSelfQuotaPoolMember(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	recordQuotaPoolAudit(c, pool.Id, "quota_pool.member_recharge", map[string]any{"user_id": userId, "amount": -change.Amount})
 	common.ApiSuccess(c, change)
 }
 
@@ -177,6 +204,7 @@ func ReclaimSelfQuotaPoolMember(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	recordQuotaPoolAudit(c, pool.Id, "quota_pool.member_reclaim", map[string]any{"user_id": userId, "amount": change.Amount})
 	common.ApiSuccess(c, change)
 }
 
@@ -198,6 +226,7 @@ func GrantSelfQuotaPoolAdmin(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	recordQuotaPoolAudit(c, pool.Id, "quota_pool.admin_grant", map[string]any{"user_id": req.UserId, "level": req.Level})
 	common.ApiSuccess(c, nil)
 }
 
@@ -218,5 +247,6 @@ func RevokeSelfQuotaPoolAdmin(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	recordQuotaPoolAudit(c, pool.Id, "quota_pool.admin_revoke", map[string]any{"user_id": userId})
 	common.ApiSuccess(c, nil)
 }

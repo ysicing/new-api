@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
 )
@@ -31,6 +32,30 @@ func GetAllLogs(c *gin.Context) {
 	pageInfo.SetItems(logs)
 	common.ApiSuccess(c, pageInfo)
 	return
+}
+
+func GetTopUsers(c *gin.Context) {
+	start, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	end, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	items, err := model.GetTopUsers(start, end, c.Query("model_name"), limit)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, items)
+}
+
+func GetRechargeLeaderboard(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	items, err := model.GetRechargeLeaderboard(limit)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"list": items, "weekly_limit": operation_setting.GetAutoRechargeSetting().WeeklyLimit,
+	})
 }
 
 func GetUserLogs(c *gin.Context) {

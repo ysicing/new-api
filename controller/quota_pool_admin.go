@@ -36,6 +36,7 @@ func CreateQuotaPool(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	recordQuotaPoolAudit(c, pool.Id, "quota_pool.create", map[string]any{"name": pool.Name, "base_quota": pool.BaseQuota})
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": pool})
 }
 
@@ -47,6 +48,7 @@ func SyncDefaultQuotaPool(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	recordQuotaPoolAudit(c, 0, "quota_pool.sync_system", nil)
 	common.ApiSuccess(c, nil)
 }
 
@@ -89,6 +91,7 @@ func UpdateQuotaPool(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	recordQuotaPoolAudit(c, id, "quota_pool.update", map[string]any{"fields": len(updates)})
 	common.ApiSuccess(c, change)
 }
 
@@ -161,6 +164,7 @@ func setQuotaPoolEnabled(c *gin.Context, enabled bool) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	recordQuotaPoolAudit(c, id, "quota_pool.enabled", map[string]any{"enabled": enabled})
 	common.ApiSuccess(c, nil)
 }
 
@@ -176,6 +180,7 @@ func DeleteQuotaPool(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	recordQuotaPoolAudit(c, id, "quota_pool.delete", nil)
 	common.ApiSuccess(c, nil)
 }
 
@@ -194,6 +199,7 @@ func RefillQuotaPool(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	recordQuotaPoolAudit(c, id, "quota_pool.refill", map[string]any{"amount": change.Amount})
 	common.ApiSuccess(c, change)
 }
 
