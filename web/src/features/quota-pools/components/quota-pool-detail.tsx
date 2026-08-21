@@ -7,15 +7,27 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import {
   getQuotaPoolMembers,
+  getQuotaPoolOperationLogs,
   getQuotaPoolStats,
   getQuotaPoolTransactions,
 } from '../api'
 import type { QuotaPool, QuotaPoolCapabilities } from '../types'
 import { PoolConfiguration } from './quota-pool-configuration'
-import { PoolOverview, PoolStats, PoolTransactions } from './quota-pool-data'
+import {
+  PoolOperationLogs,
+  PoolOverview,
+  PoolStats,
+  PoolTransactions,
+} from './quota-pool-data'
 import { PoolMembers } from './quota-pool-members'
 
-type DetailTab = 'overview' | 'members' | 'transactions' | 'stats' | 'config'
+type DetailTab =
+  | 'overview'
+  | 'members'
+  | 'transactions'
+  | 'logs'
+  | 'stats'
+  | 'config'
 
 export function QuotaPoolDetail(props: {
   pool: QuotaPool
@@ -39,6 +51,11 @@ export function QuotaPoolDetail(props: {
     queryFn: () => getQuotaPoolStats(props.pool.id, props.selfMode),
     enabled: tab === 'stats',
   })
+  const logs = useQuery({
+    queryKey: ['quota-pool', props.pool.id, 'operation-logs'],
+    queryFn: () => getQuotaPoolOperationLogs(props.pool.id, props.selfMode),
+    enabled: tab === 'logs',
+  })
 
   return (
     <Card className='min-w-0'>
@@ -51,6 +68,7 @@ export function QuotaPoolDetail(props: {
             <TabsTrigger value='overview'>{t('Overview')}</TabsTrigger>
             <TabsTrigger value='members'>{t('Members')}</TabsTrigger>
             <TabsTrigger value='transactions'>{t('Transactions')}</TabsTrigger>
+            <TabsTrigger value='logs'>{t('Operation logs')}</TabsTrigger>
             <TabsTrigger value='stats'>{t('Statistics')}</TabsTrigger>
             <TabsTrigger value='config'>{t('Configuration')}</TabsTrigger>
           </TabsList>
@@ -67,6 +85,9 @@ export function QuotaPoolDetail(props: {
           </TabsContent>
           <TabsContent value='transactions'>
             <PoolTransactions query={transactions} />
+          </TabsContent>
+          <TabsContent value='logs'>
+            <PoolOperationLogs query={logs} />
           </TabsContent>
           <TabsContent value='stats'>
             <PoolStats query={stats} />

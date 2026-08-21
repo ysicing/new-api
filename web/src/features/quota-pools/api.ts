@@ -6,6 +6,7 @@ import type {
   QuotaPool,
   QuotaPoolCapabilities,
   QuotaPoolMember,
+  QuotaPoolOperationLog,
   QuotaPoolStats,
   QuotaPoolTransaction,
 } from './types'
@@ -53,6 +54,15 @@ export async function getQuotaPoolStats(poolId: number, self = false) {
     ? '/api/quota_pool/self/stats'
     : `/api/quota_pool/${poolId}/stats`
   const response = await api.get<ApiResponse<QuotaPoolStats>>(endpoint)
+  return response.data
+}
+
+export async function getQuotaPoolOperationLogs(poolId: number, self = false) {
+  const endpoint = self
+    ? '/api/quota_pool/self/operation_logs'
+    : `/api/quota_pool/${poolId}/operation_logs`
+  const response =
+    await api.get<ApiResponse<PageData<QuotaPoolOperationLog>>>(endpoint)
   return response.data
 }
 

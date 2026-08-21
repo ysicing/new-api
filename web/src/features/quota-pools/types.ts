@@ -56,6 +56,14 @@ export interface QuotaPoolTransaction {
   created_at: number
 }
 
+export interface QuotaPoolOperationLog {
+  id: number
+  user_id: number
+  username: string
+  content: string
+  created_at: number
+}
+
 export interface QuotaPoolUsageStat {
   user_id: number
   username: string

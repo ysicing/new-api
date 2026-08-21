@@ -35,7 +35,12 @@ export function LDAPSection({
     value: LDAPSettingsValues[K]
   ) => setValues((current) => ({ ...current, [key]: value }))
   const save = async () => {
-    for (const [key, value] of Object.entries(values)) {
+    const entries = Object.entries(values).sort(([left], [right]) => {
+      if (left === 'ldap.enabled') return 1
+      if (right === 'ldap.enabled') return -1
+      return 0
+    })
+    for (const [key, value] of entries) {
       if (key === 'ldap.ldap_search_password' && value === '') continue
       if (value !== defaultValues[key as keyof LDAPSettingsValues]) {
         await update.mutateAsync({ key, value })

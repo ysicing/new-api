@@ -6,23 +6,28 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func mergeVerifiedOAuthEmail(provider oauth.Provider, oauthUser *oauth.OAuthUser) (*model.User, error) {
 	var existing model.User
-	err := model.DB.Unscoped().Where("LOWER(email) = ?", oauthUser.Email).First(&existing).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if existing.DeletedAt.Valid {
-		return nil, &OAuthUserDeletedError{}
-	}
-	err = model.DB.Transaction(func(tx *gorm.DB) error {
+	found := false
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		lookupErr := tx.Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("LOWER(email) = ?", oauthUser.Email).First(&existing).Error
+		if errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if lookupErr != nil {
+			return lookupErr
+		}
+		found = true
+		if existing.DeletedAt.Valid {
+			return &OAuthUserDeletedError{}
+		}
 		if generic, ok := provider.(*oauth.GenericOAuthProvider); ok {
-			binding, getErr := model.GetUserOAuthBinding(existing.Id, generic.GetProviderId())
+			var binding model.UserOAuthBinding
+			getErr := tx.Where("user_id = ? AND provider_id = ?", existing.Id, generic.GetProviderId()).First(&binding).Error
 			if getErr == nil {
 				if binding.ProviderUserId != oauthUser.ProviderUserID {
 					return errors.New("verified email is bound to another OAuth identity")
@@ -51,6 +56,9 @@ func mergeVerifiedOAuthEmail(provider oauth.Provider, oauthUser *oauth.OAuthUser
 	})
 	if err != nil {
 		return nil, err
+	}
+	if !found {
+		return nil, nil
 	}
 	return model.GetUserById(existing.Id, false)
 }

@@ -23,6 +23,7 @@ import type {
   ApiResponse,
   PageData,
   QuotaPool,
+  QuotaPoolOperationLog,
   QuotaPoolStats,
   QuotaPoolTransaction,
 } from '../types'
@@ -139,6 +140,35 @@ export function PoolStats(props: {
           </Card>
         ))}
       </div>
+    </LoadingOrEmpty>
+  )
+}
+
+export function PoolOperationLogs(props: {
+  query: UseQueryResult<ApiResponse<PageData<QuotaPoolOperationLog>>>
+}) {
+  const { t } = useTranslation()
+  const items = props.query.data?.data?.items ?? []
+  return (
+    <LoadingOrEmpty query={props.query} empty={items.length === 0}>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('User')}</TableHead>
+            <TableHead>{t('Content')}</TableHead>
+            <TableHead>{t('Time')}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((item) => (
+            <TableRow key={item.id}>
+              <TableCell>{item.username || '—'}</TableCell>
+              <TableCell>{item.content}</TableCell>
+              <TableCell>{formatTimestamp(item.created_at)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </LoadingOrEmpty>
   )
 }
