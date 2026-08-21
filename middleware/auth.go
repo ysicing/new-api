@@ -43,6 +43,10 @@ func validUserInfo(username string, role int) bool {
 }
 
 func authHelper(c *gin.Context, minRole int) {
+	authHelperWithRoleCheck(c, minRole, nil)
+}
+
+func authHelperWithRoleCheck(c *gin.Context, minRole int, allowRole func(int) bool) {
 	user, identity, useAccessToken, err := authenticateDashboardRequest(c)
 	if err != nil {
 		writeDashboardAuthError(c, err)
@@ -52,7 +56,7 @@ func authHelper(c *gin.Context, minRole int) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_USER_DISABLED", "message": common.TranslateMessage(c, i18n.MsgAuthUserBanned)})
 		return
 	}
-	if user.Role < minRole {
+	if user.Role < minRole && (allowRole == nil || !allowRole(user.Role)) {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"success": false, "code": "AUTH_INSUFFICIENT_PRIVILEGE", "message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege)})
 		return
 	}
@@ -98,6 +102,14 @@ func UserAuth() func(c *gin.Context) {
 func AdminAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		authHelper(c, common.RoleAdminUser)
+	}
+}
+
+func QuotaPoolAuth() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		authHelperWithRoleCheck(c, common.RoleAdminUser, func(role int) bool {
+			return role == common.RoleQuotaPoolSuperAdmin
+		})
 	}
 }
 

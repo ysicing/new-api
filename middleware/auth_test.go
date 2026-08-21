@@ -84,6 +84,42 @@ func createMiddlewarePATUser(t *testing.T, username, token string) *model.User {
 	return user
 }
 
+func createMiddlewarePATUserWithRole(t *testing.T, username, token string, role int) *model.User {
+	t.Helper()
+	user := createMiddlewarePATUser(t, username, token)
+	require.NoError(t, model.DB.Model(user).Update("role", role).Error)
+	user.Role = role
+	return user
+}
+
+func TestQuotaPoolAuthAllowsPoolSuperAdminAndSystemAdminOnly(t *testing.T) {
+	setupDashboardAuthMiddlewareTest(t)
+	createMiddlewarePATUserWithRole(t, "pool-super-admin", "pool-super-token", common.RoleQuotaPoolSuperAdmin)
+	createMiddlewarePATUserWithRole(t, "system-admin", "system-admin-token", common.RoleAdminUser)
+	createMiddlewarePATUser(t, "ordinary-pool-user", "ordinary-pool-token")
+	router := gin.New()
+	router.GET("/quota-pool", QuotaPoolAuth(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	tests := []struct {
+		name   string
+		token  string
+		status int
+	}{
+		{name: "pool super admin", token: "pool-super-token", status: http.StatusNoContent},
+		{name: "system admin", token: "system-admin-token", status: http.StatusNoContent},
+		{name: "ordinary user", token: "ordinary-pool-token", status: http.StatusForbidden},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/quota-pool", nil)
+			request.Header.Set("Authorization", "Bearer "+tt.token)
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			assert.Equal(t, tt.status, response.Code)
+		})
+	}
+}
+
 func TestUserAuthAllowsOpaqueDottedPAT(t *testing.T) {
 	setupDashboardAuthMiddlewareTest(t)
 	user := createMiddlewarePATUser(t, "dotted-pat-user", "opaque.key.with-dots")

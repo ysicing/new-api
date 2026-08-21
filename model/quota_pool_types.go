@@ -37,9 +37,17 @@ const (
 var (
 	ErrQuotaPoolNotFound          = errors.New("quota pool not found")
 	ErrQuotaPoolDisabled          = errors.New("quota pool disabled")
+	ErrQuotaPoolInvalidAmount     = errors.New("quota pool invalid amount")
 	ErrQuotaPoolInsufficientQuota = errors.New("quota pool insufficient quota")
 	ErrQuotaPoolMemberMismatch    = errors.New("quota pool member mismatch")
 	ErrQuotaPoolPermissionDenied  = errors.New("quota pool permission denied")
+	ErrQuotaPoolSystemReadonly    = errors.New("quota pool system pool is read-only")
+	ErrQuotaPoolSamePool          = errors.New("user already belongs to quota pool")
+	ErrQuotaPoolNameExists        = errors.New("quota pool name exists")
+	ErrQuotaPoolRefillLimited     = errors.New("quota pool refill limited")
+	ErrQuotaPoolAdminConflict     = errors.New("user manages another quota pool")
+	ErrQuotaPoolHasMembers        = errors.New("quota pool has members")
+	ErrQuotaPoolAdjustLimited     = errors.New("quota pool adjustment exceeds available quota")
 )
 
 type QuotaPool struct {
@@ -89,4 +97,25 @@ type QuotaPoolTransaction struct {
 	UserId      int    `json:"user_id" gorm:"index;column:user_id"`
 	OperatorId  int    `json:"operator_id" gorm:"index;column:operator_id"`
 	CreatedAt   int64  `json:"created_at" gorm:"autoCreateTime;column:created_at"`
+}
+
+type QuotaPoolBalanceChange struct {
+	PoolId      int
+	Amount      int
+	QuotaBefore int
+	QuotaAfter  int
+}
+
+type QuotaPoolMoveResult struct {
+	OldPoolId         int
+	NewPoolId         int
+	UserQuota         int
+	Reclaimed         bool
+	TargetNewUserPool bool
+	Change            QuotaPoolBalanceChange
+}
+
+type QuotaPoolAdminSummary struct {
+	PoolId int `json:"pool_id"`
+	Level  int `json:"level"`
 }
