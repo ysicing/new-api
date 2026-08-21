@@ -291,6 +291,7 @@ func handleOAuthBind(c *gin.Context, provider oauth.Provider, pendingFlow *model
 // findOrCreateOAuthUser finds existing user or creates new user
 func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *oauth.OAuthUser, affiliateCode string) (*model.User, error) {
 	user := &model.User{}
+	oauthUser.Email = model.NormalizeEmail(oauthUser.Email)
 
 	// Check if user already exists with new ID
 	if provider.IsUserIDTaken(oauthUser.ProviderUserID) {
@@ -322,6 +323,16 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 				}
 				return user, nil
 			}
+		}
+	}
+
+	if oauthUser.EmailVerified && oauthUser.Email != "" {
+		merged, err := mergeVerifiedOAuthEmail(provider, oauthUser)
+		if err != nil {
+			return nil, err
+		}
+		if merged != nil {
+			return merged, nil
 		}
 	}
 

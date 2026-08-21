@@ -889,6 +889,7 @@ func (user *User) ClearBinding(bindingType string) error {
 		"github":   "github_id",
 		"discord":  "discord_id",
 		"oidc":     "oidc_id",
+		"ldap":     "ldap_id",
 		"wechat":   "wechat_id",
 		"telegram": "telegram_id",
 		"linuxdo":  "linux_do_id",

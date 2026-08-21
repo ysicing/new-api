@@ -72,6 +72,10 @@ func Login(c *gin.Context) {
 		return
 	}
 
+	completePrimaryLogin(&user, c)
+}
+
+func completePrimaryLogin(user *model.User, c *gin.Context) {
 	// 检查是否启用2FA
 	twoFAEnabled, err := model.IsTwoFAEnabled(user.Id)
 	if err != nil {
@@ -109,7 +113,7 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	setupLogin(&user, c)
+	setupLogin(user, c)
 }
 
 // loginMethodFromContext 根据请求路径推导登录方式，用于登录审计日志。
@@ -117,6 +121,8 @@ func loginMethodFromContext(c *gin.Context) string {
 	switch c.FullPath() {
 	case "/api/user/login":
 		return "password"
+	case "/api/user/ldap/login":
+		return "ldap"
 	case "/api/user/login/2fa":
 		return "2fa"
 	case "/api/user/passkey/login/finish":
