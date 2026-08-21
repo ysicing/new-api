@@ -164,6 +164,15 @@ export type AuthSettings = {
   'passkey.allow_insecure_origin': boolean
   'passkey.user_verification': 'required' | 'preferred' | 'discouraged'
   'passkey.attachment_preference': '' | 'platform' | 'cross-platform'
+  'ldap.enabled': boolean
+  'ldap.ldap_url': string
+  'ldap.ldap_search_dn': string
+  'ldap.ldap_search_password': string
+  'ldap.ldap_base_dn': string
+  'ldap.ldap_filter': string
+  'ldap.ldap_uid': string
+  'ldap.ldap_scope': number
+  'ldap.ldap_connection_timeout': number
 }
 
 export type ContentSettings = {
@@ -354,6 +363,13 @@ export type OperationsSettings = {
   WorkerValidKey: string
   WorkerAllowHttpImageRequestEnabled: boolean
   LogConsumeEnabled: boolean
+  QuotaPoolEnabled: boolean
+  'auto_recharge_setting.enabled': boolean
+  'auto_recharge_setting.interval': number
+  'auto_recharge_setting.threshold': number
+  'auto_recharge_setting.amount': number
+  'auto_recharge_setting.weekly_limit': number
+  'auto_recharge_setting.monthly_limit': number
   'performance_setting.disk_cache_enabled': boolean
   'performance_setting.disk_cache_threshold_mb': number
   'performance_setting.disk_cache_max_size_mb': number

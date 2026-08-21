@@ -22,6 +22,39 @@ import i18next from 'i18next'
 import { initReactI18next } from 'react-i18next'
 import { afterEach, beforeAll } from 'vitest'
 
+class MemoryStorage implements Storage {
+  private readonly values = new Map<string, string>()
+
+  get length() {
+    return this.values.size
+  }
+
+  clear() {
+    this.values.clear()
+  }
+
+  getItem(key: string) {
+    return this.values.get(key) ?? null
+  }
+
+  key(index: number) {
+    return [...this.values.keys()].at(index) ?? null
+  }
+
+  removeItem(key: string) {
+    this.values.delete(key)
+  }
+
+  setItem(key: string, value: string) {
+    this.values.set(key, value)
+  }
+}
+
+Object.defineProperty(globalThis, 'localStorage', {
+  configurable: true,
+  value: new MemoryStorage(),
+})
+
 beforeAll(async () => {
   await i18next.use(initReactI18next).init({
     lng: 'en',

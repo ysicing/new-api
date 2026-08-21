@@ -26,15 +26,25 @@ export type UserPermissions = {
   admin_permissions?: AdminCapabilities
 }
 
+export interface QuotaPoolAdminSummary {
+  pool_id: number
+  level: number
+}
+
 export interface AuthUser {
   id: number
   username: string
   display_name?: string
+  department?: string
   email?: string
   role: number
   status?: number
   group?: string
   quota?: number
+  quota_pool_id?: number
+  quota_pool_name?: string
+  quota_pool_enabled?: boolean
+  quota_pool_admin?: QuotaPoolAdminSummary | null
   used_quota?: number
   request_count?: number
   aff_code?: string
@@ -45,6 +55,7 @@ export interface AuthUser {
   github_id?: string
   discord_id?: string
   oidc_id?: string
+  ldap_id?: string
   wechat_id?: string
   telegram_id?: string
   linux_do_id?: string

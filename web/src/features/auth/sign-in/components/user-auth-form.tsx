@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link } from '@tanstack/react-router'
 import axios from 'axios'
-import { Loader2, LogIn, KeyRound } from 'lucide-react'
+import { Building2, Loader2, LogIn, KeyRound } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -40,7 +40,7 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { login, wechatLoginByCode } from '@/features/auth/api'
+import { ldapLogin, login, wechatLoginByCode } from '@/features/auth/api'
 import { LegalConsent } from '@/features/auth/components/legal-consent'
 import { OAuthProviders } from '@/features/auth/components/oauth-providers'
 import { loginFormSchema } from '@/features/auth/constants'
@@ -73,6 +73,7 @@ export function UserAuthForm({
   const [isWeChatDialogOpen, setIsWeChatDialogOpen] = useState(false)
   const [isWeChatSubmitting, setIsWeChatSubmitting] = useState(false)
   const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
+  const [useLDAP, setUseLDAP] = useState(false)
   const legalConsentErrorMessage = t('Please agree to the legal terms first')
   const loginFailedMessage = t('Login failed')
 
@@ -84,6 +85,9 @@ export function UserAuthForm({
     (status?.password_login_enabled ??
       status?.data?.password_login_enabled ??
       true) !== false
+  const ldapLoginEnabled = Boolean(
+    status?.ldap_login ?? status?.data?.ldap_login
+  )
   const {
     isTurnstileEnabled,
     turnstileSiteKey,
@@ -113,7 +117,7 @@ export function UserAuthForm({
     (status?.custom_oauth_providers?.length ?? 0) > 0
   )
   const hasAlternativeLogin =
-    passkeyLoginEnabled || hasWeChatLogin || hasOAuthLogin
+    passkeyLoginEnabled || ldapLoginEnabled || hasWeChatLogin || hasOAuthLogin
 
   useEffect(() => {
     if (requiresLegalConsent) {
@@ -167,7 +171,7 @@ export function UserAuthForm({
 
     setIsLoading(true)
     try {
-      const res = await login({
+      const res = await (useLDAP ? ldapLogin : login)({
         username: data.username,
         password: data.password,
         turnstile: submittedTurnstileToken,
@@ -313,6 +317,18 @@ export function UserAuthForm({
 
   const alternativeLoginMethods = (
     <>
+      {ldapLoginEnabled && (
+        <Button
+          type='button'
+          variant={useLDAP ? 'default' : 'outline'}
+          disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
+          onClick={() => setUseLDAP((current) => !current)}
+          className='h-11 w-full justify-center gap-2 rounded-lg'
+        >
+          <Building2 />
+          {t(useLDAP ? 'Use password login' : 'Sign in with LDAP')}
+        </Button>
+      )}
       {passkeyLoginEnabled && (
         <div className='mt-2 space-y-1'>
           <Button
@@ -357,7 +373,7 @@ export function UserAuthForm({
       >
         {hasAlternativeLogin && alternativeLoginMethods}
 
-        {passwordLoginEnabled && (
+        {(passwordLoginEnabled || useLDAP) && (
           <>
             {/* Username Field */}
             <FormField
@@ -408,7 +424,7 @@ export function UserAuthForm({
               disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
             >
               {isLoading ? <Loader2 className='animate-spin' /> : <LogIn />}
-              {t('Sign in')}
+              {t(useLDAP ? 'Sign in with LDAP' : 'Sign in')}
             </Button>
 
             {/* Turnstile */}

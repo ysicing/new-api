@@ -173,6 +173,22 @@ export function useUsersColumns(): ColumnDef<User>[] {
       meta: { mobileOrder: 40 },
     },
     {
+      accessorKey: 'quota_pool_name',
+      header: t('Quota pool'),
+      cell: ({ row }) => (
+        <BadgeCell>
+          <StatusBadge
+            label={row.original.quota_pool_name || t('Default pool')}
+            variant='neutral'
+            copyable={false}
+          />
+        </BadgeCell>
+      ),
+      enableSorting: false,
+      size: 160,
+      meta: { mobileOrder: 35 },
+    },
+    {
       accessorKey: 'group',
       header: t('Group'),
       cell: ({ row }) => {

@@ -91,3 +91,15 @@ export async function getUptimeStatus() {
   )
   return res.data
 }
+
+export async function getTopUsers(limit = 10) {
+  const response = await api.get('/api/log/top_users', { params: { limit } })
+  return response.data
+}
+
+export async function getRechargeLeaderboard(limit = 10) {
+  const response = await api.get('/api/log/recharge_leaderboard', {
+    params: { limit },
+  })
+  return response.data
+}

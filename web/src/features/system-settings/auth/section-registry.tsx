@@ -21,6 +21,7 @@ import { createSectionRegistry } from '../utils/section-registry'
 import { BasicAuthSection } from './basic-auth-section'
 import { BotProtectionSection } from './bot-protection-section'
 import { CustomOAuthSection } from './custom-oauth/custom-oauth-section'
+import { LDAPSection } from './ldap-section'
 import { OAuthSection } from './oauth-section'
 import { PasskeySection } from './passkey-section'
 
@@ -75,6 +76,26 @@ const AUTH_SECTIONS = [
           WeChatServerAddress: settings.WeChatServerAddress,
           WeChatServerToken: settings.WeChatServerToken,
           WeChatAccountQRCodeImageURL: settings.WeChatAccountQRCodeImageURL,
+        }}
+      />
+    ),
+  },
+  {
+    id: 'ldap',
+    titleKey: 'LDAP Authentication',
+    build: (settings: AuthSettings) => (
+      <LDAPSection
+        defaultValues={{
+          'ldap.enabled': settings['ldap.enabled'],
+          'ldap.ldap_url': settings['ldap.ldap_url'],
+          'ldap.ldap_search_dn': settings['ldap.ldap_search_dn'],
+          'ldap.ldap_search_password': settings['ldap.ldap_search_password'],
+          'ldap.ldap_base_dn': settings['ldap.ldap_base_dn'],
+          'ldap.ldap_filter': settings['ldap.ldap_filter'],
+          'ldap.ldap_uid': settings['ldap.ldap_uid'],
+          'ldap.ldap_scope': settings['ldap.ldap_scope'],
+          'ldap.ldap_connection_timeout':
+            settings['ldap.ldap_connection_timeout'],
         }}
       />
     ),

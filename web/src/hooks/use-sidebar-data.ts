@@ -23,6 +23,7 @@ import {
   FileText,
   FlaskConical,
   Key,
+  LandPlot,
   LayoutDashboard,
   ListTodo,
   MessageSquare,
@@ -36,8 +37,10 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { type SidebarData } from '@/components/layout/types'
+import type { SidebarData } from '@/components/layout/types'
+import { canAccessQuotaPools } from '@/features/quota-pools/access'
 import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 /**
  * Root navigation groups for the application sidebar.
@@ -47,6 +50,7 @@ import { ROLE } from '@/lib/roles'
  */
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
+  const user = useAuthStore((state) => state.auth.user)
 
   return {
     navGroups: [
@@ -134,6 +138,15 @@ export function useSidebarData(): SidebarData {
             url: '/users',
             icon: Users,
           },
+          ...(canAccessQuotaPools(user)
+            ? [
+                {
+                  title: t('Quota pools'),
+                  url: '/quota-pools',
+                  icon: LandPlot,
+                },
+              ]
+            : []),
           {
             title: t('Redemption Codes'),
             url: '/redemption-codes',

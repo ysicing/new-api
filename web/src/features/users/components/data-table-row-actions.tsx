@@ -28,8 +28,10 @@ import {
   ShieldAlert,
   Link2,
   CreditCard,
+  Coins,
+  ShieldCheck,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -47,6 +49,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { manageUser, resetUserPasskey, resetUserTwoFA } from '../api'
 import {
@@ -72,6 +75,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
+  const currentUser = useAuthStore((state) => state.auth.user)
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -139,6 +143,33 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
     return null
   }
 
+  let poolAdminAction: ReactNode = null
+  if (currentUser?.role === USER_ROLE.ROOT) {
+    if (user.role === USER_ROLE.QUOTA_POOL_SUPER_ADMIN) {
+      poolAdminAction = (
+        <DropdownMenuItem
+          onClick={() => handleManage('unset_quota_pool_super_admin')}
+        >
+          {t('Remove Pool Super Admin')}
+          <DropdownMenuShortcut>
+            <ShieldCheck size={16} />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
+      )
+    } else if (user.role === USER_ROLE.USER) {
+      poolAdminAction = (
+        <DropdownMenuItem
+          onClick={() => handleManage('set_quota_pool_super_admin')}
+        >
+          {t('Set Pool Super Admin')}
+          <DropdownMenuShortcut>
+            <ShieldCheck size={16} />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
+      )
+    }
+  }
+
   return (
     <div className='-ml-1.5 flex items-center gap-1'>
       <Tooltip>
@@ -197,6 +228,15 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
             </DropdownMenuShortcut>
           </DropdownMenuItem>
         )}
+
+        <DropdownMenuItem onClick={() => handleManage('recharge_auto')}>
+          {t('Recharge')}
+          <DropdownMenuShortcut>
+            <Coins size={16} />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
+
+        {poolAdminAction}
 
         <DropdownMenuItem
           onSelect={(event) => {

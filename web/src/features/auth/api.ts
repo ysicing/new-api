@@ -54,6 +54,16 @@ export async function login(payload: LoginPayload) {
   return res.data
 }
 
+export async function ldapLogin(payload: LoginPayload) {
+  const turnstile = payload.turnstile ?? ''
+  const res = await api.post<LoginResponse>(
+    `/api/user/ldap/login?turnstile=${turnstile}`,
+    { username: payload.username, password: payload.password },
+    { skipAuthRefresh: true }
+  )
+  return res.data
+}
+
 // Two-factor authentication login
 export async function login2fa(payload: TwoFAPayload) {
   const res = await api.post<Login2FAResponse>('/api/user/login/2fa', payload, {

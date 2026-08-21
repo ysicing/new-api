@@ -68,6 +68,15 @@ const defaultAuthSettings: AuthSettings = {
   'passkey.allow_insecure_origin': false,
   'passkey.user_verification': 'preferred',
   'passkey.attachment_preference': '',
+  'ldap.enabled': false,
+  'ldap.ldap_url': '',
+  'ldap.ldap_search_dn': '',
+  'ldap.ldap_search_password': '',
+  'ldap.ldap_base_dn': '',
+  'ldap.ldap_filter': '',
+  'ldap.ldap_uid': 'uid',
+  'ldap.ldap_scope': 3,
+  'ldap.ldap_connection_timeout': 30,
 }
 
 export function AuthSettings() {
