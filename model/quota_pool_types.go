@@ -36,6 +36,7 @@ const (
 
 var (
 	ErrQuotaPoolNotFound          = errors.New("quota pool not found")
+	ErrQuotaPoolFeatureDisabled   = errors.New("quota pool feature disabled")
 	ErrQuotaPoolDisabled          = errors.New("quota pool disabled")
 	ErrQuotaPoolInvalidAmount     = errors.New("quota pool invalid amount")
 	ErrQuotaPoolInsufficientQuota = errors.New("quota pool insufficient quota")
@@ -118,4 +119,30 @@ type QuotaPoolMoveResult struct {
 type QuotaPoolAdminSummary struct {
 	PoolId int `json:"pool_id"`
 	Level  int `json:"level"`
+}
+
+type QuotaPoolListItem struct {
+	QuotaPool
+	MemberCount int64 `json:"member_count"`
+	AdminCount  int64 `json:"admin_count"`
+}
+
+type QuotaPoolMember struct {
+	Id                  int    `json:"id"`
+	Username            string `json:"username"`
+	DisplayName         string `json:"display_name"`
+	Email               string `json:"email"`
+	Department          string `json:"department"`
+	Role                int    `json:"role"`
+	Status              int    `json:"status"`
+	Quota               int    `json:"quota"`
+	UsedQuota           int    `json:"used_quota"`
+	QuotaPoolId         int    `json:"quota_pool_id"`
+	QuotaPoolAdminLevel int    `json:"quota_pool_admin_level"`
+}
+
+type QuotaPoolTransactionItem struct {
+	QuotaPoolTransaction
+	UserName     string `json:"user_name"`
+	OperatorName string `json:"operator_name"`
 }

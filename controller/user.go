@@ -354,9 +354,15 @@ func SearchUsers(c *gin.Context) {
 			status = &parsed
 		}
 	}
+	var quotaPoolId *int
+	if quotaPoolIdStr := c.Query("quota_pool_id"); quotaPoolIdStr != "" {
+		if parsed, err := strconv.Atoi(quotaPoolIdStr); err == nil && parsed >= 0 {
+			quotaPoolId = &parsed
+		}
+	}
 	pageInfo := common.GetPageQuery(c)
 	sortOptions := model.NewUserSortOptions(c.Query("sort_by"), c.Query("sort_order"))
-	users, total, err := model.SearchUsers(keyword, group, role, status, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
+	users, total, err := model.SearchUsers(keyword, group, role, status, quotaPoolId, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -509,32 +515,44 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 	userSetting := user.GetSetting()
 	permissions := calculateUserPermissions(user.Role)
 	permissions["admin_permissions"] = authz.Capabilities(user.Id, user.Role)
+	quotaPoolAdmin, _ := model.GetQuotaPoolAdminSummary(user.Id)
+	poolAdminLevel := 0
+	if quotaPoolAdmin != nil {
+		poolAdminLevel = quotaPoolAdmin.Level
+	}
 	return map[string]interface{}{
-		"id":                user.Id,
-		"username":          user.Username,
-		"display_name":      user.DisplayName,
-		"role":              user.Role,
-		"status":            user.Status,
-		"email":             user.Email,
-		"github_id":         user.GitHubId,
-		"discord_id":        user.DiscordId,
-		"oidc_id":           user.OidcId,
-		"wechat_id":         user.WeChatId,
-		"telegram_id":       user.TelegramId,
-		"group":             user.Group,
-		"quota":             user.Quota,
-		"used_quota":        user.UsedQuota,
-		"request_count":     user.RequestCount,
-		"aff_code":          user.AffCode,
-		"aff_count":         user.AffCount,
-		"aff_quota":         user.AffQuota,
-		"aff_history_quota": user.AffHistoryQuota,
-		"inviter_id":        user.InviterId,
-		"linux_do_id":       user.LinuxDOId,
-		"setting":           user.Setting,
-		"stripe_customer":   user.StripeCustomer,
-		"sidebar_modules":   userSetting.SidebarModules, // 正确提取sidebar_modules字段
-		"permissions":       permissions,
+		"id":                      user.Id,
+		"username":                user.Username,
+		"display_name":            user.DisplayName,
+		"department":              user.Department,
+		"role":                    user.Role,
+		"status":                  user.Status,
+		"email":                   user.Email,
+		"github_id":               user.GitHubId,
+		"discord_id":              user.DiscordId,
+		"oidc_id":                 user.OidcId,
+		"ldap_id":                 user.LDAPId,
+		"wechat_id":               user.WeChatId,
+		"telegram_id":             user.TelegramId,
+		"group":                   user.Group,
+		"quota":                   user.Quota,
+		"quota_pool_id":           user.QuotaPoolId,
+		"quota_pool_name":         user.QuotaPoolName,
+		"quota_pool_enabled":      common.QuotaPoolEnabled,
+		"quota_pool_admin":        quotaPoolAdmin,
+		"quota_pool_capabilities": service.ResolveQuotaPoolCapabilities(user.Role, poolAdminLevel),
+		"used_quota":              user.UsedQuota,
+		"request_count":           user.RequestCount,
+		"aff_code":                user.AffCode,
+		"aff_count":               user.AffCount,
+		"aff_quota":               user.AffQuota,
+		"aff_history_quota":       user.AffHistoryQuota,
+		"inviter_id":              user.InviterId,
+		"linux_do_id":             user.LinuxDOId,
+		"setting":                 user.Setting,
+		"stripe_customer":         user.StripeCustomer,
+		"sidebar_modules":         userSetting.SidebarModules, // 正确提取sidebar_modules字段
+		"permissions":             permissions,
 	}
 }
 
@@ -1100,7 +1118,8 @@ func ManageUser(c *gin.Context) {
 		return
 	}
 	myRole := c.GetInt("role")
-	if !canManageTargetRole(myRole, user.Role) {
+	isRecharge := req.Action == "recharge_auto"
+	if !isRecharge && !canManageTargetRole(myRole, user.Role) {
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
 		return
 	}
@@ -1150,6 +1169,18 @@ func ManageUser(c *gin.Context) {
 			return
 		}
 		user.Role = common.RoleAdminUser
+	case "set_quota_pool_super_admin":
+		if myRole != common.RoleRootUser || user.Role != common.RoleCommonUser {
+			common.ApiErrorI18n(c, i18n.MsgUserAdminCannotPromote)
+			return
+		}
+		user.Role = common.RoleQuotaPoolSuperAdmin
+	case "unset_quota_pool_super_admin":
+		if myRole != common.RoleRootUser || user.Role != common.RoleQuotaPoolSuperAdmin {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		user.Role = common.RoleCommonUser
 	case "demote":
 		if user.Role == common.RoleRootUser {
 			common.ApiErrorI18n(c, i18n.MsgUserCannotDemoteRootUser)
@@ -1161,6 +1192,10 @@ func ManageUser(c *gin.Context) {
 		}
 		user.Role = common.RoleCommonUser
 	case "add_quota":
+		if myRole != common.RoleRootUser || user.QuotaPoolId != model.QuotaPoolDefaultUserPoolId {
+			common.ApiErrorI18n(c, i18n.MsgAuthInsufficientPrivilege)
+			return
+		}
 		switch req.Mode {
 		case "add":
 			if req.Value <= 0 {
@@ -1204,6 +1239,37 @@ func ManageUser(c *gin.Context) {
 			"success": true,
 			"message": "",
 		})
+		return
+	case "recharge_auto":
+		amount := int(float64(operation_setting.GetAutoRechargeSetting().Amount) * common.QuotaPerUnit)
+		if amount <= 0 {
+			writeQuotaPoolError(c, model.ErrQuotaPoolInvalidAmount)
+			return
+		}
+		if common.QuotaPoolEnabled && user.QuotaPoolId != model.QuotaPoolDefaultUserPoolId {
+			pool, err := model.GetQuotaPoolById(user.QuotaPoolId)
+			if err != nil {
+				writeQuotaPoolError(c, err)
+				return
+			}
+			amount = quotaPoolRechargeAmount(pool)
+			if _, err := model.AllocateQuotaFromPool(pool.Id, user.Id, amount, model.QuotaPoolTransactionAllocateManual, c.GetInt("id")); err != nil {
+				writeQuotaPoolError(c, err)
+				return
+			}
+		} else if err := model.IncreaseUserQuota(user.Id, amount, true); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		recordManageAuditFor(c, user.Id, "user.quota_pool_recharge", map[string]interface{}{
+			"quota": logger.LogQuota(amount),
+		})
+		newQuota, err := model.GetUserQuota(user.Id, true)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		common.ApiSuccess(c, gin.H{"quota": newQuota})
 		return
 	default:
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)

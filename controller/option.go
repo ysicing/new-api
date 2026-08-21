@@ -178,6 +178,23 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
+	case "ldap.enabled":
+		ldap := system_setting.GetLDAPSettings()
+		if option.Value == "true" && (strings.TrimSpace(ldap.URL) == "" || strings.TrimSpace(ldap.BaseDN) == "" || strings.TrimSpace(ldap.UID) == "") {
+			common.ApiErrorMsg(c, "无法启用 LDAP 登录，请先配置 LDAP 地址、Base DN 和用户属性")
+			return
+		}
+	case "QuotaPoolEnabled":
+		if common.QuotaPoolEnabled && option.Value != "true" {
+			common.ApiErrorMsg(c, "额度池功能启用后不能关闭")
+			return
+		}
+		if option.Value == "true" {
+			if err := model.SyncSystemQuotaPools(); err != nil {
+				common.ApiError(c, err)
+				return
+			}
+		}
 	case "LinuxDOOAuthEnabled":
 		if option.Value == "true" && common.LinuxDOClientId == "" {
 			c.JSON(http.StatusOK, gin.H{

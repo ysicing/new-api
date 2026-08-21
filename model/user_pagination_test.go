@@ -59,8 +59,21 @@ func TestSearchUsersSortsBeforePagination(t *testing.T) {
 	truncateTables(t)
 	insertUsersForPaginationTest(t, 42)
 
-	users, total, err := SearchUsers("user", "", nil, nil, 20, 20, NewUserSortOptions("id", "asc"))
+	users, total, err := SearchUsers("user", "", nil, nil, nil, 20, 20, NewUserSortOptions("id", "asc"))
 	require.NoError(t, err)
 	assert.Equal(t, int64(42), total)
 	assert.Equal(t, []int{21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40}, collectUserIDs(users))
+}
+
+func TestSearchUsersFiltersByQuotaPool(t *testing.T) {
+	truncateTables(t)
+	insertUsersForPaginationTest(t, 4)
+	require.NoError(t, DB.Model(&User{}).Where("id IN ?", []int{2, 4}).Update("quota_pool_id", 9).Error)
+	poolId := 9
+
+	users, total, err := SearchUsers("user", "", nil, nil, &poolId, 0, 20, NewUserSortOptions("id", "asc"))
+
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, total)
+	assert.Equal(t, []int{2, 4}, collectUserIDs(users))
 }

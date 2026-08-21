@@ -417,6 +417,10 @@ func GetAllUsers(pageInfo *common.PageInfo, sortOptions ...UserSortOptions) (use
 		tx.Rollback()
 		return nil, 0, err
 	}
+	if err = fillUserQuotaPoolNames(tx, users); err != nil {
+		tx.Rollback()
+		return nil, 0, err
+	}
 
 	// Commit transaction
 	if err = tx.Commit().Error; err != nil {
@@ -426,7 +430,7 @@ func GetAllUsers(pageInfo *common.PageInfo, sortOptions ...UserSortOptions) (use
 	return users, total, nil
 }
 
-func SearchUsers(keyword string, group string, role *int, status *int, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
+func SearchUsers(keyword string, group string, role *int, status *int, quotaPoolId *int, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
 	var users []*User
 	var total int64
 	var err error
@@ -471,6 +475,9 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 			query = query.Where("deleted_at IS NULL").Where("status = ?", *status)
 		}
 	}
+	if quotaPoolId != nil {
+		query = query.Where("quota_pool_id = ?", *quotaPoolId)
+	}
 
 	// 获取总数
 	err = query.Count(&total).Error
@@ -478,11 +485,14 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 		tx.Rollback()
 		return nil, 0, err
 	}
-
 	// 获取分页数据
 	order := resolveUserSortOptions(sortOptions)
 	err = order.Apply(query.Omit("password", "access_token")).Limit(num).Offset(startIdx).Find(&users).Error
 	if err != nil {
+		tx.Rollback()
+		return nil, 0, err
+	}
+	if err = fillUserQuotaPoolNames(tx, users); err != nil {
 		tx.Rollback()
 		return nil, 0, err
 	}

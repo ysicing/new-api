@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -33,6 +34,7 @@ func setupManageUserTestDB(t *testing.T) *gorm.DB {
 	model.DB, model.LOG_DB = db, db
 	require.NoError(t, db.AutoMigrate(
 		&model.User{}, &model.UserSession{}, &model.Log{}, &model.CasbinRule{}, &model.AuthzRole{},
+		&model.QuotaPool{}, &model.QuotaPoolAdmin{}, &model.QuotaPoolTransaction{},
 	))
 
 	t.Cleanup(func() {
@@ -48,6 +50,10 @@ func setupManageUserTestDB(t *testing.T) *gorm.DB {
 }
 
 func performManageUserRequest(t *testing.T, body string) *httptest.ResponseRecorder {
+	return performManageUserRequestAs(t, body, common.RoleRootUser)
+}
+
+func performManageUserRequestAs(t *testing.T, body string, role int) *httptest.ResponseRecorder {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
@@ -55,10 +61,43 @@ func performManageUserRequest(t *testing.T, body string) *httptest.ResponseRecor
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/user/manage", strings.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("id", 9999)
-	c.Set("role", common.RoleRootUser)
+	c.Set("role", role)
 	c.Set("username", "root-operator")
 	ManageUser(c)
 	return recorder
+}
+
+func TestManageUserSetsAndUnsetsQuotaPoolSuperAdmin(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	user := model.User{Username: "pool-super-candidate", Password: "password", AffCode: "pool-super-aff", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AuthVersion: 1}
+	require.NoError(t, db.Create(&user).Error)
+
+	recorder := performManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"set_quota_pool_super_admin"}`, user.Id))
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, common.RoleQuotaPoolSuperAdmin, user.Role)
+
+	recorder = performManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"unset_quota_pool_super_admin"}`, user.Id))
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, common.RoleCommonUser, user.Role)
+}
+
+func TestManageUserAdminCanRechargeHigherRoleButCannotDirectlyAdjustQuota(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	previousAmount := operation_setting.GetAutoRechargeSetting().Amount
+	operation_setting.GetAutoRechargeSetting().Amount = 2
+	t.Cleanup(func() { operation_setting.GetAutoRechargeSetting().Amount = previousAmount })
+	target := model.User{Username: "recharge-root", Password: "password", AffCode: "recharge-root-aff", Role: common.RoleRootUser, Status: common.UserStatusEnabled, AuthVersion: 1}
+	require.NoError(t, db.Create(&target).Error)
+
+	recorder := performManageUserRequestAs(t, fmt.Sprintf(`{"id":%d,"action":"recharge_auto"}`, target.Id), common.RoleAdminUser)
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+	require.NoError(t, db.First(&target, target.Id).Error)
+	assert.Equal(t, int(2*common.QuotaPerUnit), target.Quota)
+
+	recorder = performManageUserRequestAs(t, fmt.Sprintf(`{"id":%d,"action":"add_quota","mode":"add","value":100}`, target.Id), common.RoleAdminUser)
+	assert.Contains(t, recorder.Body.String(), `"success":false`)
 }
 
 func TestManageUserDisableAdvancesAuthVersionOnceAndRevokesSession(t *testing.T) {

@@ -116,3 +116,20 @@ func TestMoveUserQuotaPoolClearsNegativeBalanceWithoutCreditingOldPool(t *testin
 	assert.Zero(t, user.Quota)
 	assert.Zero(t, user.QuotaPoolId)
 }
+
+func TestReclaimQuotaToPoolUpdatesBalancesAndTransaction(t *testing.T) {
+	db := setupQuotaPoolFundsTestDB(t)
+	pool, user := seedQuotaPoolMember(t, db, 100, 80)
+
+	change, err := ReclaimQuotaToPool(pool.Id, user.Id, 30, 6)
+
+	require.NoError(t, err)
+	assert.Equal(t, 130, change.QuotaAfter)
+	require.NoError(t, db.First(&pool, pool.Id).Error)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, 130, pool.Quota)
+	assert.Equal(t, 50, user.Quota)
+	var transaction QuotaPoolTransaction
+	require.NoError(t, db.Where("type = ?", QuotaPoolTransactionReclaimUser).First(&transaction).Error)
+	assert.Equal(t, 30, transaction.Amount)
+}
