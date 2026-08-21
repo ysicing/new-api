@@ -146,3 +146,10 @@ type QuotaPoolTransactionItem struct {
 	UserName     string `json:"user_name"`
 	OperatorName string `json:"operator_name"`
 }
+
+type QuotaPoolAdminContact struct {
+	Id          int    `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
+}

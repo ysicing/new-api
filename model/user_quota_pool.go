@@ -1,6 +1,23 @@
 package model
 
-import "gorm.io/gorm"
+import (
+	"github.com/QuantumNous/new-api/common"
+	"gorm.io/gorm"
+)
+
+func (user *User) applyInitialQuotaPool(tx *gorm.DB) error {
+	user.Quota = common.QuotaForNewUser
+	user.QuotaPoolId = QuotaPoolDefaultUserPoolId
+	if !common.QuotaPoolEnabled {
+		return nil
+	}
+	var pool QuotaPool
+	if err := tx.Where("pool_type = ?", QuotaPoolTypeNewUser).First(&pool).Error; err != nil {
+		return err
+	}
+	user.QuotaPoolId = pool.Id
+	return nil
+}
 
 func fillUserQuotaPoolNames(tx *gorm.DB, users []*User) error {
 	if !tx.Migrator().HasTable(&QuotaPool{}) {

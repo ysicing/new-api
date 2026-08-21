@@ -109,6 +109,10 @@ func quotaPoolPage(c *gin.Context, items any, total int64) {
 	common.ApiSuccess(c, page)
 }
 
+func quotaPoolSuccessWithMessage(c *gin.Context, message string, data any) {
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": message, "data": data})
+}
+
 func recordQuotaPoolAudit(c *gin.Context, poolId int, action string, params map[string]any) {
 	if params == nil {
 		params = map[string]any{}

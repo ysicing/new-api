@@ -6,6 +6,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -44,10 +45,16 @@ func GetSelfQuotaPool(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	contacts, err := model.ListQuotaPoolAdminContacts(pool.Id)
+	if err != nil {
+		writeQuotaPoolError(c, err)
+		return
+	}
 	common.ApiSuccess(c, gin.H{
 		"pool": pool, "admin": admin,
 		"capabilities":               service.ResolveQuotaPoolCapabilities(c.GetInt("role"), admin.Level),
 		"weekly_auto_recharge_usage": weeklyUsage,
+		"admin_contacts":             contacts,
 	})
 }
 
@@ -63,6 +70,11 @@ func UpdateSelfQuotaPool(c *gin.Context) {
 	}
 	updates := map[string]any{}
 	if req.AutoRechargeAmount != nil {
+		config := operation_setting.GetAutoRechargeSetting()
+		if *req.AutoRechargeAmount > 0 && *req.AutoRechargeAmount <= float64(config.Threshold) {
+			writeQuotaPoolError(c, model.ErrQuotaPoolInvalidAmount)
+			return
+		}
 		switch {
 		case *req.AutoRechargeAmount < 0:
 			updates["auto_recharge_amount"] = model.QuotaPoolAutoRechargeInherit
@@ -83,7 +95,11 @@ func UpdateSelfQuotaPool(c *gin.Context) {
 		return
 	}
 	recordQuotaPoolAudit(c, pool.Id, "quota_pool.self_update", map[string]any{"fields": len(updates)})
-	common.ApiSuccess(c, nil)
+	warning := ""
+	if req.AutoRechargeAmount != nil && *req.AutoRechargeAmount > float64(operation_setting.GetAutoRechargeSetting().Amount*3) {
+		warning = "自动充值金额超过全局默认金额的 3 倍，请确认配置风险"
+	}
+	quotaPoolSuccessWithMessage(c, warning, nil)
 }
 
 func GetSelfQuotaPoolMembers(c *gin.Context) {

@@ -72,6 +72,29 @@ func quotaPoolAdminLevels(poolId int) (map[int]int, error) {
 	return levels, nil
 }
 
+func ListQuotaPoolAdminContacts(poolId int) ([]QuotaPoolAdminContact, error) {
+	var admins []QuotaPoolAdmin
+	if err := DB.Where("pool_id = ?", poolId).Find(&admins).Error; err != nil {
+		return nil, err
+	}
+	ids := make([]int, 0, len(admins))
+	for _, admin := range admins {
+		ids = append(ids, admin.UserId)
+	}
+	if len(ids) == 0 {
+		return []QuotaPoolAdminContact{}, nil
+	}
+	var users []User
+	if err := DB.Select("id", "username", "display_name", "email").Where("id IN ?", ids).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	contacts := make([]QuotaPoolAdminContact, 0, len(users))
+	for _, user := range users {
+		contacts = append(contacts, QuotaPoolAdminContact{Id: user.Id, Username: user.Username, DisplayName: user.DisplayName, Email: user.Email})
+	}
+	return contacts, nil
+}
+
 func ListQuotaPoolCandidates(keyword string, page *common.PageInfo) ([]QuotaPoolMember, int64, error) {
 	poolIds := []int{QuotaPoolDefaultUserPoolId}
 	var newUserPool QuotaPool

@@ -92,7 +92,11 @@ func UpdateQuotaPool(c *gin.Context) {
 		return
 	}
 	recordQuotaPoolAudit(c, id, "quota_pool.update", map[string]any{"fields": len(updates)})
-	common.ApiSuccess(c, change)
+	warning := ""
+	if req.AutoRechargeAmount != nil && *req.AutoRechargeAmount > float64(operation_setting.GetAutoRechargeSetting().Amount*3) {
+		warning = "自动充值金额超过全局默认金额的 3 倍，请确认配置风险"
+	}
+	quotaPoolSuccessWithMessage(c, warning, change)
 }
 
 func buildQuotaPoolUpdates(req quotaPoolUpdateRequest, role int) (map[string]any, error) {
@@ -116,6 +120,10 @@ func buildQuotaPoolUpdates(req quotaPoolUpdateRequest, role int) (map[string]any
 		updates["base_quota"] = quotaAmountToInternal(*req.BaseQuota)
 	}
 	if req.AutoRechargeAmount != nil {
+		config := operation_setting.GetAutoRechargeSetting()
+		if *req.AutoRechargeAmount > 0 && *req.AutoRechargeAmount <= float64(config.Threshold) {
+			return nil, model.ErrQuotaPoolInvalidAmount
+		}
 		switch {
 		case *req.AutoRechargeAmount < 0:
 			updates["auto_recharge_amount"] = model.QuotaPoolAutoRechargeInherit

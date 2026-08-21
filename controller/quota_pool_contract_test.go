@@ -34,3 +34,10 @@ func TestWriteQuotaPoolErrorReturnsStableCode(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), `"code":"QUOTA_POOL_INSUFFICIENT"`)
 }
+
+func TestValidateQuotaPoolReclaimAmountAllowsOnlyConfiguredFractions(t *testing.T) {
+	assert.NoError(t, validateQuotaPoolReclaimAmount(1000, 1000))
+	assert.NoError(t, validateQuotaPoolReclaimAmount(1000, 500))
+	assert.NoError(t, validateQuotaPoolReclaimAmount(1000, 100))
+	assert.ErrorIs(t, validateQuotaPoolReclaimAmount(1000, 333), model.ErrQuotaPoolInvalidAmount)
+}

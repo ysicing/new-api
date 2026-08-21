@@ -125,6 +125,10 @@ func ReclaimQuotaPoolMember(c *gin.Context) {
 	if req.Amount != nil {
 		amount = *req.Amount
 	}
+	if err := validateQuotaPoolReclaimAmount(quotaPoolRechargeAmount(pool), amount); err != nil {
+		writeQuotaPoolError(c, err)
+		return
+	}
 	change, err := model.ReclaimQuotaToPool(id, userId, amount, c.GetInt("id"))
 	if err != nil {
 		writeQuotaPoolError(c, err)
@@ -132,6 +136,18 @@ func ReclaimQuotaPoolMember(c *gin.Context) {
 	}
 	recordQuotaPoolAudit(c, id, "quota_pool.member_reclaim", map[string]any{"user_id": userId, "amount": change.Amount})
 	common.ApiSuccess(c, change)
+}
+
+func validateQuotaPoolReclaimAmount(baseAmount, amount int) error {
+	if baseAmount <= 0 || amount <= 0 {
+		return model.ErrQuotaPoolInvalidAmount
+	}
+	for _, factor := range []int{100, 50, 40, 30, 20, 10} {
+		if amount == baseAmount*factor/100 {
+			return nil
+		}
+	}
+	return model.ErrQuotaPoolInvalidAmount
 }
 
 func GrantQuotaPoolAdmin(c *gin.Context) {
