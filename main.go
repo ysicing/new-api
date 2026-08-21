@@ -323,6 +323,12 @@ func InitResources() error {
 		}
 	}
 	model.InitOptionMap()
+	if common.QuotaPoolEnabled {
+		if err := model.SyncSystemQuotaPools(); err != nil {
+			common.FatalLog("failed to initialize quota pools: " + err.Error())
+			return err
+		}
+	}
 
 	// 清理旧的磁盘缓存文件
 	common.CleanupOldCacheFiles()

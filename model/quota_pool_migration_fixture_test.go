@@ -119,3 +119,92 @@ func TestLegacyQuotaPoolFixtureSnapshot(t *testing.T) {
 		TransactionSum:   4200,
 	}, got)
 }
+
+func TestMigrateQuotaPoolSchemaPreservesLegacyDataAndIsIdempotent(t *testing.T) {
+	db := openLegacyQuotaPoolFixture(t)
+	before := captureLegacyQuotaPoolSnapshot(t, db)
+
+	require.NoError(t, migrateQuotaPoolSchema(db))
+	require.NoError(t, migrateQuotaPoolSchema(db))
+
+	after := captureLegacyQuotaPoolSnapshot(t, db)
+	assert.Equal(t, before, after)
+	assert.True(t, db.Migrator().HasColumn(&QuotaPool{}, "monthly_refill_top_up"))
+	assert.True(t, db.Migrator().HasColumn(&QuotaPool{}, "last_refill_month"))
+	assert.True(t, db.Migrator().HasColumn(&QuotaPoolTransaction{}, "operator_id"))
+}
+
+func TestSyncSystemQuotaPoolsCreatesOnlyMissingRows(t *testing.T) {
+	db := openLegacyQuotaPoolFixture(t)
+	require.NoError(t, migrateQuotaPoolSchema(db))
+
+	require.NoError(t, syncSystemQuotaPools(db))
+	require.NoError(t, syncSystemQuotaPools(db))
+
+	var defaultPool QuotaPool
+	require.NoError(t, db.Where("pool_type = ?", QuotaPoolTypeDefault).First(&defaultPool).Error)
+	assert.Equal(t, 1, defaultPool.Id)
+	assert.Equal(t, -1, defaultPool.BaseQuota, "existing system-pool data must not be normalized")
+	assert.Equal(t, -1, defaultPool.Quota)
+
+	var newUserPools int64
+	require.NoError(t, db.Model(&QuotaPool{}).Where("pool_type = ?", QuotaPoolTypeNewUser).Count(&newUserPools).Error)
+	assert.EqualValues(t, 1, newUserPools)
+
+	var normalPool QuotaPool
+	require.NoError(t, db.Where("id = ?", 2).First(&normalPool).Error)
+	assert.Equal(t, "研发一组", normalPool.Name)
+	assert.Equal(t, 4200, normalPool.Quota)
+}
+
+func TestMigrateQuotaPoolSchemaAddsUserCompatibilityColumns(t *testing.T) {
+	dsn := fmt.Sprintf("file:quota-pool-user-columns-%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.Exec("CREATE TABLE users (id integer PRIMARY KEY)").Error)
+
+	require.NoError(t, migrateQuotaPoolSchema(db))
+
+	assert.True(t, db.Migrator().HasColumn("users", "quota_pool_id"))
+	assert.True(t, db.Migrator().HasColumn("users", "ldap_id"))
+	assert.True(t, db.Migrator().HasColumn("users", "department"))
+}
+
+func TestMigrateQuotaPoolSchemaPersistsLegacyAutoRechargeDefaults(t *testing.T) {
+	db := openLegacyQuotaPoolFixture(t)
+	require.NoError(t, db.AutoMigrate(&Option{}))
+
+	require.NoError(t, migrateQuotaPoolSchema(db))
+
+	var enabled Option
+	require.NoError(t, db.Where("key = ?", "auto_recharge_setting.enabled").First(&enabled).Error)
+	assert.Equal(t, "true", enabled.Value)
+	var amount Option
+	require.NoError(t, db.Where("key = ?", "auto_recharge_setting.amount").First(&amount).Error)
+	assert.Equal(t, "200", amount.Value)
+}
+
+func TestMigrateQuotaPoolSchemaLeavesFreshInstallAutoRechargeDisabled(t *testing.T) {
+	dsn := fmt.Sprintf("file:fresh-quota-pool-%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&Option{}))
+
+	require.NoError(t, migrateQuotaPoolSchema(db))
+
+	var count int64
+	require.NoError(t, db.Model(&Option{}).Where("key LIKE ?", "auto_recharge_setting.%").Count(&count).Error)
+	assert.Zero(t, count)
+}
+
+func TestMigrateQuotaPoolSchemaPreservesStoredAutoRechargeSetting(t *testing.T) {
+	db := openLegacyQuotaPoolFixture(t)
+	require.NoError(t, db.AutoMigrate(&Option{}))
+	require.NoError(t, db.Create(&Option{Key: "auto_recharge_setting.enabled", Value: "false"}).Error)
+
+	require.NoError(t, migrateQuotaPoolSchema(db))
+
+	var enabled Option
+	require.NoError(t, db.Where("key = ?", "auto_recharge_setting.enabled").First(&enabled).Error)
+	assert.Equal(t, "false", enabled.Value)
+}
