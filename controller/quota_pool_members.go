@@ -3,6 +3,7 @@ package controller
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -48,7 +49,8 @@ func AddQuotaPoolMember(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"move": result})
+	recharge := service.TryAutoRechargeUserById(req.UserId)
+	common.ApiSuccess(c, gin.H{"move": result, "initial_recharge": recharge})
 }
 
 func MoveUserQuotaPool(c *gin.Context) {

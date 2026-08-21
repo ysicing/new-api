@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -32,9 +34,20 @@ func GetSelfQuotaPool(c *gin.Context) {
 	if !ok {
 		return
 	}
+	user, err := model.GetUserById(c.GetInt("id"), false)
+	if err != nil {
+		writeQuotaPoolError(c, err)
+		return
+	}
+	weeklyUsage, err := service.GetWeeklyAutoRechargeUsage(user, pool, time.Now())
+	if err != nil {
+		writeQuotaPoolError(c, err)
+		return
+	}
 	common.ApiSuccess(c, gin.H{
 		"pool": pool, "admin": admin,
-		"capabilities": service.ResolveQuotaPoolCapabilities(c.GetInt("role"), admin.Level),
+		"capabilities":               service.ResolveQuotaPoolCapabilities(c.GetInt("role"), admin.Level),
+		"weekly_auto_recharge_usage": weeklyUsage,
 	})
 }
 
@@ -125,7 +138,8 @@ func AddSelfQuotaPoolMember(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"move": result})
+	recharge := service.TryAutoRechargeUserById(req.UserId)
+	common.ApiSuccess(c, gin.H{"move": result, "initial_recharge": recharge})
 }
 
 func MoveSelfQuotaPoolMember(c *gin.Context) {
