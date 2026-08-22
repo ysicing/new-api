@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm"
 )
 
@@ -32,13 +33,9 @@ func migrateQuotaPoolSchema(db *gorm.DB) error {
 }
 
 func persistLegacyAutoRechargeDefaults(db *gorm.DB) error {
-	keyCol := "`key`"
-	if db != nil && db.Dialector != nil && db.Dialector.Name() == "postgres" {
-		keyCol = "\"key\""
-	}
 	var count int64
 	if err := db.Model(&Option{}).
-		Where(keyCol+" = ?", "auto_recharge_setting.enabled").
+		Where("`key` = ?", "auto_recharge_setting.enabled").
 		Count(&count).Error; err != nil {
 		return err
 	}
@@ -54,8 +51,12 @@ func persistLegacyAutoRechargeDefaults(db *gorm.DB) error {
 		{Key: "auto_recharge_setting.monthly_limit", Value: "0"},
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
+		upsert := clause.OnConflict{
+			Columns:   []clause.Column{{Name: "key"}},
+			DoNothing: true,
+		}
 		for i := range defaults {
-			if err := tx.Create(&defaults[i]).Error; err != nil {
+			if err := tx.Clauses(upsert).Create(&defaults[i]).Error; err != nil {
 				return err
 			}
 		}
