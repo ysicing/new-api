@@ -1,9 +1,18 @@
+import { ROLE } from '@/lib/roles'
 import type { AuthUser } from '@/stores/auth-store'
 
 type QuotaPoolAccessUser = Pick<AuthUser, 'role'> &
-  Partial<Pick<AuthUser, 'quota_pool_enabled' | 'quota_pool_admin'>>
+  Partial<
+    Pick<AuthUser, 'quota_pool_enabled' | 'quota_pool_admin' | 'quota_pool_id'>
+  >
 
 export function canAccessQuotaPools(user?: QuotaPoolAccessUser | null) {
-  if (!user?.quota_pool_enabled) return false
-  return user.role === 2 || user.role >= 10 || Boolean(user.quota_pool_admin)
+  return Boolean(user && user.quota_pool_enabled)
+}
+
+export function canListAllQuotaPools(user?: QuotaPoolAccessUser | null) {
+  return Boolean(
+    user &&
+    (user.role === ROLE.QUOTA_POOL_SUPER_ADMIN || user.role >= ROLE.ADMIN)
+  )
 }

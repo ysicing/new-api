@@ -79,6 +79,54 @@ func currentQuotaPoolCapabilities(c *gin.Context, level int) service.QuotaPoolCa
 	return service.ResolveQuotaPoolCapabilities(c.GetInt("role"), level)
 }
 
+func selfQuotaPoolCapabilities(c *gin.Context, admin *model.QuotaPoolAdminSummary) service.QuotaPoolCapabilities {
+	level := 0
+	if admin != nil {
+		level = admin.Level
+	}
+	capabilities := currentQuotaPoolCapabilities(c, level)
+	if admin == nil {
+		capabilities.CanView = true
+	}
+	return capabilities
+}
+
+func requireQuotaPoolCapability(c *gin.Context, capabilities service.QuotaPoolCapabilities, predicate func(service.QuotaPoolCapabilities) bool) bool {
+	if predicate(capabilities) {
+		return true
+	}
+	writeQuotaPoolError(c, model.ErrQuotaPoolPermissionDenied)
+	return false
+}
+
+func requireSelfQuotaPoolCapability(c *gin.Context, admin *model.QuotaPoolAdminSummary, requirement func(service.QuotaPoolCapabilities) bool) bool {
+	return requireQuotaPoolCapability(c, selfQuotaPoolCapabilities(c, admin), requirement)
+}
+
+func requireSelfQuotaPoolEdit(c *gin.Context, admin *model.QuotaPoolAdminSummary) bool {
+	return requireSelfQuotaPoolCapability(c, admin, func(capabilities service.QuotaPoolCapabilities) bool {
+		return capabilities.CanEdit
+	})
+}
+
+func requireSelfQuotaPoolMembersManagement(c *gin.Context, admin *model.QuotaPoolAdminSummary) bool {
+	return requireSelfQuotaPoolCapability(c, admin, func(capabilities service.QuotaPoolCapabilities) bool {
+		return capabilities.CanManageMembers
+	})
+}
+
+func requireSelfQuotaPoolV1AdminManagement(c *gin.Context, admin *model.QuotaPoolAdminSummary) bool {
+	return requireSelfQuotaPoolCapability(c, admin, func(capabilities service.QuotaPoolCapabilities) bool {
+		return capabilities.CanManageV1Admins
+	})
+}
+
+func requireSelfQuotaPoolV2AdminManagement(c *gin.Context, admin *model.QuotaPoolAdminSummary) bool {
+	return requireSelfQuotaPoolCapability(c, admin, func(capabilities service.QuotaPoolCapabilities) bool {
+		return capabilities.CanManageV2Admins
+	})
+}
+
 func writeQuotaPoolError(c *gin.Context, err error) {
 	status, code, message := http.StatusInternalServerError, "QUOTA_POOL_INTERNAL", "额度池操作失败"
 	switch {

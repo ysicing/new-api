@@ -14,6 +14,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { canListAllQuotaPools } from './access'
 import { getQuotaPools, getSelfQuotaPool } from './api'
 import { QuotaPoolDetail } from './components/quota-pool-detail'
 import {
@@ -42,7 +43,7 @@ export function QuotaPools() {
   const [createOpen, setCreateOpen] = useState(false)
   const [refillOpen, setRefillOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
-  const canListAll = user?.role === 2 || (user?.role ?? 0) >= 10
+  const canListAll = canListAllQuotaPools(user)
   const query = useQuery({
     queryKey: ['quota-pools', canListAll ? 'all' : 'self'],
     queryFn: async () => {

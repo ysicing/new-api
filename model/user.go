@@ -516,6 +516,14 @@ func GetUserById(id int, selectAll bool) (*User, error) {
 	} else {
 		err = DB.Omit("password", "access_token").First(&user, "id = ?", id).Error
 	}
+	if err != nil {
+		return nil, err
+	}
+	if user.QuotaPoolId > 0 {
+		if err = fillUserQuotaPoolNames(DB, []*User{&user}); err != nil {
+			return nil, err
+		}
+	}
 	return &user, err
 }
 

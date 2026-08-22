@@ -92,10 +92,11 @@ func createMiddlewarePATUserWithRole(t *testing.T, username, token string, role 
 	return user
 }
 
-func TestQuotaPoolAuthAllowsPoolSuperAdminAndSystemAdminOnly(t *testing.T) {
+func TestQuotaPoolAuthAllowsPoolSuperAdminAndSystemAdminsOnly(t *testing.T) {
 	setupDashboardAuthMiddlewareTest(t)
 	createMiddlewarePATUserWithRole(t, "pool-super-admin", "pool-super-token", common.RoleQuotaPoolSuperAdmin)
-	createMiddlewarePATUserWithRole(t, "system-admin", "system-admin-token", common.RoleAdminUser)
+	createMiddlewarePATUserWithRole(t, "admin", "admin-token", common.RoleAdminUser)
+	createMiddlewarePATUserWithRole(t, "system-admin", "system-admin-token", common.RoleRootUser)
 	createMiddlewarePATUser(t, "ordinary-pool-user", "ordinary-pool-token")
 	router := gin.New()
 	router.GET("/quota-pool", QuotaPoolAuth(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
@@ -106,6 +107,7 @@ func TestQuotaPoolAuthAllowsPoolSuperAdminAndSystemAdminOnly(t *testing.T) {
 		status int
 	}{
 		{name: "pool super admin", token: "pool-super-token", status: http.StatusNoContent},
+		{name: "admin", token: "admin-token", status: http.StatusNoContent},
 		{name: "system admin", token: "system-admin-token", status: http.StatusNoContent},
 		{name: "ordinary user", token: "ordinary-pool-token", status: http.StatusForbidden},
 	}

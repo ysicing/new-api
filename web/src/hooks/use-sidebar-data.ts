@@ -101,6 +101,15 @@ export function useSidebarData(): SidebarData {
             configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
             icon: ListTodo,
           },
+          ...(canAccessQuotaPools(user)
+            ? [
+                {
+                  title: t('Quota pools'),
+                  url: '/quota-pools',
+                  icon: LandPlot,
+                },
+              ]
+            : []),
         ],
       },
       {
@@ -138,15 +147,6 @@ export function useSidebarData(): SidebarData {
             url: '/users',
             icon: Users,
           },
-          ...(canAccessQuotaPools(user)
-            ? [
-                {
-                  title: t('Quota pools'),
-                  url: '/quota-pools',
-                  icon: LandPlot,
-                },
-              ]
-            : []),
           {
             title: t('Redemption Codes'),
             url: '/redemption-codes',
