@@ -11,19 +11,54 @@ import (
 )
 
 func ListQuotaPoolItems() ([]QuotaPoolListItem, error) {
+	items, _, err := ListQuotaPoolItemsPage("", nil)
+	return items, err
+}
+
+func ListQuotaPoolItemsPage(keyword string, page *common.PageInfo) ([]QuotaPoolListItem, int64, error) {
+	query := DB.Model(&QuotaPool{})
+	keyword = strings.TrimSpace(keyword)
+	if keyword != "" {
+		escapedKeyword := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(strings.ToLower(keyword))
+		like := "%" + escapedKeyword + "%"
+		if poolId, err := strconv.Atoi(keyword); err == nil {
+			query = query.Where("(id = ? OR LOWER(name) LIKE ? ESCAPE '!')", poolId, like)
+		} else {
+			query = query.Where("LOWER(name) LIKE ? ESCAPE '!'", like)
+		}
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if page != nil {
+		if page.PageSize < 1 {
+			page.PageSize = common.ItemsPerPage
+		}
+		lastPage := int64(1)
+		if total > 0 {
+			lastPage = (total-1)/int64(page.PageSize) + 1
+		}
+		if page.Page < 1 {
+			page.Page = 1
+		} else if int64(page.Page) > lastPage {
+			page.Page = int(lastPage)
+		}
+		query = query.Offset(page.GetStartIdx()).Limit(page.GetPageSize())
+	}
 	var pools []QuotaPool
-	if err := DB.Order("is_default DESC, id ASC").Find(&pools).Error; err != nil {
-		return nil, err
+	if err := query.Order("is_default DESC, id ASC").Find(&pools).Error; err != nil {
+		return nil, 0, err
 	}
 	items := make([]QuotaPoolListItem, 0, len(pools))
 	for _, pool := range pools {
 		item, err := buildQuotaPoolListItem(pool)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		items = append(items, item)
 	}
-	return items, nil
+	return items, total, nil
 }
 
 func GetQuotaPoolListItemById(poolId int) (*QuotaPoolListItem, error) {

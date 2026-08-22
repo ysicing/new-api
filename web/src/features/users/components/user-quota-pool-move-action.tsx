@@ -62,7 +62,7 @@ export function UserQuotaPoolMoveAction(props: {
   const [saving, setSaving] = useState(false)
   const query = useQuery({
     queryKey: ['quota-pools', 'user-migration'],
-    queryFn: getQuotaPools,
+    queryFn: () => getQuotaPools(),
     enabled: open,
   })
   const currentPoolId = props.user.quota_pool_id ?? 0

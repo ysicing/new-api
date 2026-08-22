@@ -56,6 +56,41 @@ func TestListQuotaPoolItemsIncludesSystemAutoRecharge(t *testing.T) {
 	}, items[0].SystemAutoRecharge)
 }
 
+func TestListQuotaPoolItemsPageSearchesAndPaginates(t *testing.T) {
+	db := setupQuotaPoolFundsTestDB(t)
+	pools := []QuotaPool{
+		{Name: "保障默认池", PoolType: QuotaPoolTypeDefault, IsDefault: true, Enabled: true},
+		{Name: "平台保障部", PoolType: QuotaPoolTypeNormal, Enabled: true},
+		{Name: "team_%", PoolType: QuotaPoolTypeNormal, Enabled: true},
+		{Name: "teamX", PoolType: QuotaPoolTypeNormal, Enabled: true},
+	}
+	require.NoError(t, db.Create(&pools).Error)
+
+	first, total, err := ListQuotaPoolItemsPage("保障", &common.PageInfo{Page: 1, PageSize: 1})
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, total)
+	require.Len(t, first, 1)
+	assert.Equal(t, pools[0].Id, first[0].Id)
+
+	second, total, err := ListQuotaPoolItemsPage("保障", &common.PageInfo{Page: 2, PageSize: 1})
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, total)
+	require.Len(t, second, 1)
+	assert.Equal(t, pools[1].Id, second[0].Id)
+
+	byID, total, err := ListQuotaPoolItemsPage(strconv.Itoa(pools[3].Id), &common.PageInfo{Page: 1, PageSize: 20})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	require.Len(t, byID, 1)
+	assert.Equal(t, pools[3].Id, byID[0].Id)
+
+	literal, total, err := ListQuotaPoolItemsPage("team_", &common.PageInfo{Page: 1, PageSize: 20})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	require.Len(t, literal, 1)
+	assert.Equal(t, pools[2].Id, literal[0].Id)
+}
+
 func TestAddQuotaPoolManualRefillEnforcesAmountAndMonthlyLimit(t *testing.T) {
 	db := setupQuotaPoolFundsTestDB(t)
 	pool, _ := seedQuotaPoolMember(t, db, 1000, 0)

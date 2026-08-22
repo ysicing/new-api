@@ -12,13 +12,38 @@ import type {
   QuotaPoolTransaction,
 } from './types'
 
-export async function getQuotaPools() {
+export async function getQuotaPools(options?: {
+  page?: number
+  pageSize?: number
+  keyword?: string
+}) {
+  const endpoint = '/api/quota_pool/'
+  type QuotaPoolListResponse = ApiResponse<{
+    items: QuotaPool[]
+    capabilities: QuotaPoolCapabilities
+    total?: number
+    page?: number
+    page_size?: number
+  }>
+  const response = options
+    ? await api.get<QuotaPoolListResponse>(endpoint, {
+        params: {
+          p: options.page ?? 1,
+          page_size: options.pageSize ?? 20,
+          keyword: options.keyword ?? '',
+        },
+      })
+    : await api.get<QuotaPoolListResponse>(endpoint)
+  return response.data
+}
+
+export async function getQuotaPool(poolId: number) {
   const response = await api.get<
     ApiResponse<{
-      items: QuotaPool[]
+      pool: QuotaPool
       capabilities: QuotaPoolCapabilities
     }>
-  >('/api/quota_pool/')
+  >(`/api/quota_pool/${poolId}`)
   return response.data
 }
 

@@ -410,6 +410,9 @@ export interface UserInfo {
   used_quota: number
   request_count: number
   group?: string
+  quota_pool_id?: number
+  quota_pool_name?: string
+  quota_pool_enabled?: boolean
   aff_code?: string
   aff_count?: number
   aff_quota?: number

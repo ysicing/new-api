@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -40,6 +40,7 @@ export function QuotaPoolDetail(props: {
   capabilities: QuotaPoolCapabilities
   selfMode?: boolean
   onBack?: () => void
+  title?: ReactNode
 }) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<DetailTab>('overview')
@@ -92,7 +93,11 @@ export function QuotaPoolDetail(props: {
               {t('Back to list')}
             </Button>
           ) : null}
-          <CardTitle className='truncate'>{props.pool.name}</CardTitle>
+          <CardTitle className='min-w-0'>
+            {props.title ?? (
+              <span className='block truncate'>{props.pool.name}</span>
+            )}
+          </CardTitle>
         </div>
       </CardHeader>
       <CardContent>

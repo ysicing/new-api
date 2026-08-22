@@ -17,6 +17,7 @@ import type { QuotaPool, QuotaPoolCapabilities } from '../types'
 
 const apiMocks = vi.hoisted(() => ({
   getQuotaPools: vi.fn(),
+  getQuotaPool: vi.fn(),
   getSelfQuotaPool: vi.fn(),
   getQuotaPoolMembers: vi.fn(),
   getQuotaPoolTransactions: vi.fn(),
@@ -43,6 +44,13 @@ const pool: QuotaPool = {
   monthly_refill_day: 1,
   last_refill_month: 0,
   member_count: 1,
+}
+
+const otherPool: QuotaPool = {
+  ...pool,
+  id: 8,
+  name: '研发池',
+  quota: 300_000_000,
 }
 
 const viewCapabilities: QuotaPoolCapabilities = {
@@ -123,6 +131,11 @@ test('pool administrator navigates from list to detail and back', async () => {
   const backButton = await screen.findByRole('button', {
     name: 'Back to list',
   })
+  expect(
+    screen.queryByRole('button', {
+      name: 'Switch quota pool: 平台保障部',
+    })
+  ).not.toBeInTheDocument()
   expect(backButton).toHaveFocus()
   expect(screen.getByRole('tab', { name: 'Overview' })).toBeInTheDocument()
   expect(
@@ -137,4 +150,248 @@ test('pool administrator navigates from list to detail and back', async () => {
     ).toBeInTheDocument()
     expect(screen.getByText('平台保障部').closest('tr')).toHaveFocus()
   })
+})
+
+test('global administrator searches and paginates quota pools on the server', async () => {
+  apiMocks.getQuotaPools.mockResolvedValue({
+    success: true,
+    data: {
+      items: [pool],
+      total: 31,
+      page: 1,
+      page_size: 20,
+      capabilities: viewCapabilities,
+    },
+  })
+  renderQuotaPools({
+    id: 3,
+    username: 'admin',
+    role: 10,
+    quota_pool_enabled: true,
+  })
+
+  await waitFor(() =>
+    expect(apiMocks.getQuotaPools).toHaveBeenCalledWith({
+      page: 1,
+      pageSize: 20,
+      keyword: '',
+    })
+  )
+  const search = await screen.findByRole('searchbox', {
+    name: 'Search quota pools',
+  })
+  fireEvent.change(search, { target: { value: '保障' } })
+  const searchButton = screen.getByRole('button', { name: 'Search' })
+  searchButton.focus()
+  fireEvent.click(searchButton)
+
+  await waitFor(() =>
+    expect(apiMocks.getQuotaPools).toHaveBeenLastCalledWith({
+      page: 1,
+      pageSize: 20,
+      keyword: '保障',
+    })
+  )
+  await screen.findByRole('searchbox', { name: 'Search quota pools' })
+  expect(searchButton).toHaveFocus()
+  fireEvent.click(await screen.findByRole('button', { name: 'Next page' }))
+  await waitFor(() =>
+    expect(apiMocks.getQuotaPools).toHaveBeenLastCalledWith({
+      page: 2,
+      pageSize: 20,
+      keyword: '保障',
+    })
+  )
+
+  const pageSize = await screen.findByRole('combobox', {
+    name: 'Rows per page',
+  })
+  expect(pageSize).toHaveValue('20')
+  expect(screen.getByRole('option', { name: '10 / page' })).toBeInTheDocument()
+  expect(screen.getByRole('option', { name: '50 / page' })).toBeInTheDocument()
+  fireEvent.change(pageSize, { target: { value: '50' } })
+  await waitFor(() =>
+    expect(apiMocks.getQuotaPools).toHaveBeenLastCalledWith({
+      page: 1,
+      pageSize: 50,
+      keyword: '保障',
+    })
+  )
+})
+
+test('global administrator keeps search controls for an empty result', async () => {
+  apiMocks.getQuotaPools.mockResolvedValue({
+    success: true,
+    data: {
+      items: [],
+      total: 0,
+      page: 1,
+      page_size: 20,
+      capabilities: viewCapabilities,
+    },
+  })
+  renderQuotaPools({
+    id: 3,
+    username: 'admin',
+    role: 10,
+    quota_pool_enabled: true,
+  })
+
+  expect(
+    await screen.findByRole('searchbox', { name: 'Search quota pools' })
+  ).toBeInTheDocument()
+  expect(screen.getByText('No quota pools')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled()
+})
+
+test('global administrator accepts a server-clamped page after totals shrink', async () => {
+  let shrunk = false
+  apiMocks.getQuotaPools.mockImplementation(
+    async (options?: {
+      page?: number
+      pageSize?: number
+      keyword?: string
+    }) => {
+      if (options?.page === 2) shrunk = true
+      return {
+        success: true,
+        data: {
+          items: [pool],
+          total: shrunk ? 20 : 21,
+          page: shrunk ? 1 : 1,
+          page_size: 20,
+          capabilities: viewCapabilities,
+        },
+      }
+    }
+  )
+  renderQuotaPools({
+    id: 3,
+    username: 'admin',
+    role: 10,
+    quota_pool_enabled: true,
+  })
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Next page' }))
+  await waitFor(() =>
+    expect(apiMocks.getQuotaPools).toHaveBeenCalledWith({
+      page: 2,
+      pageSize: 20,
+      keyword: '',
+    })
+  )
+  await waitFor(() =>
+    expect(apiMocks.getQuotaPools).toHaveBeenLastCalledWith({
+      page: 1,
+      pageSize: 20,
+      keyword: '',
+    })
+  )
+  expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled()
+})
+
+test('global administrator searches and switches pools from the detail title', async () => {
+  apiMocks.getQuotaPools.mockResolvedValueOnce({
+    success: true,
+    data: {
+      items: [pool],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      capabilities: viewCapabilities,
+    },
+  })
+  apiMocks.getQuotaPools.mockResolvedValue({
+    success: true,
+    data: {
+      items: [otherPool],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      capabilities: viewCapabilities,
+    },
+  })
+  apiMocks.getQuotaPool.mockImplementation(async (poolId: number) => ({
+    success: true,
+    data: {
+      pool: poolId === otherPool.id ? otherPool : pool,
+      capabilities: viewCapabilities,
+    },
+  }))
+  renderQuotaPools({
+    id: 3,
+    username: 'admin',
+    role: 10,
+    quota_pool_enabled: true,
+  })
+
+  fireEvent.click(await screen.findByText('平台保障部'))
+  const switcher = await screen.findByRole('button', {
+    name: 'Switch quota pool: 平台保障部',
+  })
+  fireEvent.click(switcher)
+  const search = await screen.findByPlaceholderText('Search by pool ID or name')
+  fireEvent.change(search, { target: { value: '研发' } })
+  await waitFor(() =>
+    expect(apiMocks.getQuotaPools).toHaveBeenLastCalledWith({
+      page: 1,
+      pageSize: 20,
+      keyword: '研发',
+    })
+  )
+  fireEvent.click(await screen.findByRole('option', { name: /研发池/ }))
+
+  await waitFor(() => expect(apiMocks.getQuotaPool).toHaveBeenCalledWith(8))
+  expect(
+    await screen.findByRole('button', {
+      name: 'Switch quota pool: 研发池',
+    })
+  ).toHaveTextContent('研发池')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+  await waitFor(() =>
+    expect(
+      screen.getByRole('searchbox', { name: 'Search quota pools' })
+    ).toHaveFocus()
+  )
+})
+
+test('global administrator cannot operate a pool when detail loading fails', async () => {
+  apiMocks.getQuotaPools.mockResolvedValue({
+    success: true,
+    data: {
+      items: [pool],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      capabilities: {
+        ...viewCapabilities,
+        can_edit: true,
+        can_manage_members: true,
+      },
+    },
+  })
+  apiMocks.getQuotaPool.mockResolvedValue({
+    success: false,
+    message: 'raw detail error',
+  })
+  renderQuotaPools({
+    id: 3,
+    username: 'admin',
+    role: 10,
+    quota_pool_enabled: true,
+  })
+
+  fireEvent.click(await screen.findByText('平台保障部'))
+
+  expect(await screen.findByText('Failed to load')).toBeInTheDocument()
+  expect(
+    screen.queryByRole('tab', { name: 'Overview' })
+  ).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole('button', { name: 'Add member' })
+  ).not.toBeInTheDocument()
+  expect(screen.queryByText('raw detail error')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
 })

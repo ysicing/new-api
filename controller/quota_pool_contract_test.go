@@ -1,8 +1,10 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -48,6 +50,123 @@ func TestWriteQuotaPoolErrorReturnsCandidateValidationCode(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), `"code":"QUOTA_POOL_CANDIDATE_INVALID"`)
+}
+
+func TestGetUserIncludesCurrentQuotaPoolFeatureState(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	target := model.User{
+		Username: "user-info-pool", Password: "password", AffCode: "user-info-pool",
+		Role: common.RoleCommonUser, Status: common.UserStatusEnabled,
+	}
+	require.NoError(t, db.Create(&target).Error)
+	previous := common.QuotaPoolEnabled
+	common.QuotaPoolEnabled = true
+	t.Cleanup(func() { common.QuotaPoolEnabled = previous })
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Params = gin.Params{{Key: "id", Value: strconv.Itoa(target.Id)}}
+	c.Set("role", common.RoleRootUser)
+
+	GetUser(c)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"quota_pool_enabled":true`)
+}
+
+func TestGetQuotaPoolsReturnsRequestedSearchPage(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.QuotaPool{}, &model.QuotaPoolAdmin{}))
+	require.NoError(t, db.Create(&[]model.QuotaPool{
+		{Name: "pool-alpha", PoolType: model.QuotaPoolTypeNormal, Enabled: true},
+		{Name: "pool-beta", PoolType: model.QuotaPoolTypeNormal, Enabled: true},
+	}).Error)
+	previous := common.QuotaPoolEnabled
+	common.QuotaPoolEnabled = true
+	t.Cleanup(func() { common.QuotaPoolEnabled = previous })
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/quota_pool/?p=2&page_size=1&keyword=pool", nil)
+	c.Set("role", common.RoleAdminUser)
+
+	GetQuotaPools(c)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"total":2`)
+	assert.Contains(t, recorder.Body.String(), `"page":2`)
+	assert.Contains(t, recorder.Body.String(), `"page_size":1`)
+	assert.Contains(t, recorder.Body.String(), `"name":"pool-beta"`)
+	assert.NotContains(t, recorder.Body.String(), `"name":"pool-alpha"`)
+}
+
+func TestGetQuotaPoolsClampsInvalidPagination(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.QuotaPool{}, &model.QuotaPoolAdmin{}))
+	require.NoError(t, db.Create(&model.QuotaPool{
+		Name: "pool-alpha", PoolType: model.QuotaPoolTypeNormal, Enabled: true,
+	}).Error)
+	previous := common.QuotaPoolEnabled
+	common.QuotaPoolEnabled = true
+	t.Cleanup(func() { common.QuotaPoolEnabled = previous })
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/quota_pool/?p=-2&page_size=-5", nil)
+	c.Set("role", common.RoleAdminUser)
+
+	GetQuotaPools(c)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"page":1`)
+	assert.Contains(t, recorder.Body.String(), fmt.Sprintf(`"page_size":%d`, common.ItemsPerPage))
+}
+
+func TestGetQuotaPoolsTreatsAnEmptyKeywordAsPaginatedRequest(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.QuotaPool{}, &model.QuotaPoolAdmin{}))
+	require.NoError(t, db.Create(&model.QuotaPool{
+		Name: "pool-alpha", PoolType: model.QuotaPoolTypeNormal, Enabled: true,
+	}).Error)
+	previous := common.QuotaPoolEnabled
+	common.QuotaPoolEnabled = true
+	t.Cleanup(func() { common.QuotaPoolEnabled = previous })
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/quota_pool/?keyword=", nil)
+	c.Set("role", common.RoleAdminUser)
+
+	GetQuotaPools(c)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"total":1`)
+	assert.Contains(t, recorder.Body.String(), `"page":1`)
+	assert.Contains(t, recorder.Body.String(), fmt.Sprintf(`"page_size":%d`, common.ItemsPerPage))
+}
+
+func TestGetQuotaPoolsClampsAnOverflowingPageToTheLastPage(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.QuotaPool{}, &model.QuotaPoolAdmin{}))
+	pools := make([]model.QuotaPool, 21)
+	for index := range pools {
+		pools[index] = model.QuotaPool{
+			Name: fmt.Sprintf("pool-%02d", index+1), PoolType: model.QuotaPoolTypeNormal, Enabled: true,
+		}
+	}
+	require.NoError(t, db.Create(&pools).Error)
+	previous := common.QuotaPoolEnabled
+	common.QuotaPoolEnabled = true
+	t.Cleanup(func() { common.QuotaPoolEnabled = previous })
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	maxPage := int(^uint(0) >> 1)
+	c.Request = httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/quota_pool/?p=%d&page_size=20", maxPage), nil)
+	c.Set("role", common.RoleAdminUser)
+
+	GetQuotaPools(c)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"page":2`)
+	assert.Contains(t, recorder.Body.String(), `"total":21`)
+	assert.Contains(t, recorder.Body.String(), `"name":"pool-21"`)
+	assert.NotContains(t, recorder.Body.String(), `"name":"pool-01"`)
 }
 
 func TestValidateQuotaPoolReclaimAmountAllowsOnlyCurrentMemberOptions(t *testing.T) {

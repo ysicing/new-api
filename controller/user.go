@@ -401,10 +401,14 @@ func GetUser(c *gin.Context) {
 		return
 	}
 	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
+	data := struct {
+		*model.User
+		QuotaPoolEnabled bool `json:"quota_pool_enabled"`
+	}{User: user, QuotaPoolEnabled: common.QuotaPoolEnabled}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    user,
+		"data":    data,
 	})
 	return
 }

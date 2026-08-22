@@ -14,12 +14,36 @@ func GetQuotaPools(c *gin.Context) {
 	if !requireQuotaPoolFeature(c) {
 		return
 	}
-	items, err := model.ListQuotaPoolItems()
+	_, keywordProvided := c.GetQuery("keyword")
+	paginated := c.Query("p") != "" || c.Query("page_size") != "" ||
+		c.Query("ps") != "" || c.Query("size") != "" || keywordProvided
+	page := common.GetPageQuery(c)
+	if page.Page < 1 {
+		page.Page = 1
+	}
+	if page.PageSize < 1 {
+		page.PageSize = common.ItemsPerPage
+	}
+	var items []model.QuotaPoolListItem
+	var total int64
+	var err error
+	if paginated {
+		items, total, err = model.ListQuotaPoolItemsPage(c.Query("keyword"), page)
+	} else {
+		items, err = model.ListQuotaPoolItems()
+		total = int64(len(items))
+	}
 	if err != nil {
 		writeQuotaPoolError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"items": items, "capabilities": currentQuotaPoolCapabilities(c, 0)})
+	data := gin.H{"items": items, "capabilities": currentQuotaPoolCapabilities(c, 0)}
+	if paginated {
+		data["total"] = total
+		data["page"] = page.Page
+		data["page_size"] = page.PageSize
+	}
+	common.ApiSuccess(c, data)
 }
 
 func CreateQuotaPool(c *gin.Context) {

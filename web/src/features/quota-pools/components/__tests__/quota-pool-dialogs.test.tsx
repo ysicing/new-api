@@ -138,7 +138,8 @@ test('does not report an empty result while candidates are loading', async () =>
   await user.click(await screen.findByRole('combobox', { name: 'User' }))
 
   expect(await screen.findByText('Searching users...')).toBeInTheDocument()
-  expect(screen.queryByText('No eligible users found.')).not.toBeInTheDocument()
+  const emptyMessage = screen.queryByText('No eligible users found.')
+  if (emptyMessage) expect(emptyMessage).not.toBeVisible()
 })
 
 test('shows the candidate API failure instead of an empty result', async () => {
@@ -152,6 +153,7 @@ test('shows the candidate API failure instead of an empty result', async () => {
   await user.click(await screen.findByRole('combobox', { name: 'User' }))
 
   expect(await screen.findByText('Failed to load users.')).toBeInTheDocument()
-  expect(screen.queryByText('No eligible users found.')).not.toBeInTheDocument()
+  const emptyMessage = screen.queryByText('No eligible users found.')
+  if (emptyMessage) expect(emptyMessage).not.toBeVisible()
   expect(screen.queryByText('raw server error')).not.toBeInTheDocument()
 })

@@ -11,6 +11,8 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   getQuotaPoolCandidates,
   getQuotaPoolMembers,
+  getQuotaPool,
+  getQuotaPools,
   moveUserQuotaPool,
   reclaimQuotaPoolMember,
 } from '../api'
@@ -79,6 +81,26 @@ describe('quota pool members API', () => {
       '/api/quota_pool/self/candidates',
       { params: { p: 1, page_size: 20, keyword: '平台部' } }
     )
+  })
+
+  test('passes pagination and search parameters to the pool list endpoint', async () => {
+    await getQuotaPools({ page: 2, pageSize: 20, keyword: '保障' })
+
+    expect(apiMocks.get).toHaveBeenCalledWith('/api/quota_pool/', {
+      params: { p: 2, page_size: 20, keyword: '保障' },
+    })
+  })
+
+  test('keeps the unpaginated pool list call backward compatible', async () => {
+    await getQuotaPools()
+
+    expect(apiMocks.get).toHaveBeenCalledWith('/api/quota_pool/')
+  })
+
+  test('loads a single quota pool for detail switching', async () => {
+    await getQuotaPool(8)
+
+    expect(apiMocks.get).toHaveBeenCalledWith('/api/quota_pool/8')
   })
 
   test('passes the selected reclaim amount to the backend', async () => {
