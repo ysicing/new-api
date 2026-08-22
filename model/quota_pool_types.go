@@ -123,8 +123,18 @@ type QuotaPoolAdminSummary struct {
 
 type QuotaPoolListItem struct {
 	QuotaPool
-	MemberCount int64 `json:"member_count"`
-	AdminCount  int64 `json:"admin_count"`
+	MemberCount        int64                       `json:"member_count"`
+	AdminCount         int64                       `json:"admin_count"`
+	SystemAutoRecharge QuotaPoolSystemAutoRecharge `json:"system_auto_recharge"`
+}
+
+type QuotaPoolSystemAutoRecharge struct {
+	Enabled      bool `json:"enabled"`
+	Interval     int  `json:"interval"`
+	Threshold    int  `json:"threshold"`
+	Amount       int  `json:"amount"`
+	WeeklyLimit  int  `json:"weekly_limit"`
+	MonthlyLimit int  `json:"monthly_limit"`
 }
 
 type QuotaPoolMember struct {
@@ -139,6 +149,7 @@ type QuotaPoolMember struct {
 	UsedQuota           int    `json:"used_quota"`
 	QuotaPoolId         int    `json:"quota_pool_id"`
 	QuotaPoolAdminLevel int    `json:"quota_pool_admin_level"`
+	ReclaimAmounts      []int  `json:"reclaim_amounts"`
 }
 
 type QuotaPoolTransactionItem struct {

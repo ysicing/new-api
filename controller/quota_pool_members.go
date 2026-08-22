@@ -15,12 +15,24 @@ func GetQuotaPoolMembers(c *gin.Context) {
 		return
 	}
 	page := common.GetPageQuery(c)
-	items, total, err := model.ListQuotaPoolMembers(id, page)
+	items, total, err := model.ListQuotaPoolMembers(id, c.Query("keyword"), page)
 	if err != nil {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	pool, err := model.GetQuotaPoolById(id)
+	if err != nil {
+		writeQuotaPoolError(c, err)
+		return
+	}
+	attachQuotaPoolMemberReclaimAmounts(pool, items)
 	quotaPoolPage(c, items, total)
+}
+
+func attachQuotaPoolMemberReclaimAmounts(pool *model.QuotaPool, items []model.QuotaPoolMember) {
+	for i := range items {
+		items[i].ReclaimAmounts = quotaPoolReclaimAmounts(pool, items[i].Quota)
+	}
 }
 
 func GetQuotaPoolCandidates(c *gin.Context) {
@@ -112,38 +124,39 @@ func ReclaimQuotaPoolMember(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
-	amount := quotaPoolRechargeAmount(pool)
+	reclaimQuotaPoolMember(c, pool, userId)
+}
+
+func reclaimQuotaPoolMember(c *gin.Context, pool *model.QuotaPool, userId int) {
 	var req struct {
 		Amount *int `json:"amount"`
 	}
-	if c.Request.ContentLength > 0 {
-		if err := common.DecodeJson(c.Request.Body, &req); err != nil {
-			writeQuotaPoolError(c, model.ErrQuotaPoolInvalidAmount)
-			return
-		}
-	}
-	if req.Amount != nil {
-		amount = *req.Amount
-	}
-	if err := validateQuotaPoolReclaimAmount(quotaPoolRechargeAmount(pool), amount); err != nil {
-		writeQuotaPoolError(c, err)
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil || req.Amount == nil {
+		writeQuotaPoolError(c, model.ErrQuotaPoolInvalidAmount)
 		return
 	}
-	change, err := model.ReclaimQuotaToPool(id, userId, amount, c.GetInt("id"))
+	user, err := model.GetUserById(userId, false)
 	if err != nil {
 		writeQuotaPoolError(c, err)
 		return
 	}
-	recordQuotaPoolAudit(c, id, "quota_pool.member_reclaim", map[string]any{"user_id": userId, "amount": change.Amount})
+	allowed := quotaPoolReclaimAmounts(pool, user.Quota)
+	if err := validateQuotaPoolReclaimAmount(allowed, *req.Amount); err != nil {
+		writeQuotaPoolError(c, err)
+		return
+	}
+	change, err := model.ReclaimQuotaToPool(pool.Id, userId, *req.Amount, c.GetInt("id"))
+	if err != nil {
+		writeQuotaPoolError(c, err)
+		return
+	}
+	recordQuotaPoolAudit(c, pool.Id, "quota_pool.member_reclaim", map[string]any{"user_id": userId, "amount": change.Amount})
 	common.ApiSuccess(c, change)
 }
 
-func validateQuotaPoolReclaimAmount(baseAmount, amount int) error {
-	if baseAmount <= 0 || amount <= 0 {
-		return model.ErrQuotaPoolInvalidAmount
-	}
-	for _, factor := range []int{100, 50, 40, 30, 20, 10} {
-		if amount == baseAmount*factor/100 {
+func validateQuotaPoolReclaimAmount(allowedAmounts []int, amount int) error {
+	for _, allowed := range allowedAmounts {
+		if amount == allowed {
 			return nil
 		}
 	}
@@ -218,7 +231,7 @@ func GetQuotaPoolStats(c *gin.Context) {
 	if !ok || !requireQuotaPoolFeature(c) {
 		return
 	}
-	start, end := quotaPoolStatsRange(c, time.Now())
+	start, end := statsRange(c, time.Now())
 	stats, err := model.GetQuotaPoolStats(id, start, end)
 	if err != nil {
 		writeQuotaPoolError(c, err)

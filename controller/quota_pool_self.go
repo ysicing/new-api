@@ -64,8 +64,13 @@ func GetSelfQuotaPool(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	poolItem, err := model.GetQuotaPoolListItemById(pool.Id)
+	if err != nil {
+		writeQuotaPoolError(c, err)
+		return
+	}
 	common.ApiSuccess(c, gin.H{
-		"pool":                       pool,
+		"pool":                       poolItem,
 		"admin":                      admin,
 		"capabilities":               selfQuotaPoolCapabilities(c, admin),
 		"weekly_auto_recharge_usage": weeklyUsage,
@@ -88,19 +93,12 @@ func UpdateSelfQuotaPool(c *gin.Context) {
 	}
 	updates := map[string]any{}
 	if req.AutoRechargeAmount != nil {
-		config := operation_setting.GetAutoRechargeSetting()
-		if *req.AutoRechargeAmount > 0 && *req.AutoRechargeAmount <= float64(config.Threshold) {
-			writeQuotaPoolError(c, model.ErrQuotaPoolInvalidAmount)
+		amount, err := normalizeQuotaPoolAutoRechargeAmount(*req.AutoRechargeAmount)
+		if err != nil {
+			writeQuotaPoolError(c, err)
 			return
 		}
-		switch {
-		case *req.AutoRechargeAmount < 0:
-			updates["auto_recharge_amount"] = model.QuotaPoolAutoRechargeInherit
-		case *req.AutoRechargeAmount == 0:
-			updates["auto_recharge_amount"] = model.QuotaPoolAutoRechargeOff
-		default:
-			updates["auto_recharge_amount"] = quotaAmountToInternal(*req.AutoRechargeAmount)
-		}
+		updates["auto_recharge_amount"] = amount
 	}
 	if req.WeeklyLimit != nil {
 		updates["weekly_limit"] = *req.WeeklyLimit
@@ -126,11 +124,12 @@ func GetSelfQuotaPoolMembers(c *gin.Context) {
 		return
 	}
 	page := common.GetPageQuery(c)
-	items, total, err := model.ListQuotaPoolMembers(pool.Id, page)
+	items, total, err := model.ListQuotaPoolMembers(pool.Id, c.Query("keyword"), page)
 	if err != nil {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	attachQuotaPoolMemberReclaimAmounts(pool, items)
 	quotaPoolPage(c, items, total)
 }
 
@@ -167,7 +166,7 @@ func GetSelfQuotaPoolStats(c *gin.Context) {
 	if !ok {
 		return
 	}
-	start, end := quotaPoolStatsRange(c, time.Now())
+	start, end := statsRange(c, time.Now())
 	stats, err := model.GetQuotaPoolStats(pool.Id, start, end)
 	if err != nil {
 		writeQuotaPoolError(c, err)
@@ -247,13 +246,7 @@ func ReclaimSelfQuotaPoolMember(c *gin.Context) {
 	if !ok {
 		return
 	}
-	change, err := model.ReclaimQuotaToPool(pool.Id, userId, quotaPoolRechargeAmount(pool), c.GetInt("id"))
-	if err != nil {
-		writeQuotaPoolError(c, err)
-		return
-	}
-	recordQuotaPoolAudit(c, pool.Id, "quota_pool.member_reclaim", map[string]any{"user_id": userId, "amount": change.Amount})
-	common.ApiSuccess(c, change)
+	reclaimQuotaPoolMember(c, pool, userId)
 }
 
 func GrantSelfQuotaPoolAdmin(c *gin.Context) {

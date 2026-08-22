@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -74,23 +73,6 @@ func parseQuotaPoolUserID(c *gin.Context) (int, bool) {
 
 func quotaAmountToInternal(amount float64) int {
 	return int(amount * common.QuotaPerUnit)
-}
-
-func quotaPoolStatsRange(c *gin.Context, now time.Time) (int64, int64) {
-	start, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
-	end, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
-	if start > 0 || end > 0 {
-		return start, end
-	}
-	if c.Query("period") == "month" {
-		return now.AddDate(0, -1, 0).Unix(), now.Unix()
-	}
-	weekday := int(now.Weekday())
-	if weekday == 0 {
-		weekday = 7
-	}
-	weekStart := time.Date(now.Year(), now.Month(), now.Day()-weekday+1, 0, 0, 0, 0, now.Location())
-	return weekStart.Unix(), now.Unix()
 }
 
 func currentQuotaPoolCapabilities(c *gin.Context, level int) service.QuotaPoolCapabilities {

@@ -28,6 +28,7 @@ import type { QuotaPool, QuotaPoolCapabilities } from './types'
 const noCapabilities: QuotaPoolCapabilities = {
   can_view: false,
   can_edit: false,
+  can_edit_monthly_refill: false,
   can_refill: false,
   can_manage_members: false,
   can_manage_v1_admins: false,
@@ -71,7 +72,15 @@ export function QuotaPools() {
   }, [pools, selectedId])
   const selected = pools.find((pool) => pool.id === selectedId)
   const refresh = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['quota-pools'] })
+    const invalidations = [
+      queryClient.invalidateQueries({ queryKey: ['quota-pools'] }),
+    ]
+    if (selectedId) {
+      invalidations.push(
+        queryClient.invalidateQueries({ queryKey: ['quota-pool', selectedId] })
+      )
+    }
+    await Promise.all(invalidations)
   }
 
   let content: React.ReactNode
@@ -98,6 +107,7 @@ export function QuotaPools() {
         />
         {selected && (
           <QuotaPoolDetail
+            key={selected.id}
             pool={selected}
             capabilities={capabilities}
             selfMode={!canListAll}

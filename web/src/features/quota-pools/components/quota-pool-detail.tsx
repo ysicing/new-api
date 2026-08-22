@@ -40,10 +40,26 @@ export function QuotaPoolDetail(props: {
 }) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<DetailTab>('overview')
+  const [membersPage, setMembersPage] = useState(1)
+  const [membersPageSize, setMembersPageSize] = useState(20)
+  const [membersKeyword, setMembersKeyword] = useState('')
   const [statsPeriod, setStatsPeriod] = useState<QuotaPoolStatsPeriod>('week')
   const members = useQuery({
-    queryKey: ['quota-pool', props.pool.id, 'members'],
-    queryFn: () => getQuotaPoolMembers(props.pool.id, props.selfMode),
+    queryKey: [
+      'quota-pool',
+      props.pool.id,
+      'members',
+      props.selfMode ? 'self' : 'all',
+      membersPage,
+      membersPageSize,
+      membersKeyword,
+    ],
+    queryFn: () =>
+      getQuotaPoolMembers(props.pool.id, props.selfMode, {
+        page: membersPage,
+        pageSize: membersPageSize,
+        keyword: membersKeyword,
+      }),
     enabled: tab === 'members',
   })
   const transactions = useQuery({
@@ -87,6 +103,18 @@ export function QuotaPoolDetail(props: {
               capabilities={props.capabilities}
               selfMode={props.selfMode}
               query={members}
+              page={membersPage}
+              pageSize={membersPageSize}
+              keyword={membersKeyword}
+              onSearch={(keyword) => {
+                setMembersPage(1)
+                setMembersKeyword(keyword)
+              }}
+              onPageChange={setMembersPage}
+              onPageSizeChange={(pageSize) => {
+                setMembersPage(1)
+                setMembersPageSize(pageSize)
+              }}
             />
           </TabsContent>
           <TabsContent value='transactions'>

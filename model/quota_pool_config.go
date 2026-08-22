@@ -13,6 +13,51 @@ var quotaPoolConfigColumns = map[string]struct{}{
 	"monthly_refill_top_up": {}, "monthly_refill_amount": {}, "monthly_refill_day": {},
 }
 
+func validateQuotaPoolPolicyUpdates(pool QuotaPool, updates map[string]any) error {
+	if value, ok := updates["auto_recharge_amount"]; ok {
+		amount, valid := value.(int)
+		if !valid || amount < QuotaPoolAutoRechargeInherit {
+			return ErrQuotaPoolInvalidAmount
+		}
+	}
+	for _, field := range []string{"weekly_limit", "monthly_limit"} {
+		if value, ok := updates[field]; ok {
+			limit, valid := value.(int)
+			if !valid || limit < QuotaPoolAutoRechargeInherit {
+				return ErrQuotaPoolInvalidAmount
+			}
+		}
+	}
+	monthlyEnabled := pool.MonthlyRefillEnabled
+	if value, ok := updates["monthly_refill_enabled"]; ok {
+		var valid bool
+		monthlyEnabled, valid = value.(bool)
+		if !valid {
+			return ErrQuotaPoolInvalidAmount
+		}
+	}
+	monthlyAmount := pool.MonthlyRefillAmount
+	if value, ok := updates["monthly_refill_amount"]; ok {
+		var valid bool
+		monthlyAmount, valid = value.(int)
+		if !valid || monthlyAmount < 0 {
+			return ErrQuotaPoolInvalidAmount
+		}
+	}
+	monthlyDay := pool.MonthlyRefillDay
+	if value, ok := updates["monthly_refill_day"]; ok {
+		var valid bool
+		monthlyDay, valid = value.(int)
+		if !valid || monthlyDay < 1 || monthlyDay > 28 {
+			return ErrQuotaPoolInvalidAmount
+		}
+	}
+	if monthlyEnabled && (monthlyAmount <= 0 || monthlyDay < 1 || monthlyDay > 28) {
+		return ErrQuotaPoolInvalidAmount
+	}
+	return nil
+}
+
 func UpdateQuotaPoolConfig(poolId int, updates map[string]any, operatorId int) (*QuotaPoolBalanceChange, error) {
 	if len(updates) == 0 {
 		return nil, nil
@@ -30,6 +75,9 @@ func UpdateQuotaPoolConfig(poolId int, updates map[string]any, operatorId int) (
 		}
 		if pool.IsSystemPool() {
 			return ErrQuotaPoolSystemReadonly
+		}
+		if err := validateQuotaPoolPolicyUpdates(pool, updates); err != nil {
+			return err
 		}
 		if nameValue, ok := updates["name"]; ok {
 			name, ok := nameValue.(string)

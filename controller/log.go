@@ -3,6 +3,7 @@ package controller
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -35,8 +36,7 @@ func GetAllLogs(c *gin.Context) {
 }
 
 func GetTopUsers(c *gin.Context) {
-	start, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
-	end, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	start, end := statsRange(c, time.Now())
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	items, err := model.GetTopUsers(start, end, c.Query("model_name"), limit)
 	if err != nil {

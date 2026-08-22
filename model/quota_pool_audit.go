@@ -7,8 +7,13 @@ import (
 )
 
 func ListQuotaPoolOperationLogs(poolId int, page *common.PageInfo) ([]Log, int64, error) {
-	pattern := fmt.Sprintf(`%%"quota_pool_id":%d%%`, poolId)
-	query := LOG_DB.Model(&Log{}).Where("type = ? AND other LIKE ?", LogTypeManage, pattern)
+	objectEnd := fmt.Sprintf(`%%{"quota_pool_id":%d}%%`, poolId)
+	objectMore := fmt.Sprintf(`%%{"quota_pool_id":%d,%%`, poolId)
+	fieldEnd := fmt.Sprintf(`%%,"quota_pool_id":%d}%%`, poolId)
+	fieldMore := fmt.Sprintf(`%%,"quota_pool_id":%d,%%`, poolId)
+	query := LOG_DB.Model(&Log{}).
+		Where("type = ?", LogTypeManage).
+		Where("(other LIKE ? OR other LIKE ? OR other LIKE ? OR other LIKE ?)", objectEnd, objectMore, fieldEnd, fieldMore)
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err

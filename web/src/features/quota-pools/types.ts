@@ -1,6 +1,7 @@
 export interface QuotaPoolCapabilities {
   can_view: boolean
   can_edit: boolean
+  can_edit_monthly_refill: boolean
   can_refill: boolean
   can_manage_members: boolean
   can_manage_v1_admins: boolean
@@ -26,6 +27,14 @@ export interface QuotaPool {
   last_refill_month: number
   member_count?: number
   admin_count?: number
+  system_auto_recharge?: {
+    enabled: boolean
+    interval: number
+    threshold: number
+    amount: number
+    weekly_limit: number
+    monthly_limit: number
+  }
 }
 
 export interface QuotaPoolMember {
@@ -40,6 +49,7 @@ export interface QuotaPoolMember {
   used_quota: number
   quota_pool_id: number
   quota_pool_admin_level: number
+  reclaim_amounts?: number[]
 }
 
 export interface QuotaPoolTransaction {

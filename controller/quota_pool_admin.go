@@ -60,7 +60,7 @@ func GetQuotaPool(c *gin.Context) {
 	if !ok {
 		return
 	}
-	pool, err := model.GetQuotaPoolById(id)
+	pool, err := model.GetQuotaPoolListItemById(id)
 	if err != nil {
 		writeQuotaPoolError(c, err)
 		return
@@ -120,18 +120,11 @@ func buildQuotaPoolUpdates(req quotaPoolUpdateRequest, role int) (map[string]any
 		updates["base_quota"] = quotaAmountToInternal(*req.BaseQuota)
 	}
 	if req.AutoRechargeAmount != nil {
-		config := operation_setting.GetAutoRechargeSetting()
-		if *req.AutoRechargeAmount > 0 && *req.AutoRechargeAmount <= float64(config.Threshold) {
-			return nil, model.ErrQuotaPoolInvalidAmount
+		amount, err := normalizeQuotaPoolAutoRechargeAmount(*req.AutoRechargeAmount)
+		if err != nil {
+			return nil, err
 		}
-		switch {
-		case *req.AutoRechargeAmount < 0:
-			updates["auto_recharge_amount"] = model.QuotaPoolAutoRechargeInherit
-		case *req.AutoRechargeAmount == 0:
-			updates["auto_recharge_amount"] = model.QuotaPoolAutoRechargeOff
-		default:
-			updates["auto_recharge_amount"] = quotaAmountToInternal(*req.AutoRechargeAmount)
-		}
+		updates["auto_recharge_amount"] = amount
 	}
 	if req.WeeklyLimit != nil {
 		updates["weekly_limit"] = *req.WeeklyLimit
@@ -155,6 +148,22 @@ func buildQuotaPoolUpdates(req quotaPoolUpdateRequest, role int) (map[string]any
 		updates["monthly_refill_day"] = *req.MonthlyRefillDay
 	}
 	return updates, nil
+}
+
+func normalizeQuotaPoolAutoRechargeAmount(amount float64) (int, error) {
+	if amount < float64(model.QuotaPoolAutoRechargeInherit) {
+		return 0, model.ErrQuotaPoolInvalidAmount
+	}
+	if amount == float64(model.QuotaPoolAutoRechargeInherit) {
+		return model.QuotaPoolAutoRechargeInherit, nil
+	}
+	if amount == 0 {
+		return model.QuotaPoolAutoRechargeOff, nil
+	}
+	if amount <= float64(operation_setting.GetAutoRechargeSetting().Threshold) {
+		return 0, model.ErrQuotaPoolInvalidAmount
+	}
+	return quotaAmountToInternal(amount), nil
 }
 
 func EnableQuotaPool(c *gin.Context)  { setQuotaPoolEnabled(c, true) }
@@ -213,8 +222,34 @@ func RefillQuotaPool(c *gin.Context) {
 
 func quotaPoolRechargeAmount(pool *model.QuotaPool) int {
 	amount := int(float64(operation_setting.GetAutoRechargeSetting().Amount) * common.QuotaPerUnit)
-	if pool != nil && pool.AutoRechargeAmount > 0 {
+	if pool != nil && pool.PoolType != model.QuotaPoolTypeDefault && pool.AutoRechargeAmount >= 0 {
 		amount = pool.AutoRechargeAmount
 	}
 	return amount
+}
+
+func quotaPoolReclaimAmounts(pool *model.QuotaPool, userQuota int) []int {
+	config := operation_setting.GetAutoRechargeSetting()
+	threshold := -1
+	if config.Enabled {
+		threshold = int(float64(config.Threshold) * common.QuotaPerUnit)
+	}
+	return buildQuotaPoolReclaimAmounts(quotaPoolRechargeAmount(pool), userQuota, threshold)
+}
+
+func buildQuotaPoolReclaimAmounts(baseAmount, userQuota, threshold int) []int {
+	if baseAmount <= 0 || userQuota <= threshold {
+		return nil
+	}
+	if userQuota > baseAmount && userQuota-baseAmount > threshold {
+		return []int{baseAmount}
+	}
+	amounts := make([]int, 0, 6)
+	for _, factor := range []int{100, 50, 40, 30, 20, 10} {
+		amount := baseAmount * factor / 100
+		if amount > 0 && userQuota-amount > threshold {
+			amounts = append(amounts, amount)
+		}
+	}
+	return amounts
 }

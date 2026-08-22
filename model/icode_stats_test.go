@@ -128,3 +128,27 @@ func TestGetRechargeLeaderboardUsesStableSecondaryUsageSort(t *testing.T) {
 	assert.Equal(t, 1, results[0].AutoRechargeCount)
 	assert.Equal(t, 50, results[0].UsedQuota)
 }
+
+func TestListQuotaPoolOperationLogsMatchesExactPoolID(t *testing.T) {
+	_, logDB := setupICodeStatsTest(t)
+	logs := []Log{
+		{
+			Type: LogTypeManage, Content: "pool-1", Other: common.MapToJsonStr(map[string]any{
+				"admin_info": map[string]any{"admin_id": 7, "admin_username": "root", "quota_pool_id": 1},
+			}),
+		},
+		{
+			Type: LogTypeManage, Content: "pool-10", Other: common.MapToJsonStr(map[string]any{
+				"admin_info": map[string]any{"admin_id": 7, "admin_username": "root", "quota_pool_id": 10},
+			}),
+		},
+	}
+	require.NoError(t, logDB.Create(&logs).Error)
+
+	items, total, err := ListQuotaPoolOperationLogs(1, &common.PageInfo{Page: 1, PageSize: 10})
+
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	require.Len(t, items, 1)
+	assert.Equal(t, "pool-1", items[0].Content)
+}

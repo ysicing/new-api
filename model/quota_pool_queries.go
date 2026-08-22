@@ -2,8 +2,11 @@ package model
 
 import (
 	"errors"
+	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"gorm.io/gorm"
 )
 
@@ -14,15 +17,8 @@ func ListQuotaPoolItems() ([]QuotaPoolListItem, error) {
 	}
 	items := make([]QuotaPoolListItem, 0, len(pools))
 	for _, pool := range pools {
-		item := QuotaPoolListItem{QuotaPool: pool}
-		queryPoolId := pool.Id
-		if pool.PoolType == QuotaPoolTypeDefault {
-			queryPoolId = QuotaPoolDefaultUserPoolId
-		}
-		if err := DB.Model(&User{}).Where("quota_pool_id = ?", queryPoolId).Count(&item.MemberCount).Error; err != nil {
-			return nil, err
-		}
-		if err := DB.Model(&QuotaPoolAdmin{}).Where("pool_id = ?", pool.Id).Count(&item.AdminCount).Error; err != nil {
+		item, err := buildQuotaPoolListItem(pool)
+		if err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -30,12 +26,55 @@ func ListQuotaPoolItems() ([]QuotaPoolListItem, error) {
 	return items, nil
 }
 
-func ListQuotaPoolMembers(poolId int, page *common.PageInfo) ([]QuotaPoolMember, int64, error) {
+func GetQuotaPoolListItemById(poolId int) (*QuotaPoolListItem, error) {
+	pool, err := GetQuotaPoolById(poolId)
+	if err != nil {
+		return nil, err
+	}
+	item, err := buildQuotaPoolListItem(*pool)
+	return &item, err
+}
+
+func buildQuotaPoolListItem(pool QuotaPool) (QuotaPoolListItem, error) {
+	config := operation_setting.GetAutoRechargeSetting()
+	item := QuotaPoolListItem{
+		QuotaPool: pool,
+		SystemAutoRecharge: QuotaPoolSystemAutoRecharge{
+			Enabled: config.Enabled, Interval: config.Interval,
+			Threshold:   int(float64(config.Threshold) * common.QuotaPerUnit),
+			Amount:      int(float64(config.Amount) * common.QuotaPerUnit),
+			WeeklyLimit: config.WeeklyLimit, MonthlyLimit: config.MonthlyLimit,
+		},
+	}
+	queryPoolId := pool.Id
+	if pool.PoolType == QuotaPoolTypeDefault {
+		queryPoolId = QuotaPoolDefaultUserPoolId
+	}
+	if err := DB.Model(&User{}).Where("quota_pool_id = ?", queryPoolId).Count(&item.MemberCount).Error; err != nil {
+		return item, err
+	}
+	if err := DB.Model(&QuotaPoolAdmin{}).Where("pool_id = ?", pool.Id).Count(&item.AdminCount).Error; err != nil {
+		return item, err
+	}
+	return item, nil
+}
+
+func ListQuotaPoolMembers(poolId int, keyword string, page *common.PageInfo) ([]QuotaPoolMember, int64, error) {
 	queryPoolId := poolId
 	if pool, err := GetQuotaPoolById(poolId); err == nil && pool.PoolType == QuotaPoolTypeDefault {
 		queryPoolId = QuotaPoolDefaultUserPoolId
 	}
 	query := DB.Model(&User{}).Where("quota_pool_id = ?", queryPoolId)
+	keyword = strings.TrimSpace(keyword)
+	if keyword != "" {
+		escapedKeyword := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(strings.ToLower(keyword))
+		like := "%" + escapedKeyword + "%"
+		if userId, err := strconv.Atoi(keyword); err == nil {
+			query = query.Where("(id = ? OR LOWER(username) LIKE ? ESCAPE '!' OR LOWER(display_name) LIKE ? ESCAPE '!' OR LOWER(email) LIKE ? ESCAPE '!' OR LOWER(department) LIKE ? ESCAPE '!')", userId, like, like, like, like)
+		} else {
+			query = query.Where("(LOWER(username) LIKE ? ESCAPE '!' OR LOWER(display_name) LIKE ? ESCAPE '!' OR LOWER(email) LIKE ? ESCAPE '!' OR LOWER(department) LIKE ? ESCAPE '!')", like, like, like, like)
+		}
+	}
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err

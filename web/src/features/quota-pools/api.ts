@@ -32,12 +32,24 @@ export async function getSelfQuotaPool() {
   return response.data
 }
 
-export async function getQuotaPoolMembers(poolId: number, self = false) {
+export async function getQuotaPoolMembers(
+  poolId: number,
+  self = false,
+  options: { page?: number; pageSize?: number; keyword?: string } = {}
+) {
   const endpoint = self
     ? '/api/quota_pool/self/members'
     : `/api/quota_pool/${poolId}/members`
-  const response =
-    await api.get<ApiResponse<PageData<QuotaPoolMember>>>(endpoint)
+  const response = await api.get<ApiResponse<PageData<QuotaPoolMember>>>(
+    endpoint,
+    {
+      params: {
+        p: options.page ?? 1,
+        page_size: options.pageSize ?? 20,
+        keyword: options.keyword ?? '',
+      },
+    }
+  )
   return response.data
 }
 
@@ -119,12 +131,13 @@ export async function rechargeQuotaPoolMember(
 export async function reclaimQuotaPoolMember(
   poolId: number,
   userId: number,
+  amount: number,
   self = false
 ) {
   const endpoint = self
     ? `/api/quota_pool/self/members/${userId}/reclaim`
     : `/api/quota_pool/${poolId}/members/${userId}/reclaim`
-  const response = await api.post<ApiResponse>(endpoint)
+  const response = await api.post<ApiResponse>(endpoint, { amount })
   return response.data
 }
 

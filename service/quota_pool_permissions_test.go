@@ -17,7 +17,7 @@ func TestQuotaPoolCapabilitiesByRoleAndPoolAdminLevel(t *testing.T) {
 	}{
 		{
 			name: "root owns every operation", role: common.RoleRootUser,
-			want: QuotaPoolCapabilities{CanView: true, CanEdit: true, CanRefill: true, CanManageMembers: true, CanManageV1Admins: true, CanManageV2Admins: true, CanDelete: true},
+			want: QuotaPoolCapabilities{CanView: true, CanEdit: true, CanEditMonthlyRefill: true, CanRefill: true, CanManageMembers: true, CanManageV1Admins: true, CanManageV2Admins: true, CanDelete: true},
 		},
 		{
 			name: "system admin manages funds and members", role: common.RoleAdminUser,
