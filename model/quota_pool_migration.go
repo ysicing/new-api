@@ -35,7 +35,7 @@ func migrateQuotaPoolSchema(db *gorm.DB) error {
 func persistLegacyAutoRechargeDefaults(db *gorm.DB) error {
 	var count int64
 	if err := db.Model(&Option{}).
-		Where("`key` = ?", "auto_recharge_setting.enabled").
+		Where(map[string]any{"key": "auto_recharge_setting.enabled"}).
 		Count(&count).Error; err != nil {
 		return err
 	}
