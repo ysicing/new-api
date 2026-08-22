@@ -32,9 +32,13 @@ func migrateQuotaPoolSchema(db *gorm.DB) error {
 }
 
 func persistLegacyAutoRechargeDefaults(db *gorm.DB) error {
+	keyCol := "`key`"
+	if db != nil && db.Dialector != nil && db.Dialector.Name() == "postgres" {
+		keyCol = "\"key\""
+	}
 	var count int64
 	if err := db.Model(&Option{}).
-		Where("key = ?", "auto_recharge_setting.enabled").
+		Where(keyCol+" = ?", "auto_recharge_setting.enabled").
 		Count(&count).Error; err != nil {
 		return err
 	}
