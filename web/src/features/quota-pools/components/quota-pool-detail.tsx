@@ -11,15 +11,19 @@ import {
   getQuotaPoolStats,
   getQuotaPoolTransactions,
 } from '../api'
-import type { QuotaPool, QuotaPoolCapabilities } from '../types'
+import type {
+  QuotaPool,
+  QuotaPoolCapabilities,
+  QuotaPoolStatsPeriod,
+} from '../types'
 import { PoolConfiguration } from './quota-pool-configuration'
 import {
   PoolOperationLogs,
   PoolOverview,
-  PoolStats,
   PoolTransactions,
 } from './quota-pool-data'
 import { PoolMembers } from './quota-pool-members'
+import { PoolStats } from './quota-pool-stats'
 
 type DetailTab =
   | 'overview'
@@ -36,6 +40,7 @@ export function QuotaPoolDetail(props: {
 }) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<DetailTab>('overview')
+  const [statsPeriod, setStatsPeriod] = useState<QuotaPoolStatsPeriod>('week')
   const members = useQuery({
     queryKey: ['quota-pool', props.pool.id, 'members'],
     queryFn: () => getQuotaPoolMembers(props.pool.id, props.selfMode),
@@ -47,8 +52,9 @@ export function QuotaPoolDetail(props: {
     enabled: tab === 'transactions',
   })
   const stats = useQuery({
-    queryKey: ['quota-pool', props.pool.id, 'stats'],
-    queryFn: () => getQuotaPoolStats(props.pool.id, props.selfMode),
+    queryKey: ['quota-pool', props.pool.id, 'stats', statsPeriod],
+    queryFn: () =>
+      getQuotaPoolStats(props.pool.id, props.selfMode, statsPeriod),
     enabled: tab === 'stats',
   })
   const logs = useQuery({
@@ -90,7 +96,11 @@ export function QuotaPoolDetail(props: {
             <PoolOperationLogs query={logs} />
           </TabsContent>
           <TabsContent value='stats'>
-            <PoolStats query={stats} />
+            <PoolStats
+              query={stats}
+              period={statsPeriod}
+              onPeriodChange={setStatsPeriod}
+            />
           </TabsContent>
           <TabsContent value='config'>
             <PoolConfiguration

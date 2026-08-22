@@ -167,7 +167,8 @@ func GetSelfQuotaPoolStats(c *gin.Context) {
 	if !ok {
 		return
 	}
-	stats, err := model.GetQuotaPoolStats(pool.Id, 0, 0)
+	start, end := quotaPoolStatsRange(c, time.Now())
+	stats, err := model.GetQuotaPoolStats(pool.Id, start, end)
 	if err != nil {
 		writeQuotaPoolError(c, err)
 		return

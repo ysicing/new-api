@@ -3,8 +3,16 @@ package model
 import "sort"
 
 func GetQuotaPoolStats(poolId int, startTimestamp, endTimestamp int64) (*QuotaPoolStats, error) {
+	pool, err := GetQuotaPoolById(poolId)
+	if err != nil {
+		return nil, err
+	}
+	memberPoolId := poolId
+	if pool.IsDefault || pool.PoolType == QuotaPoolTypeDefault {
+		memberPoolId = QuotaPoolDefaultUserPoolId
+	}
 	var members []User
-	if err := DB.Select("id", "username").Where("quota_pool_id = ?", poolId).Find(&members).Error; err != nil {
+	if err := DB.Select("id", "username").Where("quota_pool_id = ?", memberPoolId).Find(&members).Error; err != nil {
 		return nil, err
 	}
 	ids := make([]int, 0, len(members))
@@ -13,9 +21,13 @@ func GetQuotaPoolStats(poolId int, startTimestamp, endTimestamp int64) (*QuotaPo
 		ids = append(ids, member.Id)
 		names[member.Id] = member.Username
 	}
-	usage, err := aggregateUsage(startTimestamp, endTimestamp, "", ids)
-	if err != nil {
-		return nil, err
+	usage := make(map[int]usageBucket)
+	if len(ids) > 0 {
+		var err error
+		usage, err = aggregateUsage(startTimestamp, endTimestamp, "", ids)
+		if err != nil {
+			return nil, err
+		}
 	}
 	stats := &QuotaPoolStats{Usage: []QuotaPoolUsageStat{}, Recharge: []QuotaPoolRechargeStat{}}
 	for userId, bucket := range usage {

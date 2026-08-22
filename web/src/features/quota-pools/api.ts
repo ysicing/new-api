@@ -8,6 +8,7 @@ import type {
   QuotaPoolMember,
   QuotaPoolOperationLog,
   QuotaPoolStats,
+  QuotaPoolStatsPeriod,
   QuotaPoolTransaction,
 } from './types'
 
@@ -49,11 +50,17 @@ export async function getQuotaPoolTransactions(poolId: number, self = false) {
   return response.data
 }
 
-export async function getQuotaPoolStats(poolId: number, self = false) {
+export async function getQuotaPoolStats(
+  poolId: number,
+  self = false,
+  period: QuotaPoolStatsPeriod = 'week'
+) {
   const endpoint = self
     ? '/api/quota_pool/self/stats'
     : `/api/quota_pool/${poolId}/stats`
-  const response = await api.get<ApiResponse<QuotaPoolStats>>(endpoint)
+  const response = await api.get<ApiResponse<QuotaPoolStats>>(endpoint, {
+    params: { period },
+  })
   return response.data
 }
 

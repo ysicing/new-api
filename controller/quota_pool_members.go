@@ -1,7 +1,7 @@
 package controller
 
 import (
-	"strconv"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -218,8 +218,7 @@ func GetQuotaPoolStats(c *gin.Context) {
 	if !ok || !requireQuotaPoolFeature(c) {
 		return
 	}
-	start, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
-	end, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	start, end := quotaPoolStatsRange(c, time.Now())
 	stats, err := model.GetQuotaPoolStats(id, start, end)
 	if err != nil {
 		writeQuotaPoolError(c, err)

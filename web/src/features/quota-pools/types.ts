@@ -84,6 +84,8 @@ export interface QuotaPoolStats {
   total_allocate: number
 }
 
+export type QuotaPoolStatsPeriod = 'week' | 'month'
+
 export interface PageData<T> {
   items: T[]
   total: number

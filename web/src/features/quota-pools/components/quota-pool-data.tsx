@@ -24,11 +24,14 @@ import type {
   PageData,
   QuotaPool,
   QuotaPoolOperationLog,
-  QuotaPoolStats,
   QuotaPoolTransaction,
 } from '../types'
 
-type QueryLike = { isLoading: boolean; data?: { data?: unknown } }
+type QueryLike = {
+  isLoading: boolean
+  isError?: boolean
+  data?: { data?: unknown }
+}
 
 export function LoadingOrEmpty(props: {
   query: QueryLike
@@ -38,6 +41,16 @@ export function LoadingOrEmpty(props: {
   const { t } = useTranslation()
   if (props.query.isLoading) {
     return <Skeleton className='mt-4 h-40 w-full' />
+  }
+  if (props.query.isError) {
+    return (
+      <Empty>
+        <EmptyHeader>
+          <EmptyTitle>{t('Loading failed')}</EmptyTitle>
+          <EmptyDescription>{t('Request failed')}</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    )
   }
   if (props.empty) {
     return (
@@ -112,34 +125,6 @@ export function PoolTransactions(props: {
           ))}
         </TableBody>
       </Table>
-    </LoadingOrEmpty>
-  )
-}
-
-export function PoolStats(props: {
-  query: UseQueryResult<ApiResponse<QuotaPoolStats>>
-}) {
-  const { t } = useTranslation()
-  const stats = props.query.data?.data
-  const cards = [
-    ['Total usage', stats?.total_usage],
-    ['Total allocated', stats?.total_allocate],
-    ['Total refilled', stats?.total_refill],
-  ]
-  return (
-    <LoadingOrEmpty query={props.query} empty={!stats}>
-      <div className='grid gap-3 py-4 sm:grid-cols-3'>
-        {cards.map(([label, value]) => (
-          <Card key={String(label)}>
-            <CardHeader>
-              <CardTitle className='text-sm'>{t(String(label))}</CardTitle>
-            </CardHeader>
-            <CardContent className='text-xl font-semibold'>
-              {formatQuota(Number(value ?? 0))}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
     </LoadingOrEmpty>
   )
 }

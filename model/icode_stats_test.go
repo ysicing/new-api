@@ -68,6 +68,43 @@ func TestGetQuotaPoolStatsAggregatesMembersAndTransactions(t *testing.T) {
 	assert.Equal(t, 45, stats.Usage[0].DeepSeekQuota)
 }
 
+func TestGetQuotaPoolStatsDoesNotAggregateUnrelatedLogsForEmptyPool(t *testing.T) {
+	mainDB, logDB := setupICodeStatsTest(t)
+	pool := QuotaPool{Name: "空池", PoolType: QuotaPoolTypeNormal, Enabled: true}
+	require.NoError(t, mainDB.Create(&pool).Error)
+	require.NoError(t, logDB.Create(&Log{
+		UserId: 99, Type: LogTypeConsume, CreatedAt: 100, ModelName: "gpt-5", Quota: 70,
+	}).Error)
+	require.NoError(t, mainDB.Create(&QuotaPoolTransaction{
+		PoolId: pool.Id, Type: QuotaPoolTransactionManualRefill, Amount: 300, CreatedAt: 100,
+	}).Error)
+
+	stats, err := GetQuotaPoolStats(pool.Id, 90, 120)
+
+	require.NoError(t, err)
+	assert.Empty(t, stats.Usage)
+	assert.Equal(t, 0, stats.TotalUsage)
+	assert.Equal(t, 300, stats.TotalRefill)
+}
+
+func TestGetQuotaPoolStatsMapsDefaultPoolMembersToVirtualPoolID(t *testing.T) {
+	mainDB, logDB := setupICodeStatsTest(t)
+	pool := QuotaPool{Name: QuotaPoolDefaultName, PoolType: QuotaPoolTypeDefault, IsDefault: true, Enabled: true}
+	require.NoError(t, mainDB.Create(&pool).Error)
+	user := User{Username: "default-pool-user", Password: "password", AffCode: "default-pool-stats", QuotaPoolId: QuotaPoolDefaultUserPoolId}
+	require.NoError(t, mainDB.Create(&user).Error)
+	require.NoError(t, logDB.Create(&Log{
+		UserId: user.Id, Type: LogTypeConsume, CreatedAt: 100, ModelName: "claude-4", Quota: 45,
+	}).Error)
+
+	stats, err := GetQuotaPoolStats(pool.Id, 90, 120)
+
+	require.NoError(t, err)
+	assert.Equal(t, 45, stats.TotalUsage)
+	require.Len(t, stats.Usage, 1)
+	assert.Equal(t, user.Id, stats.Usage[0].UserId)
+}
+
 func TestGetRechargeLeaderboardUsesStableSecondaryUsageSort(t *testing.T) {
 	mainDB, logDB := setupICodeStatsTest(t)
 	users := []User{
