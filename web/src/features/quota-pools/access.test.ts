@@ -8,7 +8,11 @@ the Free Software Foundation, either version 3 of the License, or
 */
 import { describe, expect, test } from 'vitest'
 
-import { canAccessQuotaPools, canListAllQuotaPools } from './access'
+import {
+  canAccessQuotaPools,
+  canListAllQuotaPools,
+  shouldShowQuotaPoolList,
+} from './access'
 
 describe('quota pool access', () => {
   test('all users can access quota pool entry when feature is enabled', () => {
@@ -43,5 +47,18 @@ describe('quota pool access', () => {
     expect(canListAllQuotaPools({ role: 10 })).toBe(true)
     expect(canListAllQuotaPools({ role: 100 })).toBe(true)
     expect(canListAllQuotaPools({ role: 1 })).toBe(false)
+  })
+
+  test('only ordinary members skip the pool list', () => {
+    expect(shouldShowQuotaPoolList({ role: 1 })).toBe(false)
+    expect(
+      shouldShowQuotaPoolList({
+        role: 1,
+        quota_pool_admin: { pool_id: 7, level: 1 },
+      })
+    ).toBe(true)
+    expect(shouldShowQuotaPoolList({ role: 2 })).toBe(true)
+    expect(shouldShowQuotaPoolList({ role: 10 })).toBe(true)
+    expect(shouldShowQuotaPoolList({ role: 100 })).toBe(true)
   })
 })

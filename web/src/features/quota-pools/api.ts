@@ -53,6 +53,26 @@ export async function getQuotaPoolMembers(
   return response.data
 }
 
+export async function getQuotaPoolCandidates(
+  self = false,
+  options: { page?: number; pageSize?: number; keyword?: string } = {}
+) {
+  const endpoint = self
+    ? '/api/quota_pool/self/candidates'
+    : '/api/quota_pool/candidates'
+  const response = await api.get<ApiResponse<PageData<QuotaPoolMember>>>(
+    endpoint,
+    {
+      params: {
+        p: options.page ?? 1,
+        page_size: options.pageSize ?? 20,
+        keyword: options.keyword ?? '',
+      },
+    }
+  )
+  return response.data
+}
+
 export async function getQuotaPoolTransactions(poolId: number, self = false) {
   const endpoint = self
     ? '/api/quota_pool/self/transactions'
@@ -113,6 +133,14 @@ export async function addQuotaPoolMember(
     ? '/api/quota_pool/self/members'
     : `/api/quota_pool/${poolId}/members`
   const response = await api.post<ApiResponse>(endpoint, { user_id: userId })
+  return response.data
+}
+
+export async function moveUserQuotaPool(userId: number, poolId: number) {
+  const response = await api.put<ApiResponse>(
+    `/api/quota_pool/users/${userId}`,
+    { pool_id: poolId }
+  )
   return response.data
 }
 

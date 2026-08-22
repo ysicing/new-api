@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
@@ -14,12 +15,30 @@ import { cn } from '@/lib/utils'
 
 import type { QuotaPool } from '../types'
 
-export function QuotaPoolList(props: {
+export function QuotaPoolList({
+  pools,
+  selectedId,
+  focusPoolId,
+  onFocusRestored,
+  onSelect,
+}: {
   pools: QuotaPool[]
   selectedId?: number
+  focusPoolId?: number
+  onFocusRestored?: () => void
   onSelect: (pool: QuotaPool) => void
 }) {
   const { t } = useTranslation()
+  useEffect(() => {
+    if (focusPoolId === undefined) return
+    const row = document.querySelector<HTMLElement>(
+      `[data-quota-pool-id="${focusPoolId}"]`
+    )
+    if (!row) return
+    row.focus()
+    onFocusRestored?.()
+  }, [focusPoolId, onFocusRestored])
+
   return (
     <div className='overflow-hidden rounded-lg border'>
       <Table>
@@ -32,20 +51,21 @@ export function QuotaPoolList(props: {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {props.pools.map((pool) => (
+          {pools.map((pool) => (
             <TableRow
               key={pool.id}
+              data-quota-pool-id={pool.id}
               tabIndex={0}
-              aria-selected={pool.id === props.selectedId}
+              aria-selected={pool.id === selectedId}
               className={cn(
                 'cursor-pointer transition-colors',
-                pool.id === props.selectedId && 'bg-muted'
+                pool.id === selectedId && 'bg-muted'
               )}
-              onClick={() => props.onSelect(pool)}
+              onClick={() => onSelect(pool)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault()
-                  props.onSelect(pool)
+                  onSelect(pool)
                 }
               }}
             >

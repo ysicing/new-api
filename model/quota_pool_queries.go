@@ -142,10 +142,21 @@ func ListQuotaPoolCandidates(keyword string, page *common.PageInfo) ([]QuotaPool
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, 0, err
 	}
-	query := DB.Model(&User{}).Where("quota_pool_id IN ?", poolIds)
+	query := DB.Model(&User{}).Where(
+		"quota_pool_id IN ? AND role IN ? AND status = ?",
+		poolIds,
+		[]int{common.RoleCommonUser, common.RoleQuotaPoolSuperAdmin, common.RoleAdminUser},
+		common.UserStatusEnabled,
+	)
+	keyword = strings.TrimSpace(keyword)
 	if keyword != "" {
-		like := "%" + keyword + "%"
-		query = query.Where("username LIKE ? OR display_name LIKE ? OR email LIKE ? OR department LIKE ?", like, like, like, like)
+		escapedKeyword := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(strings.ToLower(keyword))
+		like := "%" + escapedKeyword + "%"
+		if userId, err := strconv.Atoi(keyword); err == nil {
+			query = query.Where("(id = ? OR LOWER(username) LIKE ? ESCAPE '!' OR LOWER(display_name) LIKE ? ESCAPE '!' OR LOWER(email) LIKE ? ESCAPE '!' OR LOWER(department) LIKE ? ESCAPE '!')", userId, like, like, like, like)
+		} else {
+			query = query.Where("(LOWER(username) LIKE ? ESCAPE '!' OR LOWER(display_name) LIKE ? ESCAPE '!' OR LOWER(email) LIKE ? ESCAPE '!' OR LOWER(department) LIKE ? ESCAPE '!')", like, like, like, like)
+		}
 	}
 	var total int64
 	if err := query.Count(&total).Error; err != nil {

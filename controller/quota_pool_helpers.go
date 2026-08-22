@@ -142,6 +142,8 @@ func writeQuotaPoolError(c *gin.Context, err error) {
 		status, code, message = http.StatusConflict, "QUOTA_POOL_INSUFFICIENT", "额度池或用户额度不足"
 	case errors.Is(err, model.ErrQuotaPoolMemberMismatch):
 		status, code, message = http.StatusBadRequest, "QUOTA_POOL_MEMBER_MISMATCH", "用户不属于该额度池"
+	case errors.Is(err, model.ErrQuotaPoolCandidateInvalid):
+		status, code, message = http.StatusBadRequest, "QUOTA_POOL_CANDIDATE_INVALID", "用户不符合额度池成员条件"
 	case errors.Is(err, model.ErrQuotaPoolRefillLimited):
 		status, code, message = http.StatusConflict, "QUOTA_POOL_REFILL_LIMITED", "额度池临时充值超出限制"
 	case errors.Is(err, model.ErrQuotaPoolInvalidAmount):

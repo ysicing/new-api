@@ -117,6 +117,52 @@ func TestMoveUserQuotaPoolClearsNegativeBalanceWithoutCreditingOldPool(t *testin
 	assert.Zero(t, user.QuotaPoolId)
 }
 
+func TestMoveUserQuotaPoolRejectsRootUser(t *testing.T) {
+	db := setupQuotaPoolFundsTestDB(t)
+	target := QuotaPool{Name: "目标池", PoolType: QuotaPoolTypeNormal, Enabled: true, BaseQuota: 100, Quota: 100}
+	require.NoError(t, db.Create(&target).Error)
+	root := User{
+		Username: "root-target", Password: "password", AffCode: "root-target",
+		Role: common.RoleRootUser, Status: common.UserStatusEnabled, Quota: 20,
+	}
+	require.NoError(t, db.Create(&root).Error)
+
+	_, err := MoveUserBetweenQuotaPools(root.Id, target.Id, true, 7)
+
+	assert.ErrorIs(t, err, ErrQuotaPoolCandidateInvalid)
+	require.NoError(t, db.First(&root, root.Id).Error)
+	assert.Zero(t, root.QuotaPoolId)
+	assert.Equal(t, 20, root.Quota)
+}
+
+func TestAddUserToQuotaPoolRejectsIneligibleCandidates(t *testing.T) {
+	db := setupQuotaPoolFundsTestDB(t)
+	target := QuotaPool{Name: "目标池", PoolType: QuotaPoolTypeNormal, Enabled: true, BaseQuota: 100, Quota: 100}
+	otherPool := QuotaPool{Name: "其他池", PoolType: QuotaPoolTypeNormal, Enabled: true, BaseQuota: 100, Quota: 100}
+	require.NoError(t, db.Create(&target).Error)
+	require.NoError(t, db.Create(&otherPool).Error)
+	users := []User{
+		{Username: "disabled-candidate", Password: "password", AffCode: "disabled-candidate", Role: common.RoleCommonUser, Status: common.UserStatusDisabled, Quota: 20},
+		{Username: "root-candidate", Password: "password", AffCode: "root-candidate", Role: common.RoleRootUser, Status: common.UserStatusEnabled, Quota: 20},
+		{Username: "other-pool-candidate", Password: "password", AffCode: "other-pool-candidate", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Quota: 20, QuotaPoolId: otherPool.Id},
+	}
+	require.NoError(t, db.Create(&users).Error)
+
+	for index := range users[:2] {
+		_, err := AddUserToQuotaPool(users[index].Id, target.Id, false, 7)
+		assert.ErrorIs(t, err, ErrQuotaPoolCandidateInvalid)
+	}
+	_, err := AddUserToQuotaPool(users[2].Id, target.Id, true, 7)
+	assert.ErrorIs(t, err, ErrQuotaPoolCandidateInvalid)
+
+	for index := range users {
+		var reloaded User
+		require.NoError(t, db.First(&reloaded, users[index].Id).Error)
+		assert.Equal(t, users[index].QuotaPoolId, reloaded.QuotaPoolId)
+		assert.Equal(t, 20, reloaded.Quota)
+	}
+}
+
 func TestReclaimQuotaToPoolUpdatesBalancesAndTransaction(t *testing.T) {
 	db := setupQuotaPoolFundsTestDB(t)
 	pool, user := seedQuotaPoolMember(t, db, 100, 80)

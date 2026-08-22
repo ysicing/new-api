@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sort"
 
+	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
 )
 
@@ -76,11 +77,34 @@ func lockQuotaPoolMember(tx *gorm.DB, poolId, userId int) (*QuotaPool, *User, er
 }
 
 func MoveUserBetweenQuotaPools(userId, targetPoolId int, allowSystemTarget bool, operatorId int) (*QuotaPoolMoveResult, error) {
+	return moveUserBetweenQuotaPools(userId, targetPoolId, operatorId, quotaPoolMoveOptions{allowSystemTarget: allowSystemTarget})
+}
+
+func AddUserToQuotaPool(userId, targetPoolId int, restrictCandidateSource bool, operatorId int) (*QuotaPoolMoveResult, error) {
+	return moveUserBetweenQuotaPools(userId, targetPoolId, operatorId, quotaPoolMoveOptions{
+		requireEligibleCandidate: true,
+		restrictCandidateSource:  restrictCandidateSource,
+	})
+}
+
+type quotaPoolMoveOptions struct {
+	allowSystemTarget        bool
+	requireEligibleCandidate bool
+	restrictCandidateSource  bool
+}
+
+func moveUserBetweenQuotaPools(userId, targetPoolId, operatorId int, options quotaPoolMoveOptions) (*QuotaPoolMoveResult, error) {
 	result := &QuotaPoolMoveResult{NewPoolId: targetPoolId}
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var user User
 		if err := lockForUpdate(tx).Where("id = ?", userId).First(&user).Error; err != nil {
 			return err
+		}
+		if !IsQuotaPoolMemberRole(user.Role) {
+			return ErrQuotaPoolCandidateInvalid
+		}
+		if options.requireEligibleCandidate && user.Status != common.UserStatusEnabled {
+			return ErrQuotaPoolCandidateInvalid
 		}
 		result.OldPoolId = user.QuotaPoolId
 		result.UserQuota = user.Quota
@@ -91,8 +115,14 @@ func MoveUserBetweenQuotaPools(userId, targetPoolId int, allowSystemTarget bool,
 		if err != nil {
 			return err
 		}
-		if err := validateMoveTarget(pools[targetPoolId], targetPoolId, allowSystemTarget); err != nil {
+		if err := validateMoveTarget(pools[targetPoolId], targetPoolId, options.allowSystemTarget); err != nil {
 			return err
+		}
+		if options.restrictCandidateSource && user.QuotaPoolId > QuotaPoolDefaultUserPoolId {
+			source := pools[user.QuotaPoolId]
+			if source == nil || !source.IsNewUserPool() {
+				return ErrQuotaPoolCandidateInvalid
+			}
 		}
 		if target := pools[targetPoolId]; target != nil {
 			result.TargetNewUserPool = target.IsNewUserPool()

@@ -16,6 +16,8 @@ import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 
 import { addQuotaPoolMember, createQuotaPool, refillQuotaPool } from '../api'
+import type { QuotaPoolMember } from '../types'
+import { QuotaPoolCandidatePicker } from './quota-pool-candidate-picker'
 
 export function CreateQuotaPoolDialog(props: {
   open: boolean
@@ -163,31 +165,40 @@ export function AddQuotaPoolMemberDialog(props: {
   onSaved: () => Promise<void>
 }) {
   const { t } = useTranslation()
-  const [userId, setUserId] = useState('')
+  const [selectedUser, setSelectedUser] = useState<QuotaPoolMember | null>(null)
   const [saving, setSaving] = useState(false)
   const save = async () => {
-    const id = Number(userId)
-    if (!props.poolId || !Number.isInteger(id) || id <= 0) {
-      toast.error(t('Enter a valid user ID.'))
+    if (!props.poolId || !selectedUser) {
+      toast.error(t('Select an eligible user.'))
       return
     }
     setSaving(true)
     try {
-      const result = await addQuotaPoolMember(props.poolId, id, props.self)
+      const result = await addQuotaPoolMember(
+        props.poolId,
+        selectedUser.id,
+        props.self
+      )
       if (!result.success) {
         toast.error(result.message || t('Operation failed'))
         return
       }
       toast.success(t('Member added'))
       props.onOpenChange(false)
-      setUserId('')
+      setSelectedUser(null)
       await props.onSaved()
     } finally {
       setSaving(false)
     }
   }
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+    <Dialog
+      open={props.open}
+      onOpenChange={(open) => {
+        if (!open) setSelectedUser(null)
+        props.onOpenChange(open)
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('Add member')}</DialogTitle>
@@ -197,12 +208,12 @@ export function AddQuotaPoolMemberDialog(props: {
         </DialogHeader>
         <FieldGroup>
           <Field>
-            <FieldLabel htmlFor='member-user-id'>{t('User ID')}</FieldLabel>
-            <Input
-              id='member-user-id'
-              inputMode='numeric'
-              value={userId}
-              onChange={(event) => setUserId(event.target.value)}
+            <FieldLabel htmlFor='member-user-id'>{t('User')}</FieldLabel>
+            <QuotaPoolCandidatePicker
+              open={props.open}
+              self={props.self}
+              value={selectedUser}
+              onValueChange={setSelectedUser}
             />
           </Field>
         </FieldGroup>

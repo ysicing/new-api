@@ -1,0 +1,140 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+*/
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+
+import { useAuthStore, type AuthUser } from '@/stores/auth-store'
+
+import { QuotaPools } from '../index'
+import type { QuotaPool, QuotaPoolCapabilities } from '../types'
+
+const apiMocks = vi.hoisted(() => ({
+  getQuotaPools: vi.fn(),
+  getSelfQuotaPool: vi.fn(),
+  getQuotaPoolMembers: vi.fn(),
+  getQuotaPoolTransactions: vi.fn(),
+  getQuotaPoolStats: vi.fn(),
+  getQuotaPoolOperationLogs: vi.fn(),
+}))
+
+vi.mock('../api', () => apiMocks)
+
+const pool: QuotaPool = {
+  id: 7,
+  name: '平台保障部',
+  pool_type: 'normal',
+  enabled: true,
+  is_default: false,
+  base_quota: 500_000_000,
+  quota: 400_000_000,
+  auto_recharge_amount: -1,
+  weekly_limit: -1,
+  monthly_limit: -1,
+  monthly_refill_enabled: false,
+  monthly_refill_top_up: false,
+  monthly_refill_amount: 0,
+  monthly_refill_day: 1,
+  last_refill_month: 0,
+  member_count: 1,
+}
+
+const viewCapabilities: QuotaPoolCapabilities = {
+  can_view: true,
+  can_edit: false,
+  can_edit_monthly_refill: false,
+  can_refill: false,
+  can_manage_members: false,
+  can_manage_v1_admins: false,
+  can_manage_v2_admins: false,
+  can_delete: false,
+}
+
+function renderQuotaPools(user: AuthUser, capabilities = viewCapabilities) {
+  useAuthStore.getState().auth.setUser(user)
+  apiMocks.getSelfQuotaPool.mockResolvedValue({
+    success: true,
+    data: { pool, capabilities },
+  })
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <QuotaPools />
+    </QueryClientProvider>
+  )
+}
+
+beforeEach(() => {
+  for (const mock of Object.values(apiMocks)) mock.mockReset()
+})
+
+afterEach(() => {
+  useAuthStore.getState().auth.reset()
+})
+
+test('ordinary member opens the assigned pool directly without a list', async () => {
+  renderQuotaPools({
+    id: 1,
+    username: 'member',
+    role: 1,
+    quota_pool_enabled: true,
+    quota_pool_id: 7,
+  })
+
+  expect(await screen.findByText('平台保障部')).toBeInTheDocument()
+  expect(
+    screen.queryByRole('columnheader', { name: 'Quota pool' })
+  ).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole('button', { name: 'Back to list' })
+  ).not.toBeInTheDocument()
+})
+
+test('pool administrator navigates from list to detail and back', async () => {
+  renderQuotaPools({
+    id: 2,
+    username: 'pool-admin',
+    role: 1,
+    quota_pool_enabled: true,
+    quota_pool_id: 7,
+    quota_pool_admin: { pool_id: 7, level: 1 },
+  })
+
+  expect(
+    await screen.findByRole('columnheader', { name: 'Quota pool' })
+  ).toBeInTheDocument()
+  expect(
+    screen.queryByRole('tab', { name: 'Overview' })
+  ).not.toBeInTheDocument()
+
+  const poolRow = screen.getByText('平台保障部').closest('tr')
+  if (!poolRow) throw new Error('Quota pool row was not rendered')
+  poolRow.focus()
+  fireEvent.click(poolRow)
+
+  const backButton = await screen.findByRole('button', {
+    name: 'Back to list',
+  })
+  expect(backButton).toHaveFocus()
+  expect(screen.getByRole('tab', { name: 'Overview' })).toBeInTheDocument()
+  expect(
+    screen.queryByRole('columnheader', { name: 'Quota pool' })
+  ).not.toBeInTheDocument()
+
+  fireEvent.click(backButton)
+
+  await waitFor(() => {
+    expect(
+      screen.getByRole('columnheader', { name: 'Quota pool' })
+    ).toBeInTheDocument()
+    expect(screen.getByText('平台保障部').closest('tr')).toHaveFocus()
+  })
+})

@@ -16,3 +16,7 @@ export function canListAllQuotaPools(user?: QuotaPoolAccessUser | null) {
     (user.role === ROLE.QUOTA_POOL_SUPER_ADMIN || user.role >= ROLE.ADMIN)
   )
 }
+
+export function shouldShowQuotaPoolList(user?: QuotaPoolAccessUser | null) {
+  return canListAllQuotaPools(user) || Boolean(user?.quota_pool_admin)
+}

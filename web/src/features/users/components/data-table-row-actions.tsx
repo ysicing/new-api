@@ -61,6 +61,7 @@ import {
 import { getUserActionMessage } from '../lib'
 import type { User, ManageUserAction } from '../types'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
+import { UserQuotaPoolMoveAction } from './user-quota-pool-move-action'
 import { useUsers } from './users-provider'
 
 interface DataTableRowActionsProps {
@@ -187,6 +188,8 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         </TooltipTrigger>
         <TooltipContent>{t('Edit')}</TooltipContent>
       </Tooltip>
+
+      <UserQuotaPoolMoveAction user={user} onSaved={triggerRefresh} />
 
       <DataTableRowActionMenu
         ariaLabel={t('Open menu')}

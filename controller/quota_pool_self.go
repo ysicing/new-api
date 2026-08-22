@@ -199,7 +199,7 @@ func AddSelfQuotaPoolMember(c *gin.Context) {
 		writeQuotaPoolError(c, model.ErrQuotaPoolMemberMismatch)
 		return
 	}
-	result, err := model.MoveUserBetweenQuotaPools(req.UserId, pool.Id, false, c.GetInt("id"))
+	result, err := model.AddUserToQuotaPool(req.UserId, pool.Id, true, c.GetInt("id"))
 	if err != nil {
 		writeQuotaPoolError(c, err)
 		return

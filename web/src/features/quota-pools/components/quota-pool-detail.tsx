@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
+import { ArrowLeft } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
@@ -37,6 +39,7 @@ export function QuotaPoolDetail(props: {
   pool: QuotaPool
   capabilities: QuotaPoolCapabilities
   selfMode?: boolean
+  onBack?: () => void
 }) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<DetailTab>('overview')
@@ -82,7 +85,15 @@ export function QuotaPoolDetail(props: {
   return (
     <Card className='min-w-0'>
       <CardHeader>
-        <CardTitle className='truncate'>{props.pool.name}</CardTitle>
+        <div className='flex min-w-0 items-center gap-2'>
+          {props.onBack ? (
+            <Button autoFocus size='sm' variant='ghost' onClick={props.onBack}>
+              <ArrowLeft data-icon='inline-start' aria-hidden='true' />
+              {t('Back to list')}
+            </Button>
+          ) : null}
+          <CardTitle className='truncate'>{props.pool.name}</CardTitle>
+        </div>
       </CardHeader>
       <CardContent>
         <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)}>

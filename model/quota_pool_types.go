@@ -41,6 +41,7 @@ var (
 	ErrQuotaPoolInvalidAmount     = errors.New("quota pool invalid amount")
 	ErrQuotaPoolInsufficientQuota = errors.New("quota pool insufficient quota")
 	ErrQuotaPoolMemberMismatch    = errors.New("quota pool member mismatch")
+	ErrQuotaPoolCandidateInvalid  = errors.New("quota pool candidate invalid")
 	ErrQuotaPoolPermissionDenied  = errors.New("quota pool permission denied")
 	ErrQuotaPoolSystemReadonly    = errors.New("quota pool system pool is read-only")
 	ErrQuotaPoolSamePool          = errors.New("user already belongs to quota pool")

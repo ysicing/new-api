@@ -39,6 +39,17 @@ func TestWriteQuotaPoolErrorReturnsStableCode(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), `"code":"QUOTA_POOL_INSUFFICIENT"`)
 }
 
+func TestWriteQuotaPoolErrorReturnsCandidateValidationCode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+
+	writeQuotaPoolError(c, model.ErrQuotaPoolCandidateInvalid)
+
+	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"code":"QUOTA_POOL_CANDIDATE_INVALID"`)
+}
+
 func TestValidateQuotaPoolReclaimAmountAllowsOnlyCurrentMemberOptions(t *testing.T) {
 	allowed := []int{500, 400, 300, 200, 100}
 	assert.NoError(t, validateQuotaPoolReclaimAmount(allowed, 500))

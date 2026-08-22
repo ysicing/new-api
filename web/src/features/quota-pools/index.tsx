@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, RefreshCw, UserPlus } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
@@ -14,7 +14,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { canListAllQuotaPools } from './access'
+import { canListAllQuotaPools, shouldShowQuotaPoolList } from './access'
 import { getQuotaPools, getSelfQuotaPool } from './api'
 import { QuotaPoolDetail } from './components/quota-pool-detail'
 import {
@@ -41,10 +41,12 @@ export function QuotaPools() {
   const user = useAuthStore((state) => state.auth.user)
   const queryClient = useQueryClient()
   const [selectedId, setSelectedId] = useState<number>()
+  const [returnFocusId, setReturnFocusId] = useState<number>()
   const [createOpen, setCreateOpen] = useState(false)
   const [refillOpen, setRefillOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const canListAll = canListAllQuotaPools(user)
+  const listFirst = shouldShowQuotaPoolList(user)
   const query = useQuery({
     queryKey: ['quota-pools', canListAll ? 'all' : 'self'],
     queryFn: async () => {
@@ -64,13 +66,9 @@ export function QuotaPools() {
   })
   const pools = useMemo(() => query.data?.pools ?? [], [query.data?.pools])
   const capabilities = query.data?.capabilities ?? noCapabilities
-  useEffect(() => {
-    if (!selectedId && pools[0]) setSelectedId(pools[0].id)
-    if (selectedId && !pools.some((pool) => pool.id === selectedId)) {
-      setSelectedId(pools[0]?.id)
-    }
-  }, [pools, selectedId])
-  const selected = pools.find((pool) => pool.id === selectedId)
+  const selected =
+    pools.find((pool) => pool.id === selectedId) ??
+    (listFirst ? undefined : pools[0])
   const refresh = async () => {
     const invalidations = [
       queryClient.invalidateQueries({ queryKey: ['quota-pools'] }),
@@ -97,23 +95,35 @@ export function QuotaPools() {
         </EmptyHeader>
       </Empty>
     )
+  } else if (!selected) {
+    content = (
+      <QuotaPoolList
+        pools={pools}
+        selectedId={selectedId}
+        focusPoolId={returnFocusId}
+        onFocusRestored={() => setReturnFocusId(undefined)}
+        onSelect={(pool: QuotaPool) => {
+          setReturnFocusId(undefined)
+          setSelectedId(pool.id)
+        }}
+      />
+    )
   } else {
     content = (
-      <div className='grid gap-4 xl:grid-cols-[minmax(22rem,0.8fr)_minmax(0,1.2fr)]'>
-        <QuotaPoolList
-          pools={pools}
-          selectedId={selectedId}
-          onSelect={(pool: QuotaPool) => setSelectedId(pool.id)}
-        />
-        {selected && (
-          <QuotaPoolDetail
-            key={selected.id}
-            pool={selected}
-            capabilities={capabilities}
-            selfMode={!canListAll}
-          />
-        )}
-      </div>
+      <QuotaPoolDetail
+        key={selected.id}
+        pool={selected}
+        capabilities={capabilities}
+        selfMode={!canListAll}
+        onBack={
+          listFirst
+            ? () => {
+                setReturnFocusId(selected.id)
+                setSelectedId(undefined)
+              }
+            : undefined
+        }
+      />
     )
   }
 
