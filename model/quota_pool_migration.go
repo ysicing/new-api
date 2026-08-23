@@ -3,8 +3,8 @@ package model
 import (
 	"errors"
 
-	"gorm.io/gorm/clause"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type quotaPoolUserCompatibilityColumns struct {
@@ -24,6 +24,11 @@ func migrateQuotaPoolSchema(db *gorm.DB) error {
 		&QuotaPoolAdmin{},
 		&QuotaPoolTransaction{},
 	); err != nil {
+		return err
+	}
+	if err := db.Model(&QuotaPoolAdmin{}).
+		Where("level <> ?", QuotaPoolAdminLevel).
+		Update("level", QuotaPoolAdminLevel).Error; err != nil {
 		return err
 	}
 	if !hadQuotaPoolTable || !db.Migrator().HasTable(&Option{}) {

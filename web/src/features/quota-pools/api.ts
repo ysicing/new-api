@@ -196,31 +196,32 @@ export async function reclaimQuotaPoolMember(
   return response.data
 }
 
-export async function setQuotaPoolAdmin(
+export async function removeQuotaPoolMember(
   poolId: number,
   userId: number,
-  level: 1 | 2,
   self = false
 ) {
   const endpoint = self
-    ? '/api/quota_pool/self/admins'
-    : `/api/quota_pool/${poolId}/admins`
-  const response = await api.post<ApiResponse>(endpoint, {
-    user_id: userId,
-    level,
-  })
+    ? `/api/quota_pool/self/members/${userId}`
+    : `/api/quota_pool/${poolId}/members/${userId}`
+  const response = await api.delete<ApiResponse>(endpoint)
   return response.data
 }
 
-export async function revokeQuotaPoolAdmin(
-  poolId: number,
-  userId: number,
-  self = false
-) {
-  const endpoint = self
-    ? `/api/quota_pool/self/admins/${userId}`
-    : `/api/quota_pool/${poolId}/admins/${userId}`
-  const response = await api.delete<ApiResponse>(endpoint)
+export async function setQuotaPoolAdmin(poolId: number, userId: number) {
+  const response = await api.post<ApiResponse>(
+    `/api/quota_pool/${poolId}/admins`,
+    {
+      user_id: userId,
+    }
+  )
+  return response.data
+}
+
+export async function revokeQuotaPoolAdmin(poolId: number, userId: number) {
+  const response = await api.delete<ApiResponse>(
+    `/api/quota_pool/${poolId}/admins/${userId}`
+  )
   return response.data
 }
 

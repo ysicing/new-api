@@ -49,8 +49,8 @@ const rootCapabilities: QuotaPoolCapabilities = {
   can_edit_monthly_refill: true,
   can_refill: true,
   can_manage_members: true,
-  can_manage_v1_admins: true,
-  can_manage_v2_admins: true,
+  can_remove_members: true,
+  can_manage_admins: true,
   can_delete: true,
 }
 

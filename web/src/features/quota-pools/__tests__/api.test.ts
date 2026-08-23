@@ -14,13 +14,16 @@ import {
   getQuotaPool,
   getQuotaPools,
   moveUserQuotaPool,
+  removeQuotaPoolMember,
   reclaimQuotaPoolMember,
+  setQuotaPoolAdmin,
 } from '../api'
 
 const apiMocks = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
   put: vi.fn(),
+  delete: vi.fn(),
 }))
 
 vi.mock('@/lib/api', () => ({ api: apiMocks }))
@@ -30,9 +33,11 @@ describe('quota pool members API', () => {
     apiMocks.get.mockReset()
     apiMocks.post.mockReset()
     apiMocks.put.mockReset()
+    apiMocks.delete.mockReset()
     apiMocks.get.mockResolvedValue({ data: { success: true, data: {} } })
     apiMocks.post.mockResolvedValue({ data: { success: true, data: {} } })
     apiMocks.put.mockResolvedValue({ data: { success: true, data: {} } })
+    apiMocks.delete.mockResolvedValue({ data: { success: true, data: {} } })
   })
 
   test('passes pagination and search parameters to the global endpoint', async () => {
@@ -117,6 +122,28 @@ describe('quota pool members API', () => {
 
     expect(apiMocks.put).toHaveBeenCalledWith('/api/quota_pool/users/12', {
       pool_id: 7,
+    })
+  })
+
+  test('removes members through global and self endpoints', async () => {
+    await removeQuotaPoolMember(7, 3, false)
+    await removeQuotaPoolMember(7, 4, true)
+
+    expect(apiMocks.delete).toHaveBeenNthCalledWith(
+      1,
+      '/api/quota_pool/7/members/3'
+    )
+    expect(apiMocks.delete).toHaveBeenNthCalledWith(
+      2,
+      '/api/quota_pool/self/members/4'
+    )
+  })
+
+  test('sets a unified pool administrator without a level', async () => {
+    await setQuotaPoolAdmin(7, 3)
+
+    expect(apiMocks.post).toHaveBeenCalledWith('/api/quota_pool/7/admins', {
+      user_id: 3,
     })
   })
 })

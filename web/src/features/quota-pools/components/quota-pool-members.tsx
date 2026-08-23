@@ -18,6 +18,7 @@ import {
 import { formatQuota } from '@/lib/format'
 
 import {
+  removeQuotaPoolMember,
   reclaimQuotaPoolMember,
   rechargeQuotaPoolMember,
   revokeQuotaPoolAdmin,
@@ -32,6 +33,8 @@ import type {
 } from '../types'
 import { LoadingOrEmpty } from './quota-pool-data'
 import { QuotaPoolMemberActionDialog } from './quota-pool-member-action-dialog'
+import { QuotaPoolMemberActions } from './quota-pool-member-actions'
+import { QuotaPoolMemberRemoveDialog } from './quota-pool-member-remove-dialog'
 
 export function PoolMembers(props: {
   pool: QuotaPool
@@ -52,6 +55,7 @@ export function PoolMembers(props: {
     action: 'recharge' | 'reclaim'
     member: QuotaPoolMember
   }>()
+  const [removeMember, setRemoveMember] = useState<QuotaPoolMember>()
   const items = props.query.data?.data?.items ?? []
   const total = props.query.data?.data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / props.pageSize))
@@ -75,7 +79,12 @@ export function PoolMembers(props: {
     return true
   }
   const refresh = () =>
-    queryClient.invalidateQueries({ queryKey: ['quota-pool', props.pool.id] })
+    Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ['quota-pool', props.pool.id],
+      }),
+      queryClient.invalidateQueries({ queryKey: ['quota-pools'] }),
+    ])
   const runMemberAction = async (
     action: 'reclaim' | 'grant' | 'revoke',
     userId: number,
@@ -90,15 +99,35 @@ export function PoolMembers(props: {
         props.selfMode
       )
     } else if (action === 'grant') {
-      result = await setQuotaPoolAdmin(props.pool.id, userId, 1, props.selfMode)
+      result = await setQuotaPoolAdmin(props.pool.id, userId)
     } else {
-      result = await revokeQuotaPoolAdmin(props.pool.id, userId, props.selfMode)
+      result = await revokeQuotaPoolAdmin(props.pool.id, userId)
     }
     if (!result.success) {
       toast.error(result.message || t('Operation failed'))
       return false
     }
     toast.success(t('Operation completed'))
+    await refresh()
+    return true
+  }
+  const remove = async (member: QuotaPoolMember) => {
+    let result: ApiResponse
+    try {
+      result = await removeQuotaPoolMember(
+        props.pool.id,
+        member.id,
+        props.selfMode
+      )
+    } catch {
+      toast.error(t('Failed to remove member'))
+      return false
+    }
+    if (!result.success) {
+      toast.error(result.message || t('Failed to remove member'))
+      return false
+    }
+    toast.success(t('Member removed'))
     await refresh()
     return true
   }
@@ -157,51 +186,18 @@ export function PoolMembers(props: {
                   {formatQuota(member.quota)}
                 </TableCell>
                 <TableCell>
-                  <div className='flex justify-end gap-1'>
-                    {props.capabilities.can_manage_members && (
-                      <>
-                        <Button
-                          size='sm'
-                          variant='outline'
-                          onClick={() =>
-                            setQuotaAction({ action: 'recharge', member })
-                          }
-                        >
-                          {t('Recharge')}
-                        </Button>
-                        <Button
-                          size='sm'
-                          variant='outline'
-                          disabled={(member.reclaim_amounts?.length ?? 0) === 0}
-                          onClick={() =>
-                            setQuotaAction({ action: 'reclaim', member })
-                          }
-                        >
-                          {t('Reclaim')}
-                        </Button>
-                      </>
-                    )}
-                    {props.capabilities.can_manage_v1_admins && (
-                      <Button
-                        size='sm'
-                        variant='ghost'
-                        onClick={() =>
-                          void runMemberAction(
-                            member.quota_pool_admin_level > 0
-                              ? 'revoke'
-                              : 'grant',
-                            member.id
-                          )
-                        }
-                      >
-                        {t(
-                          member.quota_pool_admin_level > 0
-                            ? 'Remove pool admin'
-                            : 'Set pool admin'
-                        )}
-                      </Button>
-                    )}
-                  </div>
+                  <QuotaPoolMemberActions
+                    pool={props.pool}
+                    capabilities={props.capabilities}
+                    member={member}
+                    onQuotaAction={(action) =>
+                      setQuotaAction({ action, member })
+                    }
+                    onRemove={() => setRemoveMember(member)}
+                    onAdminAction={(action) =>
+                      void runMemberAction(action, member.id)
+                    }
+                  />
                 </TableCell>
               </TableRow>
             ))}
@@ -250,6 +246,15 @@ export function PoolMembers(props: {
               ? recharge(quotaAction.member.id)
               : runMemberAction('reclaim', quotaAction.member.id, amount)
           }
+        />
+      ) : null}
+      {removeMember ? (
+        <QuotaPoolMemberRemoveDialog
+          key={removeMember.id}
+          member={removeMember}
+          open
+          onOpenChange={(open) => !open && setRemoveMember(undefined)}
+          onConfirm={() => remove(removeMember)}
         />
       ) : null}
     </div>

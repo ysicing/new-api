@@ -106,13 +106,14 @@ func AddQuotaPoolManualRefill(poolId, amount, operatorId int) (*QuotaPoolBalance
 	return change, nil
 }
 
-func GrantQuotaPoolAdmin(poolId, userId, level int) error {
-	if level != QuotaPoolAdminLevelV1 && level != QuotaPoolAdminLevelV2 {
-		return ErrQuotaPoolPermissionDenied
-	}
+func GrantQuotaPoolAdmin(poolId, userId int) error {
 	return DB.Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := lockForUpdate(tx).Where("id = ?", userId).First(&user).Error; err != nil {
+			return err
+		}
 		var pool QuotaPool
-		if err := tx.Where("id = ?", poolId).First(&pool).Error; err != nil {
+		if err := lockForUpdate(tx).Where("id = ?", poolId).First(&pool).Error; err != nil {
 			return mapQuotaPoolRecordError(err)
 		}
 		if pool.IsSystemPool() {
@@ -121,17 +122,13 @@ func GrantQuotaPoolAdmin(poolId, userId, level int) error {
 		if !pool.Enabled {
 			return ErrQuotaPoolDisabled
 		}
-		var user User
-		if err := tx.Where("id = ?", userId).First(&user).Error; err != nil {
-			return err
-		}
 		if !IsQuotaPoolMemberRole(user.Role) || user.QuotaPoolId != poolId {
 			return ErrQuotaPoolMemberMismatch
 		}
 		var admin QuotaPoolAdmin
 		err := tx.Where("user_id = ?", userId).First(&admin).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return tx.Create(&QuotaPoolAdmin{PoolId: poolId, UserId: userId, Level: level}).Error
+			return tx.Create(&QuotaPoolAdmin{PoolId: poolId, UserId: userId, Level: QuotaPoolAdminLevel}).Error
 		}
 		if err != nil {
 			return err
@@ -139,7 +136,7 @@ func GrantQuotaPoolAdmin(poolId, userId, level int) error {
 		if admin.PoolId != poolId {
 			return ErrQuotaPoolAdminConflict
 		}
-		return tx.Model(&admin).Update("level", level).Error
+		return tx.Model(&admin).Update("level", QuotaPoolAdminLevel).Error
 	})
 }
 
@@ -156,7 +153,7 @@ func GetQuotaPoolAdminSummary(userId int) (*QuotaPoolAdminSummary, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &QuotaPoolAdminSummary{PoolId: admin.PoolId, Level: admin.Level}, nil
+	return &QuotaPoolAdminSummary{PoolId: admin.PoolId}, nil
 }
 
 func IsQuotaPoolMemberRole(role int) bool {

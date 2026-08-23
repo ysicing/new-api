@@ -134,6 +134,19 @@ func TestMigrateQuotaPoolSchemaPreservesLegacyDataAndIsIdempotent(t *testing.T) 
 	assert.True(t, db.Migrator().HasColumn(&QuotaPoolTransaction{}, "operator_id"))
 }
 
+func TestMigrateQuotaPoolSchemaNormalizesAdminLevelsIdempotently(t *testing.T) {
+	db := openLegacyQuotaPoolFixture(t)
+	require.NoError(t, db.Model(&legacyQuotaPoolAdmin{}).
+		Where("id = ?", 1).Update("level", 2).Error)
+
+	require.NoError(t, migrateQuotaPoolSchema(db))
+	require.NoError(t, migrateQuotaPoolSchema(db))
+
+	var admin QuotaPoolAdmin
+	require.NoError(t, db.Where("id = ?", 1).First(&admin).Error)
+	assert.Equal(t, 1, admin.Level)
+}
+
 func TestSyncSystemQuotaPoolsCreatesOnlyMissingRows(t *testing.T) {
 	db := openLegacyQuotaPoolFixture(t)
 	require.NoError(t, migrateQuotaPoolSchema(db))

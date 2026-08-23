@@ -7,8 +7,7 @@ import (
 )
 
 const (
-	QuotaPoolAdminLevelV1 = 1
-	QuotaPoolAdminLevelV2 = 2
+	QuotaPoolAdminLevel = 1
 
 	QuotaPoolDefaultUserPoolId = 0
 	QuotaPoolUnlimitedQuota    = -1
@@ -85,7 +84,7 @@ type QuotaPoolAdmin struct {
 	Id        int   `json:"id"`
 	PoolId    int   `json:"pool_id" gorm:"index;column:pool_id"`
 	UserId    int   `json:"user_id" gorm:"uniqueIndex;column:user_id"`
-	Level     int   `json:"level" gorm:"type:int;default:1"`
+	Level     int   `json:"-" gorm:"type:int;default:1"`
 	CreatedAt int64 `json:"created_at" gorm:"autoCreateTime;column:created_at"`
 }
 
@@ -113,13 +112,13 @@ type QuotaPoolMoveResult struct {
 	NewPoolId         int
 	UserQuota         int
 	Reclaimed         bool
+	AdminRevoked      bool
 	TargetNewUserPool bool
 	Change            QuotaPoolBalanceChange
 }
 
 type QuotaPoolAdminSummary struct {
 	PoolId int `json:"pool_id"`
-	Level  int `json:"level"`
 }
 
 type QuotaPoolListItem struct {
@@ -139,18 +138,18 @@ type QuotaPoolSystemAutoRecharge struct {
 }
 
 type QuotaPoolMember struct {
-	Id                  int    `json:"id"`
-	Username            string `json:"username"`
-	DisplayName         string `json:"display_name"`
-	Email               string `json:"email"`
-	Department          string `json:"department"`
-	Role                int    `json:"role"`
-	Status              int    `json:"status"`
-	Quota               int    `json:"quota"`
-	UsedQuota           int    `json:"used_quota"`
-	QuotaPoolId         int    `json:"quota_pool_id"`
-	QuotaPoolAdminLevel int    `json:"quota_pool_admin_level"`
-	ReclaimAmounts      []int  `json:"reclaim_amounts"`
+	Id             int    `json:"id"`
+	Username       string `json:"username"`
+	DisplayName    string `json:"display_name"`
+	Email          string `json:"email"`
+	Department     string `json:"department"`
+	Role           int    `json:"role"`
+	Status         int    `json:"status"`
+	Quota          int    `json:"quota"`
+	UsedQuota      int    `json:"used_quota"`
+	QuotaPoolId    int    `json:"quota_pool_id"`
+	QuotaPoolAdmin bool   `json:"quota_pool_admin"`
+	ReclaimAmounts []int  `json:"reclaim_amounts"`
 }
 
 type QuotaPoolTransactionItem struct {

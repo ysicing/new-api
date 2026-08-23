@@ -28,7 +28,6 @@ export type UserPermissions = {
 
 export interface QuotaPoolAdminSummary {
   pool_id: number
-  level: number
 }
 
 export interface AuthUser {

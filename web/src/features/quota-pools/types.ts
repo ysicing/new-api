@@ -4,8 +4,8 @@ export interface QuotaPoolCapabilities {
   can_edit_monthly_refill: boolean
   can_refill: boolean
   can_manage_members: boolean
-  can_manage_v1_admins: boolean
-  can_manage_v2_admins: boolean
+  can_remove_members: boolean
+  can_manage_admins: boolean
   can_delete: boolean
 }
 
@@ -48,7 +48,7 @@ export interface QuotaPoolMember {
   quota: number
   used_quota: number
   quota_pool_id: number
-  quota_pool_admin_level: number
+  quota_pool_admin: boolean
   reclaim_amounts?: number[]
 }
 

@@ -38,8 +38,8 @@ const memberCapabilities: QuotaPoolCapabilities = {
   can_edit_monthly_refill: false,
   can_refill: false,
   can_manage_members: false,
-  can_manage_v1_admins: false,
-  can_manage_v2_admins: false,
+  can_remove_members: false,
+  can_manage_admins: false,
   can_delete: false,
 }
 

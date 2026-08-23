@@ -26,6 +26,7 @@ import type {
 import { PoolMembers } from '../quota-pool-members'
 
 const apiMocks = vi.hoisted(() => ({
+  removeQuotaPoolMember: vi.fn(),
   reclaimQuotaPoolMember: vi.fn(),
   rechargeQuotaPoolMember: vi.fn(),
   revokeQuotaPoolAdmin: vi.fn(),
@@ -58,14 +59,15 @@ const capabilities: QuotaPoolCapabilities = {
   can_edit_monthly_refill: false,
   can_refill: false,
   can_manage_members: false,
-  can_manage_v1_admins: false,
-  can_manage_v2_admins: false,
+  can_remove_members: false,
+  can_manage_admins: false,
   can_delete: false,
 }
 
-function membersQuery(): UseQueryResult<
-  ApiResponse<PageData<QuotaPoolMember>>
-> {
+function membersQuery(
+  quotaPoolAdmin = false,
+  memberRole = 1
+): UseQueryResult<ApiResponse<PageData<QuotaPoolMember>>> {
   return {
     isLoading: false,
     isError: false,
@@ -79,12 +81,12 @@ function membersQuery(): UseQueryResult<
             display_name: 'Alice',
             email: 'alice@example.com',
             department: '研发一部',
-            role: 1,
+            role: memberRole,
             status: 1,
             quota: 100,
             used_quota: 20,
             quota_pool_id: 7,
-            quota_pool_admin_level: 0,
+            quota_pool_admin: quotaPoolAdmin,
             reclaim_amounts: [500, 250],
           },
         ],
@@ -96,7 +98,13 @@ function membersQuery(): UseQueryResult<
   } as unknown as UseQueryResult<ApiResponse<PageData<QuotaPoolMember>>>
 }
 
-function renderMembers(memberCapabilities = capabilities) {
+function renderMembers(
+  memberCapabilities = capabilities,
+  options?: {
+    memberAdmin?: boolean
+    memberRole?: number
+  }
+) {
   const queryClient = new QueryClient()
   return render(
     <QueryClientProvider client={queryClient}>
@@ -104,7 +112,7 @@ function renderMembers(memberCapabilities = capabilities) {
         pool={pool}
         capabilities={memberCapabilities}
         selfMode={false}
-        query={membersQuery()}
+        query={membersQuery(options?.memberAdmin, options?.memberRole)}
         page={1}
         pageSize={10}
         keyword=''
@@ -191,4 +199,96 @@ test('member reclaim submits the selected allowed amount', async () => {
       false
     )
   })
+})
+
+test('member removal requires confirmation and explains quota recovery', async () => {
+  renderMembers({ ...capabilities, can_remove_members: true })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Remove member' }))
+
+  expect(apiMocks.removeQuotaPoolMember).not.toHaveBeenCalled()
+  const dialog = screen.getByRole('alertdialog', { name: 'Remove member' })
+  expect(dialog).toHaveTextContent('Alice')
+  expect(dialog).toHaveTextContent(formatQuota(100))
+  expect(dialog).toHaveTextContent('No trial quota will be granted again.')
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm removal' }))
+
+  await waitFor(() => {
+    expect(apiMocks.removeQuotaPoolMember).toHaveBeenCalledWith(7, 1, false)
+  })
+})
+
+test('canceling member removal does not call the API', () => {
+  renderMembers({ ...capabilities, can_remove_members: true })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Remove member' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+  expect(apiMocks.removeQuotaPoolMember).not.toHaveBeenCalled()
+})
+
+test('pool administrator cannot remove another pool administrator', () => {
+  renderMembers(
+    { ...capabilities, can_remove_members: true },
+    { memberAdmin: true }
+  )
+
+  expect(
+    screen.queryByRole('button', { name: 'Remove member' })
+  ).not.toBeInTheDocument()
+})
+
+test('pool administrator cannot remove a privileged system user', () => {
+  renderMembers(
+    { ...capabilities, can_remove_members: true },
+    { memberRole: 10 }
+  )
+
+  expect(
+    screen.queryByRole('button', { name: 'Remove member' })
+  ).not.toBeInTheDocument()
+})
+
+test('global administrator can remove a pool administrator', () => {
+  renderMembers(
+    {
+      ...capabilities,
+      can_remove_members: true,
+      can_manage_admins: true,
+    },
+    { memberAdmin: true }
+  )
+
+  expect(
+    screen.getByRole('button', { name: 'Remove member' })
+  ).toBeInTheDocument()
+})
+
+test('failed member removal keeps the confirmation dialog open', async () => {
+  apiMocks.removeQuotaPoolMember.mockResolvedValue({
+    success: false,
+    message: 'remove failed',
+  })
+  renderMembers({ ...capabilities, can_remove_members: true })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Remove member' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm removal' }))
+
+  await waitFor(() => expect(apiMocks.removeQuotaPoolMember).toHaveBeenCalled())
+  expect(
+    screen.getByRole('alertdialog', { name: 'Remove member' })
+  ).toBeInTheDocument()
+})
+
+test('network failure keeps the member removal dialog open', async () => {
+  apiMocks.removeQuotaPoolMember.mockRejectedValue(new Error('network error'))
+  renderMembers({ ...capabilities, can_remove_members: true })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Remove member' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm removal' }))
+
+  await waitFor(() => expect(apiMocks.removeQuotaPoolMember).toHaveBeenCalled())
+  expect(
+    screen.getByRole('alertdialog', { name: 'Remove member' })
+  ).toBeInTheDocument()
 })

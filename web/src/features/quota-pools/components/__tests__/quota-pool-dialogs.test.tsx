@@ -39,7 +39,7 @@ beforeEach(() => {
           quota: 0,
           used_quota: 0,
           quota_pool_id: 0,
-          quota_pool_admin_level: 0,
+          quota_pool_admin: false,
         },
       ],
       total: 1,

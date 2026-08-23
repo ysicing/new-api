@@ -222,7 +222,47 @@ func AddSelfQuotaPoolMember(c *gin.Context) {
 }
 
 func MoveSelfQuotaPoolMember(c *gin.Context) {
-	writeQuotaPoolError(c, model.ErrQuotaPoolPermissionDenied)
+	pool, admin, ok := selfQuotaPool(c)
+	if !ok {
+		return
+	}
+	if !requireSelfQuotaPoolMemberRemoval(c, admin) {
+		return
+	}
+	userId, ok := parseQuotaPoolUserID(c)
+	if !ok {
+		return
+	}
+	var req quotaPoolMoveRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		writeQuotaPoolError(c, model.ErrQuotaPoolNotFound)
+		return
+	}
+	target, err := model.GetNewUserQuotaPool()
+	if err != nil {
+		writeQuotaPoolError(c, err)
+		return
+	}
+	if req.PoolId != target.Id {
+		writeQuotaPoolError(c, model.ErrQuotaPoolPermissionDenied)
+		return
+	}
+	removeQuotaPoolMember(c, pool.Id, userId, false)
+}
+
+func RemoveSelfQuotaPoolMember(c *gin.Context) {
+	pool, admin, ok := selfQuotaPool(c)
+	if !ok {
+		return
+	}
+	if !requireSelfQuotaPoolMemberRemoval(c, admin) {
+		return
+	}
+	userId, ok := parseQuotaPoolUserID(c)
+	if !ok {
+		return
+	}
+	removeQuotaPoolMember(c, pool.Id, userId, false)
 }
 
 func RechargeSelfQuotaPoolMember(c *gin.Context) {
@@ -262,42 +302,13 @@ func ReclaimSelfQuotaPoolMember(c *gin.Context) {
 }
 
 func GrantSelfQuotaPoolAdmin(c *gin.Context) {
-	pool, admin, ok := selfQuotaPool(c)
-	if !ok {
-		return
-	}
-	if !requireSelfQuotaPoolV2AdminManagement(c, admin) {
-		return
-	}
-	var req quotaPoolAdminRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil || req.Level != model.QuotaPoolAdminLevelV1 {
+	if requireQuotaPoolFeature(c) {
 		writeQuotaPoolError(c, model.ErrQuotaPoolPermissionDenied)
-		return
 	}
-	if err := model.GrantQuotaPoolAdmin(pool.Id, req.UserId, req.Level); err != nil {
-		writeQuotaPoolError(c, err)
-		return
-	}
-	recordQuotaPoolAudit(c, pool.Id, "quota_pool.admin_grant", map[string]any{"user_id": req.UserId, "level": req.Level})
-	common.ApiSuccess(c, gin.H{"pool_id": pool.Id})
 }
 
 func RevokeSelfQuotaPoolAdmin(c *gin.Context) {
-	pool, admin, ok := selfQuotaPool(c)
-	if !ok {
-		return
+	if requireQuotaPoolFeature(c) {
+		writeQuotaPoolError(c, model.ErrQuotaPoolPermissionDenied)
 	}
-	if !requireSelfQuotaPoolV1AdminManagement(c, admin) {
-		return
-	}
-	userId, ok := parseQuotaPoolUserID(c)
-	if !ok {
-		return
-	}
-	if err := model.RevokeQuotaPoolAdmin(pool.Id, userId); err != nil {
-		writeQuotaPoolError(c, err)
-		return
-	}
-	recordQuotaPoolAudit(c, pool.Id, "quota_pool.admin_revoke", map[string]any{"user_id": userId})
-	common.ApiSuccess(c, gin.H{"pool_id": pool.Id})
 }

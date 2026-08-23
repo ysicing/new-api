@@ -99,7 +99,7 @@ func TestSelfQuotaPoolManagementEndpointsRequirePoolManager(t *testing.T) {
 	}
 
 	require.NoError(t, db.Create(&model.QuotaPoolAdmin{
-		PoolId: pool.Id, UserId: user.Id, Level: model.QuotaPoolAdminLevelV1,
+		PoolId: pool.Id, UserId: user.Id, Level: model.QuotaPoolAdminLevel,
 	}).Error)
 	for _, item := range handlers {
 		t.Run("pool_manager_"+item.name, func(t *testing.T) {
@@ -135,6 +135,22 @@ func TestGetUserIncludesCurrentQuotaPoolFeatureState(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), `"quota_pool_enabled":true`)
+}
+
+func TestBuildSelfUserDataOmitsPoolAdministratorLevel(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.QuotaPool{}, &model.QuotaPoolAdmin{}))
+	pool := model.QuotaPool{Name: "self-data-admin-pool", PoolType: model.QuotaPoolTypeNormal, Enabled: true}
+	require.NoError(t, db.Create(&pool).Error)
+	user := model.User{Username: "self-data-admin", Password: "password", AffCode: "self-data-admin", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id}
+	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, db.Create(&model.QuotaPoolAdmin{PoolId: pool.Id, UserId: user.Id, Level: 2}).Error)
+
+	data := buildSelfUserData(&user)
+	encoded, err := common.Marshal(data["quota_pool_admin"])
+	require.NoError(t, err)
+
+	assert.JSONEq(t, fmt.Sprintf(`{"pool_id":%d}`, pool.Id), string(encoded))
 }
 
 func TestGetQuotaPoolsReturnsRequestedSearchPage(t *testing.T) {

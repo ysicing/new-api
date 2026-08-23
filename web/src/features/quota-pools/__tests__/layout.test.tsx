@@ -61,8 +61,8 @@ const viewCapabilities: QuotaPoolCapabilities = {
   can_edit_monthly_refill: false,
   can_refill: false,
   can_manage_members: false,
-  can_manage_v1_admins: false,
-  can_manage_v2_admins: false,
+  can_remove_members: false,
+  can_manage_admins: false,
   can_delete: false,
 }
 
@@ -124,7 +124,7 @@ test('pool administrator navigates from list to detail and back', async () => {
     role: 1,
     quota_pool_enabled: true,
     quota_pool_id: 7,
-    quota_pool_admin: { pool_id: 7, level: 1 },
+    quota_pool_admin: { pool_id: 7 },
   })
 
   expect(

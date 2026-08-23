@@ -110,23 +110,6 @@ func TestAddQuotaPoolManualRefillEnforcesAmountAndMonthlyLimit(t *testing.T) {
 	assert.EqualValues(t, 2, transactions)
 }
 
-func TestGrantQuotaPoolAdminSupportsV1AndV2ForPoolMembers(t *testing.T) {
-	db := setupQuotaPoolFundsTestDB(t)
-	pool, member := seedQuotaPoolMember(t, db, 1000, 0)
-	outsider := User{Username: "outsider", Password: "password", AffCode: "outsider-code", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
-	require.NoError(t, db.Create(&outsider).Error)
-
-	require.NoError(t, GrantQuotaPoolAdmin(pool.Id, member.Id, QuotaPoolAdminLevelV2))
-	summary, err := GetQuotaPoolAdminSummary(member.Id)
-	require.NoError(t, err)
-	require.NotNil(t, summary)
-	assert.Equal(t, QuotaPoolAdminLevelV2, summary.Level)
-	assert.Equal(t, pool.Id, summary.PoolId)
-
-	err = GrantQuotaPoolAdmin(pool.Id, outsider.Id, QuotaPoolAdminLevelV1)
-	require.ErrorIs(t, err, ErrQuotaPoolMemberMismatch)
-}
-
 func TestListQuotaPoolMembersSearchesCurrentPoolUserFields(t *testing.T) {
 	db := setupQuotaPoolFundsTestDB(t)
 	pool := QuotaPool{Name: "搜索池", PoolType: QuotaPoolTypeNormal, Enabled: true}
@@ -181,12 +164,15 @@ func TestListQuotaPoolMembersReturnsRequestedPageAndTotal(t *testing.T) {
 		{Username: "member-c", Password: "password", AffCode: "page-c", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id},
 	}
 	require.NoError(t, db.Create(&users).Error)
+	require.NoError(t, db.Create(&QuotaPoolAdmin{PoolId: pool.Id, UserId: users[0].Id, Level: QuotaPoolAdminLevel}).Error)
 
 	firstPage, total, err := ListQuotaPoolMembers(pool.Id, "", &common.PageInfo{Page: 1, PageSize: 2})
 	require.NoError(t, err)
 	assert.EqualValues(t, 3, total)
 	require.Len(t, firstPage, 2)
 	assert.Equal(t, users[0].Id, firstPage[0].Id)
+	assert.True(t, firstPage[0].QuotaPoolAdmin)
+	assert.False(t, firstPage[1].QuotaPoolAdmin)
 
 	secondPage, total, err := ListQuotaPoolMembers(pool.Id, "", &common.PageInfo{Page: 2, PageSize: 2})
 	require.NoError(t, err)

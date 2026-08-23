@@ -37,7 +37,7 @@ func GetQuotaPools(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
-	data := gin.H{"items": items, "capabilities": currentQuotaPoolCapabilities(c, 0)}
+	data := gin.H{"items": items, "capabilities": currentQuotaPoolCapabilities(c, false)}
 	if paginated {
 		data["total"] = total
 		data["page"] = page.Page
@@ -89,7 +89,7 @@ func GetQuotaPool(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"pool": pool, "capabilities": currentQuotaPoolCapabilities(c, 0)})
+	common.ApiSuccess(c, gin.H{"pool": pool, "capabilities": currentQuotaPoolCapabilities(c, false)})
 }
 
 func UpdateQuotaPool(c *gin.Context) {

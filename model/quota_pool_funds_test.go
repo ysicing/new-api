@@ -81,7 +81,7 @@ func TestMoveUserQuotaPoolReclaimsBalanceAndRevokesOldAdmin(t *testing.T) {
 	oldPool, user := seedQuotaPoolMember(t, db, 100, 35)
 	target := QuotaPool{Name: "目标池", PoolType: QuotaPoolTypeNormal, Enabled: true, BaseQuota: 200, Quota: 200}
 	require.NoError(t, db.Create(&target).Error)
-	require.NoError(t, db.Create(&QuotaPoolAdmin{PoolId: oldPool.Id, UserId: user.Id, Level: QuotaPoolAdminLevelV1}).Error)
+	require.NoError(t, db.Create(&QuotaPoolAdmin{PoolId: oldPool.Id, UserId: user.Id, Level: QuotaPoolAdminLevel}).Error)
 
 	result, err := MoveUserBetweenQuotaPools(user.Id, target.Id, false, 7)
 

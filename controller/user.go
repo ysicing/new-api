@@ -526,10 +526,6 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 	permissions := calculateUserPermissions(user.Role)
 	permissions["admin_permissions"] = authz.Capabilities(user.Id, user.Role)
 	quotaPoolAdmin, _ := model.GetQuotaPoolAdminSummary(user.Id)
-	poolAdminLevel := 0
-	if quotaPoolAdmin != nil {
-		poolAdminLevel = quotaPoolAdmin.Level
-	}
 	return map[string]interface{}{
 		"id":                      user.Id,
 		"username":                user.Username,
@@ -550,7 +546,7 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"quota_pool_name":         user.QuotaPoolName,
 		"quota_pool_enabled":      common.QuotaPoolEnabled,
 		"quota_pool_admin":        quotaPoolAdmin,
-		"quota_pool_capabilities": service.ResolveQuotaPoolCapabilities(user.Role, poolAdminLevel),
+		"quota_pool_capabilities": service.ResolveQuotaPoolCapabilities(user.Role, quotaPoolAdmin != nil),
 		"used_quota":              user.UsedQuota,
 		"request_count":           user.RequestCount,
 		"aff_code":                user.AffCode,

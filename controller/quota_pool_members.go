@@ -68,6 +68,36 @@ func AddQuotaPoolMember(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{"move": result, "initial_recharge": recharge})
 }
 
+func RemoveQuotaPoolMember(c *gin.Context) {
+	id, ok := parseQuotaPoolID(c)
+	if !ok || !requireQuotaPoolFeature(c) {
+		return
+	}
+	userId, ok := parseQuotaPoolUserID(c)
+	if !ok {
+		return
+	}
+	removeQuotaPoolMember(c, id, userId, true)
+}
+
+func removeQuotaPoolMember(c *gin.Context, sourcePoolId, userId int, allowAdminRemoval bool) {
+	result, err := model.RemoveQuotaPoolMember(model.QuotaPoolMemberRemoval{
+		SourcePoolId: sourcePoolId, UserId: userId, OperatorId: c.GetInt("id"),
+		AllowAdminRemoval: allowAdminRemoval,
+	})
+	if err != nil {
+		writeQuotaPoolError(c, err)
+		return
+	}
+	recordQuotaPoolAudit(c, sourcePoolId, "quota_pool.member_remove", map[string]any{
+		"user_id":          userId,
+		"target_pool_id":   result.NewPoolId,
+		"reclaimed_amount": result.Change.Amount,
+		"admin_revoked":    result.AdminRevoked,
+	})
+	common.ApiSuccess(c, result)
+}
+
 func MoveUserQuotaPool(c *gin.Context) {
 	userId, ok := parseQuotaPoolUserID(c)
 	if !ok || !requireQuotaPoolFeature(c) {
@@ -173,11 +203,11 @@ func GrantQuotaPoolAdmin(c *gin.Context) {
 		writeQuotaPoolError(c, model.ErrQuotaPoolPermissionDenied)
 		return
 	}
-	if err := model.GrantQuotaPoolAdmin(id, req.UserId, req.Level); err != nil {
+	if err := model.GrantQuotaPoolAdmin(id, req.UserId); err != nil {
 		writeQuotaPoolError(c, err)
 		return
 	}
-	recordQuotaPoolAudit(c, id, "quota_pool.admin_grant", map[string]any{"user_id": req.UserId, "level": req.Level})
+	recordQuotaPoolAudit(c, id, "quota_pool.admin_grant", map[string]any{"user_id": req.UserId})
 	common.ApiSuccess(c, nil)
 }
 

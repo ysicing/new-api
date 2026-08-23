@@ -70,6 +70,15 @@ func GetQuotaPoolListItemById(poolId int) (*QuotaPoolListItem, error) {
 	return &item, err
 }
 
+func GetNewUserQuotaPool() (*QuotaPool, error) {
+	var pool QuotaPool
+	if err := DB.Where("pool_type = ?", QuotaPoolTypeNewUser).
+		Order("id ASC").First(&pool).Error; err != nil {
+		return nil, mapQuotaPoolRecordError(err)
+	}
+	return &pool, nil
+}
+
 func buildQuotaPoolListItem(pool QuotaPool) (QuotaPoolListItem, error) {
 	config := operation_setting.GetAutoRechargeSetting()
 	item := QuotaPoolListItem{
@@ -118,7 +127,7 @@ func ListQuotaPoolMembers(poolId int, keyword string, page *common.PageInfo) ([]
 	if err := query.Order("id ASC").Offset(page.GetStartIdx()).Limit(page.GetPageSize()).Find(&users).Error; err != nil {
 		return nil, 0, err
 	}
-	levels, err := quotaPoolAdminLevels(poolId)
+	administrators, err := quotaPoolAdministrators(poolId)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -128,22 +137,22 @@ func ListQuotaPoolMembers(poolId int, keyword string, page *common.PageInfo) ([]
 			Id: user.Id, Username: user.Username, DisplayName: user.DisplayName,
 			Email: user.Email, Department: user.Department, Role: user.Role, Status: user.Status,
 			Quota: user.Quota, UsedQuota: user.UsedQuota, QuotaPoolId: user.QuotaPoolId,
-			QuotaPoolAdminLevel: levels[user.Id],
+			QuotaPoolAdmin: administrators[user.Id],
 		})
 	}
 	return items, total, nil
 }
 
-func quotaPoolAdminLevels(poolId int) (map[int]int, error) {
+func quotaPoolAdministrators(poolId int) (map[int]bool, error) {
 	var admins []QuotaPoolAdmin
 	if err := DB.Where("pool_id = ?", poolId).Find(&admins).Error; err != nil {
 		return nil, err
 	}
-	levels := make(map[int]int, len(admins))
+	result := make(map[int]bool, len(admins))
 	for _, admin := range admins {
-		levels[admin.UserId] = admin.Level
+		result[admin.UserId] = true
 	}
-	return levels, nil
+	return result, nil
 }
 
 func ListQuotaPoolAdminContacts(poolId int) ([]QuotaPoolAdminContact, error) {

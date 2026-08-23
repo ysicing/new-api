@@ -30,7 +30,7 @@ describe('quota pool access', () => {
         role: 1,
         quota_pool_enabled: true,
         quota_pool_id: 0,
-        quota_pool_admin: { pool_id: 7, level: 1 },
+        quota_pool_admin: { pool_id: 7 },
       })
     ).toBe(true)
   })
@@ -54,7 +54,7 @@ describe('quota pool access', () => {
     expect(
       shouldShowQuotaPoolList({
         role: 1,
-        quota_pool_admin: { pool_id: 7, level: 1 },
+        quota_pool_admin: { pool_id: 7 },
       })
     ).toBe(true)
     expect(shouldShowQuotaPoolList({ role: 2 })).toBe(true)

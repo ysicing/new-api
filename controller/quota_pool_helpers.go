@@ -42,7 +42,6 @@ type quotaPoolMoveRequest struct {
 
 type quotaPoolAdminRequest struct {
 	UserId int `json:"user_id"`
-	Level  int `json:"level"`
 }
 
 func requireQuotaPoolFeature(c *gin.Context) bool {
@@ -75,16 +74,12 @@ func quotaAmountToInternal(amount float64) int {
 	return int(amount * common.QuotaPerUnit)
 }
 
-func currentQuotaPoolCapabilities(c *gin.Context, level int) service.QuotaPoolCapabilities {
-	return service.ResolveQuotaPoolCapabilities(c.GetInt("role"), level)
+func currentQuotaPoolCapabilities(c *gin.Context, poolAdmin bool) service.QuotaPoolCapabilities {
+	return service.ResolveQuotaPoolCapabilities(c.GetInt("role"), poolAdmin)
 }
 
 func selfQuotaPoolCapabilities(c *gin.Context, admin *model.QuotaPoolAdminSummary) service.QuotaPoolCapabilities {
-	level := 0
-	if admin != nil {
-		level = admin.Level
-	}
-	capabilities := currentQuotaPoolCapabilities(c, level)
+	capabilities := currentQuotaPoolCapabilities(c, admin != nil)
 	if admin == nil {
 		capabilities.CanView = true
 	}
@@ -115,15 +110,9 @@ func requireSelfQuotaPoolMembersManagement(c *gin.Context, admin *model.QuotaPoo
 	})
 }
 
-func requireSelfQuotaPoolV1AdminManagement(c *gin.Context, admin *model.QuotaPoolAdminSummary) bool {
+func requireSelfQuotaPoolMemberRemoval(c *gin.Context, admin *model.QuotaPoolAdminSummary) bool {
 	return requireSelfQuotaPoolCapability(c, admin, func(capabilities service.QuotaPoolCapabilities) bool {
-		return capabilities.CanManageV1Admins
-	})
-}
-
-func requireSelfQuotaPoolV2AdminManagement(c *gin.Context, admin *model.QuotaPoolAdminSummary) bool {
-	return requireSelfQuotaPoolCapability(c, admin, func(capabilities service.QuotaPoolCapabilities) bool {
-		return capabilities.CanManageV2Admins
+		return capabilities.CanRemoveMembers
 	})
 }
 
