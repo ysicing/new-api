@@ -119,8 +119,11 @@ func UpdateSelfQuotaPool(c *gin.Context) {
 }
 
 func GetSelfQuotaPoolMembers(c *gin.Context) {
-	pool, _, ok := selfQuotaPool(c)
+	pool, admin, ok := selfQuotaPool(c)
 	if !ok {
+		return
+	}
+	if !requireSelfQuotaPoolMembersManagement(c, admin) {
 		return
 	}
 	page := common.GetPageQuery(c)
@@ -134,8 +137,11 @@ func GetSelfQuotaPoolMembers(c *gin.Context) {
 }
 
 func GetSelfQuotaPoolTransactions(c *gin.Context) {
-	pool, _, ok := selfQuotaPool(c)
+	pool, admin, ok := selfQuotaPool(c)
 	if !ok {
+		return
+	}
+	if !requireSelfQuotaPoolMembersManagement(c, admin) {
 		return
 	}
 	page := common.GetPageQuery(c)
@@ -148,8 +154,11 @@ func GetSelfQuotaPoolTransactions(c *gin.Context) {
 }
 
 func GetSelfQuotaPoolOperationLogs(c *gin.Context) {
-	pool, _, ok := selfQuotaPool(c)
+	pool, admin, ok := selfQuotaPool(c)
 	if !ok {
+		return
+	}
+	if !requireSelfQuotaPoolMembersManagement(c, admin) {
 		return
 	}
 	page := common.GetPageQuery(c)
@@ -162,8 +171,11 @@ func GetSelfQuotaPoolOperationLogs(c *gin.Context) {
 }
 
 func GetSelfQuotaPoolStats(c *gin.Context) {
-	pool, _, ok := selfQuotaPool(c)
+	pool, admin, ok := selfQuotaPool(c)
 	if !ok {
+		return
+	}
+	if !requireSelfQuotaPoolMembersManagement(c, admin) {
 		return
 	}
 	start, end := statsRange(c, time.Now())

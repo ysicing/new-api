@@ -66,11 +66,18 @@ const viewCapabilities: QuotaPoolCapabilities = {
   can_delete: false,
 }
 
+const adminContact = {
+  id: 9,
+  username: 'pool-admin',
+  display_name: 'Alice Chen',
+  email: 'alice@example.com',
+}
+
 function renderQuotaPools(user: AuthUser, capabilities = viewCapabilities) {
   useAuthStore.getState().auth.setUser(user)
   apiMocks.getSelfQuotaPool.mockResolvedValue({
     success: true,
-    data: { pool, capabilities },
+    data: { pool, capabilities, admin_contacts: [adminContact] },
   })
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -106,6 +113,8 @@ test('ordinary member opens the assigned pool directly without a list', async ()
   expect(
     screen.queryByRole('button', { name: 'Back to list' })
   ).not.toBeInTheDocument()
+  expect(screen.getByText('Alice Chen')).toBeInTheDocument()
+  expect(screen.getByText('alice@example.com')).toBeInTheDocument()
 })
 
 test('pool administrator navigates from list to detail and back', async () => {

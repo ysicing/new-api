@@ -68,6 +68,7 @@ export function QuotaPools() {
           total: response.data?.total ?? 0,
           page: response.data?.page ?? page,
           capabilities: response.data?.capabilities ?? noCapabilities,
+          adminContacts: [],
         }
       }
       const response = await getSelfQuotaPool()
@@ -76,6 +77,7 @@ export function QuotaPools() {
         total: response.data?.pool ? 1 : 0,
         page: 1,
         capabilities: response.data?.capabilities ?? noCapabilities,
+        adminContacts: response.data?.admin_contacts ?? [],
       }
     },
     placeholderData: (previousData, previousQuery) => {
@@ -215,6 +217,7 @@ export function QuotaPools() {
         key={selected.id}
         pool={selected}
         capabilities={selectedCapabilities}
+        adminContacts={canListAll ? [] : (query.data?.adminContacts ?? [])}
         selfMode={!canListAll}
         title={
           canListAll ? (

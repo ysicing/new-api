@@ -4,6 +4,7 @@ import type {
   ApiResponse,
   PageData,
   QuotaPool,
+  QuotaPoolAdminContact,
   QuotaPoolCapabilities,
   QuotaPoolMember,
   QuotaPoolOperationLog,
@@ -52,6 +53,7 @@ export async function getSelfQuotaPool() {
     ApiResponse<{
       pool: QuotaPool
       capabilities: QuotaPoolCapabilities
+      admin_contacts: QuotaPoolAdminContact[]
     }>
   >('/api/quota_pool/self/')
   return response.data

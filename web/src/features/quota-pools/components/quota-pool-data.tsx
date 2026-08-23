@@ -1,7 +1,13 @@
 import type { UseQueryResult } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
 import {
   Empty,
   EmptyDescription,
@@ -23,6 +29,7 @@ import type {
   ApiResponse,
   PageData,
   QuotaPool,
+  QuotaPoolAdminContact,
   QuotaPoolOperationLog,
   QuotaPoolTransaction,
 } from '../types'
@@ -31,6 +38,16 @@ type QueryLike = {
   isLoading: boolean
   isError?: boolean
   data?: { data?: unknown }
+}
+
+const transactionTypeLabelKeys: Record<string, string> = {
+  initial_fund: 'Initial funding',
+  manual_refill: 'Temporary refill',
+  monthly_refill: 'Monthly automatic refill',
+  allocate_auto: 'Automatic allocation',
+  allocate_manual: 'Manual allocation',
+  reclaim_user: 'Reclaimed user quota',
+  adjust_base_quota: 'Base quota adjustment',
 }
 
 export function LoadingOrEmpty(props: {
@@ -96,6 +113,51 @@ export function PoolOverview({ pool }: { pool: QuotaPool }) {
   )
 }
 
+export function PoolAdminContacts(props: {
+  contacts: QuotaPoolAdminContact[]
+}) {
+  const { t } = useTranslation()
+  return (
+    <Card className='mt-3'>
+      <CardHeader>
+        <CardTitle className='text-sm'>{t('Pool administrators')}</CardTitle>
+        <CardDescription>
+          {t('Contact a pool administrator when quota is insufficient.')}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {props.contacts.length === 0 ? (
+          <p className='text-muted-foreground text-sm'>
+            {t('No pool administrators')}
+          </p>
+        ) : (
+          <div className='grid gap-2 sm:grid-cols-2'>
+            {props.contacts.map((admin) => (
+              <div key={admin.id} className='rounded-lg border px-3 py-2'>
+                <p className='font-medium'>
+                  {admin.display_name || admin.username}
+                </p>
+                {admin.email ? (
+                  <a
+                    className='text-muted-foreground hover:text-foreground text-sm underline-offset-4 hover:underline'
+                    href={`mailto:${admin.email}`}
+                  >
+                    {admin.email}
+                  </a>
+                ) : (
+                  <p className='text-muted-foreground text-sm'>
+                    {t('Email not set')}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function PoolTransactions(props: {
   query: UseQueryResult<ApiResponse<PageData<QuotaPoolTransaction>>>
 }) {
@@ -115,7 +177,9 @@ export function PoolTransactions(props: {
         <TableBody>
           {items.map((item) => (
             <TableRow key={item.id}>
-              <TableCell>{t(item.type)}</TableCell>
+              <TableCell>
+                {t(transactionTypeLabelKeys[item.type] ?? item.type)}
+              </TableCell>
               <TableCell>{item.user_name || '—'}</TableCell>
               <TableCell className='text-right'>
                 {formatQuota(item.amount)}

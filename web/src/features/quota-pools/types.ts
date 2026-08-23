@@ -52,6 +52,13 @@ export interface QuotaPoolMember {
   reclaim_amounts?: number[]
 }
 
+export interface QuotaPoolAdminContact {
+  id: number
+  username: string
+  display_name: string
+  email: string
+}
+
 export interface QuotaPoolTransaction {
   id: number
   pool_id: number

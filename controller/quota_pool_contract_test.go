@@ -52,6 +52,70 @@ func TestWriteQuotaPoolErrorReturnsCandidateValidationCode(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), `"code":"QUOTA_POOL_CANDIDATE_INVALID"`)
 }
 
+func TestSelfQuotaPoolManagementEndpointsRequirePoolManager(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(
+		&model.Log{},
+		&model.QuotaPool{},
+		&model.QuotaPoolAdmin{},
+		&model.QuotaPoolTransaction{},
+	))
+	pool := model.QuotaPool{
+		Name: "management-endpoint-pool", PoolType: model.QuotaPoolTypeNormal,
+		Enabled: true, BaseQuota: 100, Quota: 100,
+	}
+	require.NoError(t, db.Create(&pool).Error)
+	user := model.User{
+		Username: "ordinary-pool-member", Password: "password", AffCode: "ordinary-pool-member",
+		Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id,
+	}
+	require.NoError(t, db.Create(&user).Error)
+	previous := common.QuotaPoolEnabled
+	common.QuotaPoolEnabled = true
+	t.Cleanup(func() { common.QuotaPoolEnabled = previous })
+
+	handlers := []struct {
+		name    string
+		handler gin.HandlerFunc
+	}{
+		{name: "members", handler: GetSelfQuotaPoolMembers},
+		{name: "transactions", handler: GetSelfQuotaPoolTransactions},
+		{name: "operation_logs", handler: GetSelfQuotaPoolOperationLogs},
+		{name: "stats", handler: GetSelfQuotaPoolStats},
+	}
+	for _, item := range handlers {
+		t.Run("ordinary_member_"+item.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodGet, "/api/quota_pool/self/"+item.name, nil)
+			c.Set("id", user.Id)
+			c.Set("role", common.RoleCommonUser)
+
+			item.handler(c)
+
+			assert.Equal(t, http.StatusForbidden, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), `"code":"QUOTA_POOL_PERMISSION_DENIED"`)
+		})
+	}
+
+	require.NoError(t, db.Create(&model.QuotaPoolAdmin{
+		PoolId: pool.Id, UserId: user.Id, Level: model.QuotaPoolAdminLevelV1,
+	}).Error)
+	for _, item := range handlers {
+		t.Run("pool_manager_"+item.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodGet, "/api/quota_pool/self/"+item.name, nil)
+			c.Set("id", user.Id)
+			c.Set("role", common.RoleCommonUser)
+
+			item.handler(c)
+
+			assert.Equal(t, http.StatusOK, recorder.Code)
+		})
+	}
+}
+
 func TestGetUserIncludesCurrentQuotaPoolFeatureState(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	target := model.User{
