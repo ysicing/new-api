@@ -80,17 +80,17 @@ func MoveUserBetweenQuotaPools(userId, targetPoolId int, allowSystemTarget bool,
 	return moveUserBetweenQuotaPools(userId, targetPoolId, operatorId, quotaPoolMoveOptions{allowSystemTarget: allowSystemTarget})
 }
 
-func AddUserToQuotaPool(userId, targetPoolId int, restrictCandidateSource bool, operatorId int) (*QuotaPoolMoveResult, error) {
+func AddUserToQuotaPool(userId, targetPoolId, operatorId int) (*QuotaPoolMoveResult, error) {
 	return moveUserBetweenQuotaPools(userId, targetPoolId, operatorId, quotaPoolMoveOptions{
 		requireEligibleCandidate: true,
-		restrictCandidateSource:  restrictCandidateSource,
+		requireNewUserSource:     true,
 	})
 }
 
 type quotaPoolMoveOptions struct {
 	allowSystemTarget        bool
 	requireEligibleCandidate bool
-	restrictCandidateSource  bool
+	requireNewUserSource     bool
 }
 
 func moveUserBetweenQuotaPools(userId, targetPoolId, operatorId int, options quotaPoolMoveOptions) (*QuotaPoolMoveResult, error) {
@@ -118,7 +118,7 @@ func moveUserBetweenQuotaPools(userId, targetPoolId, operatorId int, options quo
 		if err := validateMoveTarget(pools[targetPoolId], targetPoolId, options.allowSystemTarget); err != nil {
 			return err
 		}
-		if options.restrictCandidateSource && user.QuotaPoolId > QuotaPoolDefaultUserPoolId {
+		if options.requireNewUserSource {
 			source := pools[user.QuotaPoolId]
 			if source == nil || !source.IsNewUserPool() {
 				return ErrQuotaPoolCandidateInvalid

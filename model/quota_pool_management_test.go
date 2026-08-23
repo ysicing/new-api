@@ -202,11 +202,11 @@ func TestListQuotaPoolCandidatesFiltersEligibilityAndSearchesByID(t *testing.T) 
 	require.NoError(t, db.Create(&newUserPool).Error)
 	require.NoError(t, db.Create(&otherPool).Error)
 	users := []User{
-		{Username: "eligible", Password: "password", AffCode: "candidate-eligible", Role: common.RoleCommonUser, Status: common.UserStatusEnabled},
-		{Username: "disabled", Password: "password", AffCode: "candidate-disabled", Role: common.RoleCommonUser, Status: common.UserStatusDisabled},
-		{Username: "root", Password: "password", AffCode: "candidate-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled},
-		{Username: "guest", Password: "password", AffCode: "candidate-guest", Role: common.RoleGuestUser, Status: common.UserStatusEnabled},
-		{Username: "pool-super", Password: "password", AffCode: "candidate-super", Role: common.RoleQuotaPoolSuperAdmin, Status: common.UserStatusEnabled},
+		{Username: "eligible", Password: "password", AffCode: "candidate-eligible", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: newUserPool.Id},
+		{Username: "disabled", Password: "password", AffCode: "candidate-disabled", Role: common.RoleCommonUser, Status: common.UserStatusDisabled, QuotaPoolId: newUserPool.Id},
+		{Username: "root", Password: "password", AffCode: "candidate-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled, QuotaPoolId: newUserPool.Id},
+		{Username: "guest", Password: "password", AffCode: "candidate-guest", Role: common.RoleGuestUser, Status: common.UserStatusEnabled, QuotaPoolId: newUserPool.Id},
+		{Username: "legacy-default", Password: "password", AffCode: "candidate-legacy", Role: common.RoleQuotaPoolSuperAdmin, Status: common.UserStatusEnabled},
 		{Username: "admin", Password: "password", AffCode: "candidate-admin", Role: common.RoleAdminUser, Status: common.UserStatusEnabled, QuotaPoolId: newUserPool.Id},
 		{Username: "other-member", Password: "password", AffCode: "candidate-other", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: otherPool.Id},
 	}
@@ -216,9 +216,9 @@ func TestListQuotaPoolCandidatesFiltersEligibilityAndSearchesByID(t *testing.T) 
 	items, total, err := ListQuotaPoolCandidates("", &common.PageInfo{Page: 1, PageSize: 20})
 
 	require.NoError(t, err)
-	assert.EqualValues(t, 3, total)
-	require.Len(t, items, 3)
-	assert.ElementsMatch(t, []int{users[0].Id, users[4].Id, users[5].Id}, []int{items[0].Id, items[1].Id, items[2].Id})
+	assert.EqualValues(t, 2, total)
+	require.Len(t, items, 2)
+	assert.ElementsMatch(t, []int{users[0].Id, users[5].Id}, []int{items[0].Id, items[1].Id})
 
 	items, total, err = ListQuotaPoolCandidates(strconv.Itoa(users[0].Id), &common.PageInfo{Page: 1, PageSize: 20})
 	require.NoError(t, err)

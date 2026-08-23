@@ -58,7 +58,7 @@ func AddQuotaPoolMember(c *gin.Context) {
 		writeQuotaPoolError(c, model.ErrQuotaPoolMemberMismatch)
 		return
 	}
-	result, err := model.AddUserToQuotaPool(req.UserId, id, false, c.GetInt("id"))
+	result, err := model.AddUserToQuotaPool(req.UserId, id, c.GetInt("id"))
 	if err != nil {
 		writeQuotaPoolError(c, err)
 		return

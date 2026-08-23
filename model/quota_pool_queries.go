@@ -170,16 +170,15 @@ func ListQuotaPoolAdminContacts(poolId int) ([]QuotaPoolAdminContact, error) {
 }
 
 func ListQuotaPoolCandidates(keyword string, page *common.PageInfo) ([]QuotaPoolMember, int64, error) {
-	poolIds := []int{QuotaPoolDefaultUserPoolId}
 	var newUserPool QuotaPool
-	if err := DB.Where("pool_type = ?", QuotaPoolTypeNewUser).First(&newUserPool).Error; err == nil {
-		poolIds = append(poolIds, newUserPool.Id)
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+	if err := DB.Where("pool_type = ?", QuotaPoolTypeNewUser).First(&newUserPool).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return []QuotaPoolMember{}, 0, nil
+	} else if err != nil {
 		return nil, 0, err
 	}
 	query := DB.Model(&User{}).Where(
-		"quota_pool_id IN ? AND role IN ? AND status = ?",
-		poolIds,
+		"quota_pool_id = ? AND role IN ? AND status = ?",
+		newUserPool.Id,
 		[]int{common.RoleCommonUser, common.RoleQuotaPoolSuperAdmin, common.RoleAdminUser},
 		common.UserStatusEnabled,
 	)
