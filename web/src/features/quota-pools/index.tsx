@@ -232,29 +232,31 @@ export function QuotaPools() {
   }
 
   return (
-    <SectionPageLayout>
-      <SectionPageLayout.Title>{t('Quota pools')}</SectionPageLayout.Title>
-      <SectionPageLayout.Actions>
-        {selectedCapabilities.can_refill && selected && (
-          <Button variant='outline' onClick={() => setRefillOpen(true)}>
-            <RefreshCw data-icon='inline-start' />
-            {t('Refill')}
-          </Button>
-        )}
-        {selectedCapabilities.can_manage_members && selected && (
-          <Button variant='outline' onClick={() => setAddMemberOpen(true)}>
-            <UserPlus data-icon='inline-start' />
-            {t('Add member')}
-          </Button>
-        )}
-        {capabilities.can_delete && (
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus data-icon='inline-start' />
-            {t('Create pool')}
-          </Button>
-        )}
-      </SectionPageLayout.Actions>
-      <SectionPageLayout.Content>{content}</SectionPageLayout.Content>
+    <>
+      <SectionPageLayout>
+        <SectionPageLayout.Title>{t('Quota pools')}</SectionPageLayout.Title>
+        <SectionPageLayout.Actions>
+          {selectedCapabilities.can_refill && selected && (
+            <Button variant='outline' onClick={() => setRefillOpen(true)}>
+              <RefreshCw data-icon='inline-start' />
+              {t('Refill')}
+            </Button>
+          )}
+          {selectedCapabilities.can_manage_members && selected && (
+            <Button variant='outline' onClick={() => setAddMemberOpen(true)}>
+              <UserPlus data-icon='inline-start' />
+              {t('Add member')}
+            </Button>
+          )}
+          {capabilities.can_delete && (
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus data-icon='inline-start' />
+              {t('Create pool')}
+            </Button>
+          )}
+        </SectionPageLayout.Actions>
+        <SectionPageLayout.Content>{content}</SectionPageLayout.Content>
+      </SectionPageLayout>
       <CreateQuotaPoolDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
@@ -273,6 +275,6 @@ export function QuotaPools() {
         onOpenChange={setAddMemberOpen}
         onSaved={refresh}
       />
-    </SectionPageLayout>
+    </>
   )
 }

@@ -16,8 +16,10 @@ import { QuotaPools } from '../index'
 import type { QuotaPool, QuotaPoolCapabilities } from '../types'
 
 const apiMocks = vi.hoisted(() => ({
+  addQuotaPoolMember: vi.fn(),
   getQuotaPools: vi.fn(),
   getQuotaPool: vi.fn(),
+  getQuotaPoolCandidates: vi.fn(),
   getSelfQuotaPool: vi.fn(),
   getQuotaPoolMembers: vi.fn(),
   getQuotaPoolTransactions: vi.fn(),
@@ -394,4 +396,43 @@ test('global administrator cannot operate a pool when detail loading fails', asy
   ).not.toBeInTheDocument()
   expect(screen.queryByText('raw detail error')).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+})
+
+test('global administrator opens the add-member dialog from pool details', async () => {
+  const manageCapabilities = {
+    ...viewCapabilities,
+    can_manage_members: true,
+  }
+  apiMocks.getQuotaPools.mockResolvedValue({
+    success: true,
+    data: {
+      items: [pool],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      capabilities: manageCapabilities,
+    },
+  })
+  apiMocks.getQuotaPool.mockResolvedValue({
+    success: true,
+    data: { pool, capabilities: manageCapabilities },
+  })
+  apiMocks.getQuotaPoolCandidates.mockResolvedValue({
+    success: true,
+    data: { items: [], total: 0, page: 1, page_size: 20 },
+  })
+  renderQuotaPools({
+    id: 3,
+    username: 'admin',
+    role: 10,
+    quota_pool_enabled: true,
+  })
+
+  fireEvent.click(await screen.findByText('平台保障部'))
+  fireEvent.click(await screen.findByRole('button', { name: 'Add member' }))
+
+  expect(
+    await screen.findByRole('dialog', { name: 'Add member' })
+  ).toBeInTheDocument()
+  expect(screen.getByRole('combobox', { name: 'User' })).toBeInTheDocument()
 })
