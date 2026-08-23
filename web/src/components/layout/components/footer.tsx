@@ -24,6 +24,8 @@ import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { cn } from '@/lib/utils'
 
+import { BuildVersion } from './build-version'
+
 interface FooterLink {
   text: string
   href: string
@@ -146,17 +148,6 @@ function ProjectAttribution(props: { currentYear: number; inline?: boolean }) {
     <div className='text-muted-foreground/45 text-center text-xs sm:text-right'>
       {content}
     </div>
-  )
-}
-
-function BuildVersion() {
-  const { t } = useTranslation()
-  const version = import.meta.env.PUBLIC_BUILD_VERSION?.trim()
-  if (!version) return null
-  return (
-    <span className='text-muted-foreground/45 text-xs'>
-      {t('Build {{version}}', { version })}
-    </span>
   )
 }
 
