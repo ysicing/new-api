@@ -1,8 +1,11 @@
+import { Alert02Icon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -52,6 +55,10 @@ export function QuotaPoolDetail(props: {
   const [membersKeyword, setMembersKeyword] = useState('')
   const [statsPeriod, setStatsPeriod] = useState<QuotaPoolStatsPeriod>('week')
   const canViewManagement = props.capabilities.can_manage_members
+  const showNewUserNotice =
+    props.selfMode === true &&
+    !canViewManagement &&
+    props.pool.pool_type === 'new_user'
   const activeTab = canViewManagement ? tab : 'overview'
   const members = useQuery({
     queryKey: [
@@ -125,6 +132,17 @@ export function QuotaPoolDetail(props: {
             )}
           </TabsList>
           <TabsContent value='overview'>
+            {showNewUserNotice ? (
+              <Alert className='mb-4'>
+                <HugeiconsIcon icon={Alert02Icon} aria-hidden='true' />
+                <AlertTitle>{t('Trial quota notice')}</AlertTitle>
+                <AlertDescription>
+                  {t(
+                    'Please contact your department quota pool administrator to join the appropriate quota pool. The current pool provides a one-time trial quota only; no additional quota will be granted after it is used up.'
+                  )}
+                </AlertDescription>
+              </Alert>
+            ) : null}
             <PoolOverview pool={props.pool} />
             {!canViewManagement && (
               <PoolAdminContacts contacts={props.adminContacts ?? []} />
