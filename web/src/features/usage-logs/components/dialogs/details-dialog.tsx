@@ -701,6 +701,14 @@ export function DetailsDialog(props: DetailsDialogProps) {
             />
           )}
 
+          {props.isAdmin && showTiming && other?.user_agent && (
+            <DetailRow
+              label={t('User Agent')}
+              value={String(other.user_agent)}
+              mono
+            />
+          )}
+
           {showTiming && props.log.use_time > 0 && (
             <DetailRow
               label={t('Response Time')}

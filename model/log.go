@@ -123,6 +123,10 @@ func formatUserLogs(logs []*Log, startIdx int) {
 			delete(otherMap, "admin_info")
 			// Remove operation-audit details (operator/route info), admin-only.
 			delete(otherMap, "audit_info")
+			// Request UA is admin-only; login-session UA remains visible to its owner.
+			if logs[i].Type != LogTypeLogin {
+				delete(otherMap, "user_agent")
+			}
 			// delete(otherMap, "reject_reason")
 			// delete(otherMap, "stream_status")
 		}
@@ -279,13 +283,42 @@ func RecordTopupLog(userId int, content string, callerIp string, paymentMethod s
 	}
 }
 
+const maxRequestLogUserAgentRunes = 512
+
+func requestLogOther(c *gin.Context, other map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{}, len(other)+1)
+	for key, value := range other {
+		if key != "user_agent" {
+			result[key] = value
+		}
+	}
+	if c == nil || c.Request == nil {
+		return result
+	}
+	userAgent := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, strings.TrimSpace(c.Request.UserAgent()))
+	userAgent = strings.TrimSpace(userAgent)
+	runes := []rune(userAgent)
+	if len(runes) > maxRequestLogUserAgentRunes {
+		userAgent = string(runes[:maxRequestLogUserAgentRunes])
+	}
+	if userAgent != "" {
+		result["user_agent"] = userAgent
+	}
+	return result
+}
+
 func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeSeconds int,
 	isStream bool, group string, other map[string]interface{}) {
 	logger.LogInfo(c, fmt.Sprintf("record error log: userId=%d, channelId=%d, modelName=%s, tokenName=%s, content=%s", userId, channelId, modelName, tokenName, common.LocalLogPreview(content)))
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
-	otherStr := common.MapToJsonStr(other)
+	otherStr := common.MapToJsonStr(requestLogOther(c, other))
 	log := &Log{
 		UserId:            userId,
 		Username:          username,
@@ -337,7 +370,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
 	createdAt := common.GetTimestamp()
-	otherStr := common.MapToJsonStr(params.Other)
+	otherStr := common.MapToJsonStr(requestLogOther(c, params.Other))
 	log := &Log{
 		UserId:            userId,
 		Username:          username,

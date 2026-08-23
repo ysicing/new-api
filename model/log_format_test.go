@@ -33,3 +33,25 @@ func TestFormatUserLogsStripsQuotaSaturation(t *testing.T) {
 	// Non-admin billing fields remain visible.
 	require.Contains(t, parsed, "model_price")
 }
+
+func TestFormatUserLogsStripsRequestUserAgentExceptLogin(t *testing.T) {
+	other := common.MapToJsonStr(map[string]interface{}{
+		"user_agent": "codex-cli/1.2",
+	})
+	logs := []*Log{
+		{Type: LogTypeConsume, Other: other},
+		{Type: LogTypeError, Other: other},
+		{Type: LogTypeLogin, Other: other},
+	}
+
+	formatUserLogs(logs, 0)
+
+	for _, index := range []int{0, 1} {
+		parsed, err := common.StrToMap(logs[index].Other)
+		require.NoError(t, err)
+		require.NotContains(t, parsed, "user_agent")
+	}
+	parsed, err := common.StrToMap(logs[2].Other)
+	require.NoError(t, err)
+	require.Equal(t, "codex-cli/1.2", parsed["user_agent"])
+}
