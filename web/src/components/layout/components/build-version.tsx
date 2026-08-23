@@ -18,7 +18,7 @@ export function BuildVersion(props: {
   const { t } = useTranslation()
   const version =
     props.version === undefined
-      ? import.meta.env.PUBLIC_BUILD_VERSION?.trim()
+      ? import.meta.env.VITE_REACT_APP_VERSION?.trim()
       : props.version?.trim()
   if (!version) return null
 
@@ -30,7 +30,7 @@ export function BuildVersion(props: {
 }
 
 export function SidebarBuildVersion() {
-  const version = import.meta.env.PUBLIC_BUILD_VERSION?.trim()
+  const version = import.meta.env.VITE_REACT_APP_VERSION?.trim()
   if (!version) return null
 
   return (

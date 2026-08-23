@@ -26,7 +26,7 @@ afterEach(() => {
 })
 
 test('shows the injected build version at the bottom of the expanded sidebar', () => {
-  vi.stubEnv('PUBLIC_BUILD_VERSION', 'rc.25-test')
+  vi.stubEnv('VITE_REACT_APP_VERSION', 'rc.25-test')
   const { container } = render(
     <SidebarProvider>
       <AppSidebar />
@@ -40,7 +40,7 @@ test('shows the injected build version at the bottom of the expanded sidebar', (
 })
 
 test('does not reserve sidebar footer space without an injected version', () => {
-  vi.stubEnv('PUBLIC_BUILD_VERSION', '')
+  vi.stubEnv('VITE_REACT_APP_VERSION', '')
   const { container } = render(
     <SidebarProvider>
       <AppSidebar />
