@@ -110,6 +110,21 @@ export interface GetUsersResponse {
   }
 }
 
+export interface LDAPSyncCandidate {
+  key: string
+  username: string
+  email: string
+  display_name: string
+  department: string
+  ldap_id: string
+  signature: string
+}
+
+export interface LDAPSearchResult {
+  users: LDAPSyncCandidate[]
+  total: number
+}
+
 export interface SearchUsersParams {
   keyword?: string
   group?: string
@@ -157,4 +172,4 @@ export interface ManageUserQuotaPayload {
 // Dialog Types
 // ============================================================================
 
-export type UsersDialogType = 'create' | 'update' | 'delete'
+export type UsersDialogType = 'create' | 'update' | 'delete' | 'ldap-sync'

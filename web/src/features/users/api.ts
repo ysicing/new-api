@@ -29,6 +29,8 @@ import type {
   ManageUserAction,
   ManageUserQuotaPayload,
   ApiResponse,
+  LDAPSearchResult,
+  LDAPSyncCandidate,
 } from './types'
 
 // ============================================================================
@@ -175,6 +177,26 @@ export async function getPermissionCatalog(): Promise<PermissionCatalog> {
     resources: res.data?.data?.resources ?? [],
     roles: res.data?.data?.roles ?? [],
   }
+}
+
+export async function searchLDAPUsers(
+  username: string
+): Promise<ApiResponse<LDAPSearchResult>> {
+  const res = await api.post('/api/user/ldap/sync', {
+    action: 'search',
+    username,
+  })
+  return res.data
+}
+
+export async function syncLDAPCandidate(
+  candidate: LDAPSyncCandidate
+): Promise<ApiResponse<Partial<User>>> {
+  const res = await api.post('/api/user/ldap/sync', {
+    action: 'sync',
+    user: candidate,
+  })
+  return res.data
 }
 
 // ============================================================================

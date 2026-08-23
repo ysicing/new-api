@@ -16,24 +16,40 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Plus } from 'lucide-react'
+import { Plus, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { useStatus } from '@/hooks/use-status'
 
 import { useUsers } from './users-provider'
 
 export function UsersPrimaryButtons() {
   const { t } = useTranslation()
   const { setOpen, setCurrentRow } = useUsers()
+  const { status } = useStatus()
+  const ldapLoginEnabled = Boolean(
+    status?.ldap_login ?? status?.data?.ldap_login
+  )
 
   const handleCreate = () => {
     setCurrentRow(null)
     setOpen('create')
   }
 
+  const handleLDAPSync = () => {
+    setCurrentRow(null)
+    setOpen('ldap-sync')
+  }
+
   return (
     <div className='flex gap-2'>
+      {ldapLoginEnabled && (
+        <Button size='sm' variant='outline' onClick={handleLDAPSync}>
+          <RefreshCw className='h-4 w-4' />
+          {t('Sync LDAP User')}
+        </Button>
+      )}
       <Button size='sm' onClick={handleCreate}>
         <Plus className='h-4 w-4' />
         {t('Add User')}
