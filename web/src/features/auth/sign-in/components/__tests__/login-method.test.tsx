@@ -75,6 +75,8 @@ test('uses LDAP by default when LDAP and password login are enabled', async () =
     name: 'Use password login',
   })
   expect(passwordLoginButton).toBeInTheDocument()
+  expect(passwordLoginButton).toHaveClass('border-border')
+  expect(passwordLoginButton).not.toHaveClass('bg-primary')
   expect(
     screen.getByRole('button', { name: 'Sign in with LDAP' })
   ).toHaveAttribute('type', 'submit')

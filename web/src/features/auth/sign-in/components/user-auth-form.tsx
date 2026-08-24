@@ -321,7 +321,7 @@ export function UserAuthForm({
       {ldapLoginEnabled && (
         <Button
           type='button'
-          variant={useLDAP ? 'default' : 'outline'}
+          variant='outline'
           disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
           onClick={() => setPreferPasswordLogin((current) => !current)}
           className='h-11 w-full justify-center gap-2 rounded-lg'
