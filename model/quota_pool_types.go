@@ -16,8 +16,9 @@ const (
 	QuotaPoolTypeDefault = "default"
 	QuotaPoolTypeNewUser = "new_user"
 
-	QuotaPoolDefaultName = "产研中心默认额度池(存量)"
-	QuotaPoolNewUserName = "默认额度池"
+	QuotaPoolDefaultName       = "产研中心默认额度池(存量)"
+	QuotaPoolNewUserName       = "新用户额度池"
+	quotaPoolLegacyNewUserName = "默认额度池"
 
 	QuotaPoolAutoRechargeInherit = -1
 	QuotaPoolAutoRechargeOff     = 0

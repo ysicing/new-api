@@ -26,6 +26,7 @@ import { UpdateCheckerSection } from '../maintenance/update-checker-section'
 import type { OperationsSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 import { AutoRechargeSection } from './auto-recharge-section'
+import { DingTalkNotificationsSection } from './dingtalk-notifications-section'
 
 const OPERATIONS_SECTIONS = [
   {
@@ -63,6 +64,11 @@ const OPERATIONS_SECTIONS = [
         }}
       />
     ),
+  },
+  {
+    id: 'dingtalk-notifications',
+    titleKey: 'DingTalk notification records',
+    build: () => <DingTalkNotificationsSection />,
   },
   {
     id: 'alerts',

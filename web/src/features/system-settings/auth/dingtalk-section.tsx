@@ -41,6 +41,7 @@ export interface DingTalkSettingsValues {
   'dingtalk.corp_id': string
   'dingtalk.client_id': string
   'dingtalk.client_secret': string
+  'dingtalk.robot_code': string
 }
 
 type DingTalkSectionProps = {
@@ -128,6 +129,19 @@ export function DingTalkSection(props: DingTalkSectionProps) {
           />
           <FieldDescription>
             {t('Leave blank unless rotating the secret')}
+          </FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor='dingtalk-robot-code'>
+            {t('Robot Code')}
+          </FieldLabel>
+          <Input
+            id='dingtalk-robot-code'
+            value={values['dingtalk.robot_code']}
+            onChange={(event) => set('dingtalk.robot_code', event.target.value)}
+          />
+          <FieldDescription>
+            {t('Used for DingTalk notification delivery.')}
           </FieldDescription>
         </Field>
         <Field>

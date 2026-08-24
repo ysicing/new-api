@@ -297,7 +297,11 @@ func SetApiRouter(router *gin.Engine) {
 			systemInfoRoute.DELETE("/stale-instances", controller.DeleteStaleSystemInstances)
 			systemInfoRoute.DELETE("/instances/:node_name", controller.DeleteStaleSystemInstance)
 		}
-
+		dingTalkNotificationRoute := apiRouter.Group("/dingtalk-notifications")
+		dingTalkNotificationRoute.Use(middleware.RootAuth())
+		{
+			dingTalkNotificationRoute.GET("/", controller.ListDingTalkNotifications)
+		}
 		dataRoute := apiRouter.Group("/data")
 		dataRoute.GET("/", middleware.AdminAuth(), controller.GetAllQuotaDates)
 		dataRoute.GET("/users", middleware.AdminAuth(), controller.GetQuotaDatesByUser)

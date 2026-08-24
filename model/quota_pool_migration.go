@@ -110,6 +110,9 @@ func ensureNewUserQuotaPool(db *gorm.DB) error {
 	var pool QuotaPool
 	err := db.Where("pool_type = ?", QuotaPoolTypeNewUser).Order("id ASC").First(&pool).Error
 	if err == nil {
+		if pool.Name == quotaPoolLegacyNewUserName {
+			return db.Model(&pool).Update("name", QuotaPoolNewUserName).Error
+		}
 		return nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {

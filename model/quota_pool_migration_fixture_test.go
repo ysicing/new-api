@@ -170,6 +170,24 @@ func TestSyncSystemQuotaPoolsCreatesOnlyMissingRows(t *testing.T) {
 	assert.Equal(t, 4200, normalPool.Quota)
 }
 
+func TestSyncSystemQuotaPoolsRenamesLegacyNewUserPool(t *testing.T) {
+	dsn := fmt.Sprintf("file:rename-new-user-pool-%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&QuotaPool{}))
+	legacy := QuotaPool{
+		Name: "默认额度池", PoolType: QuotaPoolTypeNewUser, Enabled: true,
+		BaseQuota: QuotaPoolUnlimitedQuota, Quota: QuotaPoolUnlimitedQuota,
+	}
+	require.NoError(t, db.Create(&legacy).Error)
+
+	require.NoError(t, syncSystemQuotaPools(db))
+
+	var stored QuotaPool
+	require.NoError(t, db.First(&stored, legacy.Id).Error)
+	assert.Equal(t, "新用户额度池", stored.Name)
+}
+
 func TestMigrateQuotaPoolSchemaAddsUserCompatibilityColumns(t *testing.T) {
 	dsn := fmt.Sprintf("file:quota-pool-user-columns-%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})

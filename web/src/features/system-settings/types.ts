@@ -106,6 +106,50 @@ export type SystemTaskListResponse = {
   data?: SystemTask[]
 }
 
+export type DingTalkNotificationStatus =
+  | 'pending'
+  | 'succeeded'
+  | 'failed'
+  | 'skipped'
+
+export type DingTalkNotificationRecord = {
+  id: number
+  event_type: string
+  dedupe_key: string
+  user_id: number
+  username: string
+  recipient: string
+  title: string
+  content: string
+  status: DingTalkNotificationStatus
+  error: string
+  metadata: string
+  sent_at: number
+  created_at: number
+  updated_at: number
+}
+
+export type DingTalkNotificationListResponse = {
+  success: boolean
+  message: string
+  data?: {
+    page: number
+    page_size: number
+    total: number
+    items: DingTalkNotificationRecord[]
+  }
+}
+
+export type DingTalkNotificationListParams = {
+  page: number
+  pageSize: number
+  eventType?: string
+  status?: DingTalkNotificationStatus | ''
+  keyword?: string
+  startTimestamp?: number
+  endTimestamp?: number
+}
+
 export type SiteSettings = {
   Notice: string
   SystemName: string
@@ -139,6 +183,7 @@ export type AuthSettings = {
   'dingtalk.corp_id': string
   'dingtalk.client_id': string
   'dingtalk.client_secret': string
+  'dingtalk.robot_code': string
   'oidc.enabled': boolean
   'oidc.display_name': string
   'oidc.client_id': string

@@ -43,6 +43,7 @@ test('saves complete DingTalk settings before enabling login', async () => {
         'dingtalk.corp_id': '',
         'dingtalk.client_id': '',
         'dingtalk.client_secret': '',
+        'dingtalk.robot_code': '',
       }}
     />
   )
@@ -56,6 +57,7 @@ test('saves complete DingTalk settings before enabling login', async () => {
     screen.getByLabelText('Client Secret / AppSecret'),
     'app-secret'
   )
+  await user.type(screen.getByLabelText('Robot Code'), 'robot-code')
   await user.click(screen.getByRole('switch', { name: 'DingTalk login' }))
   await user.click(screen.getByRole('button', { name: 'Save' }))
 
@@ -63,6 +65,7 @@ test('saves complete DingTalk settings before enabling login', async () => {
     [{ key: 'dingtalk.corp_id', value: 'corp-1' }],
     [{ key: 'dingtalk.client_id', value: 'app-key' }],
     [{ key: 'dingtalk.client_secret', value: 'app-secret' }],
+    [{ key: 'dingtalk.robot_code', value: 'robot-code' }],
     [{ key: 'dingtalk.enabled', value: true }],
   ])
 })

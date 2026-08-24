@@ -1,4 +1,5 @@
 import type { UseQueryResult } from '@tanstack/react-query'
+import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -50,6 +51,16 @@ const transactionTypeLabelKeys: Record<string, string> = {
   adjust_base_quota: 'Base quota adjustment',
 }
 
+function formatPoolLevelQuota(
+  pool: QuotaPool,
+  quota: number,
+  t: TFunction
+): string {
+  if (pool.pool_type === 'new_user') return t('Not applicable')
+  if (quota < 0) return t('Unlimited')
+  return formatQuota(quota)
+}
+
 export function LoadingOrEmpty(props: {
   query: QueryLike
   empty: boolean
@@ -87,14 +98,8 @@ export function LoadingOrEmpty(props: {
 export function PoolOverview({ pool }: { pool: QuotaPool }) {
   const { t } = useTranslation()
   const cards = [
-    [
-      t('Available quota'),
-      pool.quota < 0 ? t('Unlimited') : formatQuota(pool.quota),
-    ],
-    [
-      t('Base quota'),
-      pool.base_quota < 0 ? t('Unlimited') : formatQuota(pool.base_quota),
-    ],
+    [t('Available quota'), formatPoolLevelQuota(pool, pool.quota, t)],
+    [t('Base quota'), formatPoolLevelQuota(pool, pool.base_quota, t)],
     [t('Members'), String(pool.member_count ?? 0)],
   ]
   return (

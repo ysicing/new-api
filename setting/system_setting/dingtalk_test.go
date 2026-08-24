@@ -10,7 +10,7 @@ import (
 
 func TestDingTalkSettingsPersistenceRoundTrip(t *testing.T) {
 	settings := &DingTalkSettings{
-		Enabled: true, CorpId: "corp-1", ClientId: "app-key", ClientSecret: "app-secret",
+		Enabled: true, CorpId: "corp-1", ClientId: "app-key", ClientSecret: "app-secret", RobotCode: "robot-code",
 	}
 	manager := config.NewConfigManager()
 	manager.Register("dingtalk", settings)
@@ -21,9 +21,11 @@ func TestDingTalkSettingsPersistenceRoundTrip(t *testing.T) {
 		return nil
 	}))
 	settings.ClientSecret = ""
+	settings.RobotCode = ""
 	require.NoError(t, manager.LoadFromDB(saved))
 
 	assert.Equal(t, "app-secret", settings.ClientSecret)
 	assert.Equal(t, "corp-1", settings.CorpId)
+	assert.Equal(t, "robot-code", settings.RobotCode)
 	assert.True(t, settings.Enabled)
 }
