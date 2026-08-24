@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -157,8 +158,48 @@ func recordQuotaPoolAudit(c *gin.Context, poolId int, action string, params map[
 		params = map[string]any{}
 	}
 	params["quota_pool_id"] = poolId
+	enrichQuotaPoolAuditParams(poolId, params)
 	model.RecordOperationAuditLog(
 		c.GetInt("id"), action, c.ClientIP(), action, params,
 		map[string]any{"admin_id": c.GetInt("id"), "admin_username": c.GetString("username"), "quota_pool_id": poolId}, nil,
 	)
+}
+
+func enrichQuotaPoolAuditParams(poolId int, params map[string]any) {
+	if userId := auditIntParam(params["user_id"]); userId > 0 {
+		if user, err := model.GetUserById(userId, false); err == nil {
+			params["user_name"] = quotaPoolAuditUserName(user)
+		}
+	}
+	if poolId > 0 {
+		if name, err := model.GetQuotaPoolAuditName(poolId); err == nil {
+			params["quota_pool_name"] = name
+		}
+	}
+	targetPoolId := auditIntParam(params["target_pool_id"])
+	if targetPoolId > 0 && targetPoolId != poolId {
+		if name, err := model.GetQuotaPoolAuditName(targetPoolId); err == nil {
+			params["target_pool_name"] = name
+		}
+	}
+}
+
+func auditIntParam(value any) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	default:
+		return 0
+	}
+}
+
+func quotaPoolAuditUserName(user *model.User) string {
+	if name := strings.TrimSpace(user.DisplayName); name != "" {
+		return name
+	}
+	return user.Username
 }

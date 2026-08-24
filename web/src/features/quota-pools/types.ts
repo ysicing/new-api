@@ -78,6 +78,7 @@ export interface QuotaPoolOperationLog {
   user_id: number
   username: string
   content: string
+  other: string
   created_at: number
 }
 

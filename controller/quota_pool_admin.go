@@ -60,7 +60,7 @@ func CreateQuotaPool(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
-	recordQuotaPoolAudit(c, pool.Id, "quota_pool.create", map[string]any{"name": pool.Name, "base_quota": pool.BaseQuota})
+	recordQuotaPoolAudit(c, pool.Id, "quota_pool.create", map[string]any{"name": pool.Name, "amount": pool.BaseQuota})
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": pool})
 }
 

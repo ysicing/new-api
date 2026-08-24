@@ -79,6 +79,15 @@ func GetNewUserQuotaPool() (*QuotaPool, error) {
 	return &pool, nil
 }
 
+func GetQuotaPoolAuditName(poolId int) (string, error) {
+	var pool QuotaPool
+	if err := DB.Unscoped().Select("name").Where("id = ?", poolId).
+		First(&pool).Error; err != nil {
+		return "", mapQuotaPoolRecordError(err)
+	}
+	return pool.Name, nil
+}
+
 func buildQuotaPoolListItem(pool QuotaPool) (QuotaPoolListItem, error) {
 	config := operation_setting.GetAutoRechargeSetting()
 	item := QuotaPoolListItem{

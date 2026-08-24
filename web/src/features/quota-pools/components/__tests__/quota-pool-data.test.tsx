@@ -10,8 +10,13 @@ import type { UseQueryResult } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { expect, test } from 'vitest'
 
-import type { ApiResponse, PageData, QuotaPoolTransaction } from '../../types'
-import { PoolTransactions } from '../quota-pool-data'
+import type {
+  ApiResponse,
+  PageData,
+  QuotaPoolOperationLog,
+  QuotaPoolTransaction,
+} from '../../types'
+import { PoolOperationLogs, PoolTransactions } from '../quota-pool-data'
 
 const typeLabels = [
   ['initial_fund', 'Initial funding'],
@@ -52,4 +57,52 @@ test('renders localized labels for every quota pool transaction type', () => {
     expect(screen.getByText(label)).toBeInTheDocument()
     expect(screen.queryByText(type)).not.toBeInTheDocument()
   }
+})
+
+test('renders structured quota pool operations with readable columns', () => {
+  const items: QuotaPoolOperationLog[] = [
+    {
+      id: 1,
+      user_id: 8,
+      username: 'admin-a',
+      content: 'quota_pool.member_move',
+      other: JSON.stringify({
+        op: {
+          action: 'quota_pool.member_move',
+          params: {
+            user_id: 25,
+            user_name: '张三',
+            quota_pool_id: 7,
+            quota_pool_name: '平台保障部',
+          },
+        },
+      }),
+      created_at: 1_700_000_000,
+    },
+  ]
+  const query = {
+    isLoading: false,
+    isError: false,
+    data: {
+      success: true,
+      data: { items, total: 1, page: 1, page_size: 20 },
+    },
+  } as unknown as UseQueryResult<ApiResponse<PageData<QuotaPoolOperationLog>>>
+
+  render(<PoolOperationLogs query={query} />)
+
+  expect(
+    screen.getByRole('columnheader', { name: 'Operator' })
+  ).toBeInTheDocument()
+  expect(
+    screen.getByRole('columnheader', { name: 'Operation details' })
+  ).toBeInTheDocument()
+  expect(
+    screen.queryByRole('columnheader', { name: 'User' })
+  ).not.toBeInTheDocument()
+  expect(screen.getByText('admin-a')).toBeInTheDocument()
+  expect(
+    screen.getByText('Moved member 张三 (ID: 25) into 平台保障部')
+  ).toBeInTheDocument()
+  expect(screen.queryByText('quota_pool.member_move')).not.toBeInTheDocument()
 })

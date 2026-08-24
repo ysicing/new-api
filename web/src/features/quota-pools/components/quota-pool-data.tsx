@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/table'
 import { formatQuota, formatTimestamp } from '@/lib/format'
 
+import { renderQuotaPoolOperation } from '../lib/operation-log'
 import type {
   ApiResponse,
   PageData,
@@ -208,16 +209,18 @@ export function PoolOperationLogs(props: {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>{t('User')}</TableHead>
-            <TableHead>{t('Content')}</TableHead>
+            <TableHead>{t('Operator')}</TableHead>
+            <TableHead>{t('Operation details')}</TableHead>
             <TableHead>{t('Time')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {items.map((item) => (
             <TableRow key={item.id}>
-              <TableCell>{item.username || '—'}</TableCell>
-              <TableCell>{item.content}</TableCell>
+              <TableCell>
+                {item.username || (item.user_id > 0 ? `#${item.user_id}` : '—')}
+              </TableCell>
+              <TableCell>{renderQuotaPoolOperation(item, t)}</TableCell>
               <TableCell>{formatTimestamp(item.created_at)}</TableCell>
             </TableRow>
           ))}

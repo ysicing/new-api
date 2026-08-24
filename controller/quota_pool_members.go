@@ -90,10 +90,10 @@ func removeQuotaPoolMember(c *gin.Context, sourcePoolId, userId int, allowAdminR
 		return
 	}
 	recordQuotaPoolAudit(c, sourcePoolId, "quota_pool.member_remove", map[string]any{
-		"user_id":          userId,
-		"target_pool_id":   result.NewPoolId,
-		"reclaimed_amount": result.Change.Amount,
-		"admin_revoked":    result.AdminRevoked,
+		"user_id":        userId,
+		"target_pool_id": result.NewPoolId,
+		"amount":         result.Change.Amount,
+		"admin_revoked":  result.AdminRevoked,
 	})
 	common.ApiSuccess(c, result)
 }

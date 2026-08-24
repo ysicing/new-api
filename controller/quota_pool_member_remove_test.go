@@ -48,6 +48,10 @@ func TestPoolAdministratorRemovesOrdinaryMemberToNewUserPool(t *testing.T) {
 	assert.Equal(t, "quota_pool.member_remove", audit.Content)
 	assert.Contains(t, audit.Other, `"quota_pool_id":`+strconv.Itoa(source.Id))
 	assert.Contains(t, audit.Other, `"target_pool_id":`+strconv.Itoa(target.Id))
+	assert.Contains(t, audit.Other, `"user_name":"self-remove-member"`)
+	assert.Contains(t, audit.Other, `"quota_pool_name":"self-remove-source"`)
+	assert.Contains(t, audit.Other, `"target_pool_name":"`+model.QuotaPoolNewUserName+`"`)
+	assert.Contains(t, audit.Other, `"amount":25`)
 }
 
 func TestPoolAdministratorCannotRemovePoolAdministrator(t *testing.T) {
