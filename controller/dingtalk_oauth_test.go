@@ -18,6 +18,7 @@ func TestDingTalkOAuthMergesExistingLDAPUserByVerifiedEmail(t *testing.T) {
 		Role: common.RoleCommonUser, Status: common.UserStatusEnabled,
 	}
 	require.NoError(t, db.Create(&existing).Error)
+	require.NoError(t, db.Model(&model.User{}).Where("id = ?", existing.Id).UpdateColumn("dingtalk_id", nil).Error)
 
 	user, err := findOrCreateOAuthUser(nil, &oauth.DingTalkProvider{}, &oauth.OAuthUser{
 		ProviderUserID: "union-alice", Email: "Alice@Example.com", EmailVerified: true,

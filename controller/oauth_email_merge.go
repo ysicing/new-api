@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"database/sql"
 	"errors"
 
 	"github.com/QuantumNous/new-api/model"
@@ -45,11 +46,11 @@ func mergeVerifiedOAuthEmail(provider oauth.Provider, oauthUser *oauth.OAuthUser
 		if column == "" {
 			return errors.New("OAuth provider does not expose a binding column")
 		}
-		var current string
+		var current sql.NullString
 		if err := tx.Model(&model.User{}).Where("id = ?", existing.Id).Select(column).Scan(&current).Error; err != nil {
 			return err
 		}
-		if current != "" && current != oauthUser.ProviderUserID {
+		if current.Valid && current.String != "" && current.String != oauthUser.ProviderUserID {
 			return errors.New("verified email is bound to another OAuth identity")
 		}
 		return tx.Model(&model.User{}).Where("id = ?", existing.Id).Update(column, oauthUser.ProviderUserID).Error
