@@ -552,6 +552,7 @@
     "Available disk space": "Dung lượng đĩa khả dụng",
     "Available Models": "Mô hình khả dụng",
     "Available quota": "Hạn mức khả dụng",
+    "Available quota / Total quota": "Hạn mức khả dụng / tổng hạn mức",
     "Available reset credits": "Lượt đặt lại khả dụng",
     "Available Rewards": "Phần thưởng hiện có",
     "Available variables: {{provider}}, {{field}}, {{op}}, {{required}}, {{current}}, and paths such as {{current.roles}}.": "Các biến khả dụng: {{provider}}, {{field}}, {{op}}, {{required}}, {{current}} và các đường dẫn như {{current.roles}}.",

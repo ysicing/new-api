@@ -552,6 +552,7 @@
     "Available disk space": "可用磁盘空间",
     "Available Models": "可用模型",
     "Available quota": "可用额度",
+    "Available quota / Total quota": "可用额度/总额度",
     "Available reset credits": "可用重置次数",
     "Available Rewards": "可用奖励",
     "Available variables: {{provider}}, {{field}}, {{op}}, {{required}}, {{current}}, and paths such as {{current.roles}}.": "可用变量：{{provider}}、{{field}}、{{op}}、{{required}}、{{current}}，以及 {{current.roles}} 等路径变量。",

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
 import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { Progress } from '@/components/ui/progress'
 import {
   Table,
   TableBody,
@@ -173,34 +174,57 @@ export function PoolMembers(props: {
             <TableRow>
               <TableHead>{t('User')}</TableHead>
               <TableHead>{t('Department')}</TableHead>
-              <TableHead className='text-right'>{t('Quota')}</TableHead>
+              <TableHead className='text-right'>
+                {t('Available quota / Total quota')}
+              </TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {items.map((member) => (
-              <TableRow key={member.id}>
-                <TableCell>{member.display_name || member.username}</TableCell>
-                <TableCell>{member.department || '—'}</TableCell>
-                <TableCell className='text-right'>
-                  {formatQuota(member.quota)}
-                </TableCell>
-                <TableCell>
-                  <QuotaPoolMemberActions
-                    pool={props.pool}
-                    capabilities={props.capabilities}
-                    member={member}
-                    onQuotaAction={(action) =>
-                      setQuotaAction({ action, member })
-                    }
-                    onRemove={() => setRemoveMember(member)}
-                    onAdminAction={(action) =>
-                      void runMemberAction(action, member.id)
-                    }
-                  />
-                </TableCell>
-              </TableRow>
-            ))}
+            {items.map((member) => {
+              const totalQuota = member.quota + member.used_quota
+              const availablePercentage =
+                totalQuota > 0
+                  ? Math.min(
+                      100,
+                      Math.max(0, (member.quota / totalQuota) * 100)
+                    )
+                  : 0
+
+              return (
+                <TableRow key={member.id}>
+                  <TableCell>
+                    {member.display_name || member.username}
+                  </TableCell>
+                  <TableCell>{member.department || '—'}</TableCell>
+                  <TableCell className='min-w-48'>
+                    <div className='flex items-center justify-between gap-3 tabular-nums'>
+                      <span>{formatQuota(member.quota)}</span>
+                      <span>{formatQuota(totalQuota)}</span>
+                    </div>
+                    <Progress
+                      value={availablePercentage}
+                      aria-label={t('Available quota')}
+                      className='[&_[data-slot=progress-indicator]]:bg-success mt-1.5 gap-0'
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <QuotaPoolMemberActions
+                      pool={props.pool}
+                      capabilities={props.capabilities}
+                      member={member}
+                      onQuotaAction={(action) =>
+                        setQuotaAction({ action, member })
+                      }
+                      onRemove={() => setRemoveMember(member)}
+                      onAdminAction={(action) =>
+                        void runMemberAction(action, member.id)
+                      }
+                    />
+                  </TableCell>
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
       </LoadingOrEmpty>

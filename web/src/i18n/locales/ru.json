@@ -552,6 +552,7 @@
     "Available disk space": "Доступное дисковое пространство",
     "Available Models": "Доступные модели",
     "Available quota": "Доступная квота",
+    "Available quota / Total quota": "Доступная квота / общая квота",
     "Available reset credits": "Доступные сбросы лимита",
     "Available Rewards": "Доступные награды",
     "Available variables: {{provider}}, {{field}}, {{op}}, {{required}}, {{current}}, and paths such as {{current.roles}}.": "Доступные переменные: {{provider}}, {{field}}, {{op}}, {{required}}, {{current}}, а также пути вида {{current.roles}}.",

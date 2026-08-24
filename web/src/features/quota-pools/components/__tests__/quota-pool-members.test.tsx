@@ -66,7 +66,9 @@ const capabilities: QuotaPoolCapabilities = {
 
 function membersQuery(
   quotaPoolAdmin = false,
-  memberRole = 1
+  memberRole = 1,
+  quota = 100,
+  usedQuota = 20
 ): UseQueryResult<ApiResponse<PageData<QuotaPoolMember>>> {
   return {
     isLoading: false,
@@ -83,8 +85,8 @@ function membersQuery(
             department: '研发一部',
             role: memberRole,
             status: 1,
-            quota: 100,
-            used_quota: 20,
+            quota,
+            used_quota: usedQuota,
             quota_pool_id: 7,
             quota_pool_admin: quotaPoolAdmin,
             reclaim_amounts: [500, 250],
@@ -103,6 +105,8 @@ function renderMembers(
   options?: {
     memberAdmin?: boolean
     memberRole?: number
+    quota?: number
+    usedQuota?: number
   }
 ) {
   const queryClient = new QueryClient()
@@ -112,7 +116,12 @@ function renderMembers(
         pool={pool}
         capabilities={memberCapabilities}
         selfMode={false}
-        query={membersQuery(options?.memberAdmin, options?.memberRole)}
+        query={membersQuery(
+          options?.memberAdmin,
+          options?.memberRole,
+          options?.quota,
+          options?.usedQuota
+        )}
         page={1}
         pageSize={10}
         keyword=''
@@ -166,6 +175,29 @@ test('quota pool members support server search and pagination controls', () => {
     target: { value: '20' },
   })
   expect(onPageSizeChange).toHaveBeenCalledWith(20)
+})
+
+test('member quota shows available and total amounts with available progress', () => {
+  renderMembers(capabilities, { quota: 1_000_000, usedQuota: 200_000 })
+
+  expect(
+    screen.getByRole('columnheader', {
+      name: 'Available quota / Total quota',
+    })
+  ).toBeInTheDocument()
+  expect(screen.getByText(formatQuota(1_000_000))).toBeInTheDocument()
+  expect(screen.getByText(formatQuota(1_200_000))).toBeInTheDocument()
+  expect(
+    screen.getByRole('progressbar', { name: 'Available quota' })
+  ).toHaveAttribute('aria-valuenow', '83.33333333333334')
+})
+
+test('member quota progress is zero when total quota is zero', () => {
+  renderMembers(capabilities, { quota: 0, usedQuota: 0 })
+
+  expect(
+    screen.getByRole('progressbar', { name: 'Available quota' })
+  ).toHaveAttribute('aria-valuenow', '0')
 })
 
 test('member recharge requires confirmation before submitting', async () => {

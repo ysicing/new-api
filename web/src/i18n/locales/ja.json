@@ -552,6 +552,7 @@
     "Available disk space": "利用可能なディスク容量",
     "Available Models": "利用可能なモデル",
     "Available quota": "利用可能クォータ",
+    "Available quota / Total quota": "利用可能クォータ / 合計クォータ",
     "Available reset credits": "利用可能なリセット回数",
     "Available Rewards": "利用可能な報酬",
     "Available variables: {{provider}}, {{field}}, {{op}}, {{required}}, {{current}}, and paths such as {{current.roles}}.": "使用可能な変数：{{provider}}、{{field}}、{{op}}、{{required}}、{{current}}、および {{current.roles}} のようなパス。",

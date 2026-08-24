@@ -552,6 +552,7 @@
     "Available disk space": "Espace disque disponible",
     "Available Models": "Modèles disponibles",
     "Available quota": "Quota disponible",
+    "Available quota / Total quota": "Quota disponible / quota total",
     "Available reset credits": "Crédits de réinitialisation disponibles",
     "Available Rewards": "Récompenses disponibles",
     "Available variables: {{provider}}, {{field}}, {{op}}, {{required}}, {{current}}, and paths such as {{current.roles}}.": "Variables disponibles : {{provider}}, {{field}}, {{op}}, {{required}}, {{current}}, ainsi que des chemins comme {{current.roles}}.",
