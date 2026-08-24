@@ -73,7 +73,7 @@ export function UserAuthForm({
   const [isWeChatDialogOpen, setIsWeChatDialogOpen] = useState(false)
   const [isWeChatSubmitting, setIsWeChatSubmitting] = useState(false)
   const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
-  const [useLDAP, setUseLDAP] = useState(false)
+  const [preferPasswordLogin, setPreferPasswordLogin] = useState(false)
   const legalConsentErrorMessage = t('Please agree to the legal terms first')
   const loginFailedMessage = t('Login failed')
 
@@ -88,6 +88,7 @@ export function UserAuthForm({
   const ldapLoginEnabled = Boolean(
     status?.ldap_login ?? status?.data?.ldap_login
   )
+  const useLDAP = ldapLoginEnabled && !preferPasswordLogin
   const {
     isTurnstileEnabled,
     turnstileSiteKey,
@@ -322,7 +323,7 @@ export function UserAuthForm({
           type='button'
           variant={useLDAP ? 'default' : 'outline'}
           disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
-          onClick={() => setUseLDAP((current) => !current)}
+          onClick={() => setPreferPasswordLogin((current) => !current)}
           className='h-11 w-full justify-center gap-2 rounded-lg'
         >
           <Building2 />
