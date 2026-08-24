@@ -8,6 +8,7 @@ import (
 
 const (
 	DingTalkNotificationEventNewUserQuotaExhausted = "new_user_quota_exhausted"
+	DingTalkNotificationEventTest                  = "test"
 
 	DingTalkNotificationStatusPending   = "pending"
 	DingTalkNotificationStatusSucceeded = "succeeded"

@@ -23,7 +23,9 @@ func setupDingTalkNotificationServiceDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:dingtalk-notification-service-%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.DingTalkNotification{}))
+	require.NoError(t, db.AutoMigrate(
+		&model.User{}, &model.DingTalkNotification{}, &model.ExternalIdentityClaim{},
+	))
 	previousDB := model.DB
 	model.DB = db
 	t.Cleanup(func() { model.DB = previousDB })
@@ -77,7 +79,7 @@ func TestDingTalkNotifierSendsMarkdownAndReusesAccessToken(t *testing.T) {
 				MsgParam  string   `json:"msgParam"`
 			}
 			require.NoError(t, common.DecodeJson(r.Body, &payload))
-			assert.Equal(t, "robot-code", payload.RobotCode)
+			assert.Equal(t, "app-key", payload.RobotCode)
 			assert.Equal(t, "sampleMarkdown", payload.MsgKey)
 			assert.True(t, reflect.DeepEqual([]string{"alice"}, payload.UserIDs))
 			var markdown struct {
@@ -96,7 +98,7 @@ func TestDingTalkNotifierSendsMarkdownAndReusesAccessToken(t *testing.T) {
 
 	notifier := newDingTalkNotifier(server.Client(), server.URL)
 	notifier.now = func() time.Time { return time.Unix(1_700_000_000, 0) }
-	settings := system_setting.DingTalkSettings{ClientId: "app-key", ClientSecret: "app-secret", RobotCode: "robot-code"}
+	settings := system_setting.DingTalkSettings{ClientId: "app-key", ClientSecret: "app-secret"}
 
 	require.NoError(t, notifier.Send(context.Background(), settings, "alice", "体验额度已用完", "当前体验额度已经用完"))
 	require.NoError(t, notifier.Send(context.Background(), settings, "alice", "体验额度已用完", "当前体验额度已经用完"))
@@ -108,7 +110,7 @@ func TestDispatchDingTalkNotificationRecordsSkippedAndDeduplicates(t *testing.T)
 	setupDingTalkNotificationServiceDB(t)
 	settings := system_setting.GetDingTalkSettings()
 	previousSettings := *settings
-	*settings = system_setting.DingTalkSettings{ClientId: "app-key", ClientSecret: "app-secret", RobotCode: "robot-code"}
+	*settings = system_setting.DingTalkSettings{ClientId: "app-key", ClientSecret: "app-secret"}
 	t.Cleanup(func() { *settings = previousSettings })
 
 	request := DingTalkNotificationRequest{
@@ -131,11 +133,11 @@ func TestDispatchDingTalkNotificationRecordsSkippedAndDeduplicates(t *testing.T)
 
 func TestDispatchDingTalkNotificationRecordsFailedDelivery(t *testing.T) {
 	setupDingTalkNotificationServiceDB(t)
-	user := model.User{Username: "alice", Email: "alice@example.com", Password: "password", AffCode: "alice-aff"}
+	user := model.User{Username: "alice", Email: "alice@example.com", DingTalkId: "union-alice", Password: "password", AffCode: "alice-aff", Status: common.UserStatusEnabled}
 	require.NoError(t, model.DB.Create(&user).Error)
 	settings := system_setting.GetDingTalkSettings()
 	previousSettings := *settings
-	*settings = system_setting.DingTalkSettings{ClientId: "app-key", ClientSecret: "app-secret", RobotCode: "robot-code"}
+	*settings = system_setting.DingTalkSettings{ClientId: "app-key", ClientSecret: "app-secret"}
 	t.Cleanup(func() { *settings = previousSettings })
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -166,11 +168,11 @@ func TestDispatchDingTalkNotificationRecordsFailedDelivery(t *testing.T) {
 
 func TestDispatchDingTalkNotificationRecordsSuccessfulDelivery(t *testing.T) {
 	setupDingTalkNotificationServiceDB(t)
-	user := model.User{Username: "alice", Email: "alice@example.com", Password: "password", AffCode: "alice-success-aff"}
+	user := model.User{Username: "alice", Email: "alice@example.com", DingTalkId: "union-alice-success", Password: "password", AffCode: "alice-success-aff", Status: common.UserStatusEnabled}
 	require.NoError(t, model.DB.Create(&user).Error)
 	settings := system_setting.GetDingTalkSettings()
 	previousSettings := *settings
-	*settings = system_setting.DingTalkSettings{ClientId: "app-key", ClientSecret: "app-secret", RobotCode: "robot-code"}
+	*settings = system_setting.DingTalkSettings{ClientId: "app-key", ClientSecret: "app-secret"}
 	t.Cleanup(func() { *settings = previousSettings })
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

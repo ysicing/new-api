@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { CopyButton } from '@/components/copy-button'
 import { Button } from '@/components/ui/button'
@@ -33,6 +34,8 @@ import { Switch } from '@/components/ui/switch'
 
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
+import { sendDingTalkTestMessage, type DingTalkTestUser } from './dingtalk-api'
+import { DingTalkTestRecipientPicker } from './dingtalk-test-recipient-picker'
 import { buildOAuthCallbackUrl } from './oauth-callback-url'
 
 // DingTalkSettingsValues 对应后端 dingtalk.* 配置键。
@@ -41,7 +44,6 @@ export interface DingTalkSettingsValues {
   'dingtalk.corp_id': string
   'dingtalk.client_id': string
   'dingtalk.client_secret': string
-  'dingtalk.robot_code': string
 }
 
 type DingTalkSectionProps = {
@@ -54,6 +56,10 @@ export function DingTalkSection(props: DingTalkSectionProps) {
   const { t } = useTranslation()
   const update = useUpdateOption()
   const [values, setValues] = useState(props.defaultValues)
+  const [testRecipient, setTestRecipient] = useState<DingTalkTestUser | null>(
+    null
+  )
+  const [isTesting, setIsTesting] = useState(false)
   const callbackUrl = buildOAuthCallbackUrl(
     props.serverAddress,
     'dingtalk',
@@ -73,8 +79,40 @@ export function DingTalkSection(props: DingTalkSectionProps) {
     for (const [key, value] of entries) {
       if (key === 'dingtalk.client_secret' && value === '') continue
       if (value !== props.defaultValues[key as keyof DingTalkSettingsValues]) {
-        await update.mutateAsync({ key, value })
+        const response = await update.mutateAsync({ key, value })
+        if (!response.success) return false
       }
+    }
+    return true
+  }
+
+  const saveAndTest = async () => {
+    if (!testRecipient) {
+      toast.error(t('Select a DingTalk test recipient first'))
+      return
+    }
+    setIsTesting(true)
+    try {
+      if (!(await save())) return
+      const response = await sendDingTalkTestMessage(testRecipient.id)
+      if (!response.success) {
+        throw new Error(
+          response.message || t('Failed to send DingTalk test message')
+        )
+      }
+      toast.success(t('DingTalk test message sent successfully'))
+      if (response.data?.bound_now) {
+        toast.success(t('DingTalk account automatically bound by email'))
+        setTestRecipient({ ...testRecipient, dingtalk_bound: true })
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : t('Failed to send DingTalk test message')
+      toast.error(message)
+    } finally {
+      setIsTesting(false)
     }
   }
 
@@ -132,19 +170,6 @@ export function DingTalkSection(props: DingTalkSectionProps) {
           </FieldDescription>
         </Field>
         <Field>
-          <FieldLabel htmlFor='dingtalk-robot-code'>
-            {t('Robot Code')}
-          </FieldLabel>
-          <Input
-            id='dingtalk-robot-code'
-            value={values['dingtalk.robot_code']}
-            onChange={(event) => set('dingtalk.robot_code', event.target.value)}
-          />
-          <FieldDescription>
-            {t('Used for DingTalk notification delivery.')}
-          </FieldDescription>
-        </Field>
-        <Field>
           <FieldLabel>{t('OAuth callback URL')}</FieldLabel>
           <div className='flex items-center gap-2'>
             <code className='bg-muted min-w-0 flex-1 rounded px-2 py-1 text-xs break-all'>
@@ -158,14 +183,40 @@ export function DingTalkSection(props: DingTalkSectionProps) {
             />
           </div>
         </Field>
-        <Button
-          className='w-fit'
-          disabled={update.isPending}
-          onClick={() => void save()}
-        >
-          {update.isPending && <Spinner data-icon='inline-start' />}
-          {t('Save')}
-        </Button>
+        <Field>
+          <FieldLabel htmlFor='dingtalk-test-recipient'>
+            {t('DingTalk test recipient')}
+          </FieldLabel>
+          <DingTalkTestRecipientPicker
+            value={testRecipient}
+            onValueChange={setTestRecipient}
+            disabled={isTesting}
+          />
+          <FieldDescription>
+            {t(
+              'Select a platform user to verify personal Bot delivery and bind DingTalk by email when needed.'
+            )}
+          </FieldDescription>
+        </Field>
+        <div className='flex flex-wrap gap-2'>
+          <Button
+            className='w-fit'
+            disabled={update.isPending || isTesting}
+            onClick={() => void save()}
+          >
+            {update.isPending && <Spinner data-icon='inline-start' />}
+            {t('Save')}
+          </Button>
+          <Button
+            className='w-fit'
+            variant='outline'
+            disabled={!testRecipient || update.isPending || isTesting}
+            onClick={() => void saveAndTest()}
+          >
+            {isTesting && <Spinner data-icon='inline-start' />}
+            {t('Save and send test message')}
+          </Button>
+        </div>
       </FieldGroup>
     </SettingsSection>
   )

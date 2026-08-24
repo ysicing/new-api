@@ -12,7 +12,6 @@ type DingTalkSettings struct {
 	CorpId       string `json:"corp_id"`
 	ClientId     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
-	RobotCode    string `json:"robot_code"`
 }
 
 var defaultDingTalkSettings = DingTalkSettings{}
@@ -26,9 +25,8 @@ func GetDingTalkSettings() *DingTalkSettings {
 	return &defaultDingTalkSettings
 }
 
-// IsRobotConfigured 仅在应用凭证和机器人编码齐全时启用机器人通知。
+// IsRobotConfigured 仅在企业内部应用凭证齐全时启用机器人通知。
 func (settings DingTalkSettings) IsRobotConfigured() bool {
 	return strings.TrimSpace(settings.ClientId) != "" &&
-		strings.TrimSpace(settings.ClientSecret) != "" &&
-		strings.TrimSpace(settings.RobotCode) != ""
+		strings.TrimSpace(settings.ClientSecret) != ""
 }

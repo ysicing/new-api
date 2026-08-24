@@ -183,7 +183,6 @@ export type AuthSettings = {
   'dingtalk.corp_id': string
   'dingtalk.client_id': string
   'dingtalk.client_secret': string
-  'dingtalk.robot_code': string
   'oidc.enabled': boolean
   'oidc.display_name': string
   'oidc.client_id': string

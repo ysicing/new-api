@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -16,6 +17,7 @@ import (
 )
 
 const dingTalkAPIBaseURL = "https://api.dingtalk.com"
+const dingTalkLegacyAPIBaseURL = "https://oapi.dingtalk.com"
 
 type DingTalkNotificationRequest struct {
 	EventType string
@@ -28,26 +30,35 @@ type DingTalkNotificationRequest struct {
 }
 
 type dingTalkNotifier struct {
-	httpClient *http.Client
-	baseURL    string
-	now        func() time.Time
+	httpClient    *http.Client
+	baseURL       string
+	legacyBaseURL string
+	now           func() time.Time
 
 	tokenMutex     sync.Mutex
 	accessToken    string
 	tokenExpiresAt time.Time
 	tokenAppKey    string
 	tokenAppSecret string
+
+	legacyAccessToken    string
+	legacyTokenExpiresAt time.Time
+	legacyTokenAppKey    string
+	legacyTokenAppSecret string
 }
 
 func newDingTalkNotifier(httpClient *http.Client, baseURL string) *dingTalkNotifier {
+	return newDingTalkNotifierWithURLs(httpClient, baseURL, baseURL)
+}
+
+func newDingTalkNotifierWithURLs(httpClient *http.Client, baseURL, legacyBaseURL string) *dingTalkNotifier {
 	return &dingTalkNotifier{
-		httpClient: httpClient,
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		now:        time.Now,
+		httpClient: httpClient, baseURL: strings.TrimRight(baseURL, "/"),
+		legacyBaseURL: strings.TrimRight(legacyBaseURL, "/"), now: time.Now,
 	}
 }
 
-var defaultDingTalkNotifier = newDingTalkNotifier(nil, dingTalkAPIBaseURL)
+var defaultDingTalkNotifier = newDingTalkNotifierWithURLs(nil, dingTalkAPIBaseURL, dingTalkLegacyAPIBaseURL)
 
 func (notifier *dingTalkNotifier) client() *http.Client {
 	if notifier.httpClient != nil {
@@ -80,7 +91,7 @@ func DispatchDingTalkNotification(ctx context.Context, request DingTalkNotificat
 	if err != nil {
 		return false, fmt.Errorf("marshal DingTalk notification metadata: %w", err)
 	}
-	recipient, hasRecipient := dingTalkUserIDFromEmail(request.UserEmail)
+	recipient, _ := dingTalkUserIDFromEmail(request.UserEmail)
 	username, _ := model.GetUsernameById(request.UserId, false)
 	record := &model.DingTalkNotification{
 		EventType: request.EventType, DedupeKey: request.DedupeKey,
@@ -94,13 +105,24 @@ func DispatchDingTalkNotification(ctx context.Context, request DingTalkNotificat
 	}
 
 	settings := *system_setting.GetDingTalkSettings()
-	if !hasRecipient {
-		errText := "user email is missing or invalid"
-		return true, model.UpdateDingTalkNotificationResult(record.Id, model.DingTalkNotificationStatusSkipped, errText, 0)
-	}
 	if !settings.IsRobotConfigured() {
 		errText := "DingTalk robot is not configured"
 		return true, model.UpdateDingTalkNotificationResult(record.Id, model.DingTalkNotificationStatusSkipped, errText, 0)
+	}
+	resolved, err := defaultDingTalkNotifier.resolveRecipient(ctx, settings, DingTalkRecipientRequest{
+		UserId: request.UserId, UserEmail: request.UserEmail,
+	})
+	if err != nil {
+		status := model.DingTalkNotificationStatusFailed
+		if errors.Is(err, ErrDingTalkInvalidEmail) {
+			status = model.DingTalkNotificationStatusSkipped
+		}
+		return true, model.UpdateDingTalkNotificationResult(record.Id, status, err.Error(), 0)
+	}
+	recipient = resolved.StaffUserId
+	if err := model.DB.Model(&model.DingTalkNotification{}).Where("id = ?", record.Id).
+		Update("recipient", recipient).Error; err != nil {
+		return true, err
 	}
 
 	sentAt := time.Now().Unix()
@@ -134,7 +156,7 @@ func (notifier *dingTalkNotifier) Send(ctx context.Context, settings system_sett
 		MsgKey    string   `json:"msgKey"`
 		MsgParam  string   `json:"msgParam"`
 	}{
-		RobotCode: strings.TrimSpace(settings.RobotCode), UserIDs: []string{userID},
+		RobotCode: strings.TrimSpace(settings.ClientId), UserIDs: []string{userID},
 		MsgKey: "sampleMarkdown", MsgParam: string(msgParam),
 	})
 	if err != nil {
