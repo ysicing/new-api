@@ -33,7 +33,7 @@ test('builds DingTalk hosted QR authorization URL', () => {
     'https://api.example.com/oauth/dingtalk'
   )
   expect(url.searchParams.get('response_type')).toBe('code')
-  expect(url.searchParams.get('scope')).toBe('openid')
+  expect(url.searchParams.get('scope')).toBe('openid corpid')
   expect(url.searchParams.get('state')).toBe('state-token')
   expect(url.searchParams.get('prompt')).toBe('consent')
 })

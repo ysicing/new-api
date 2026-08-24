@@ -68,7 +68,7 @@ export function buildDingTalkOAuthUrl(
   url.searchParams.set('client_id', clientId)
   url.searchParams.set('redirect_uri', `${callbackOrigin}/oauth/dingtalk`)
   url.searchParams.set('response_type', 'code')
-  url.searchParams.set('scope', 'openid')
+  url.searchParams.set('scope', 'openid corpid')
   url.searchParams.set('state', state)
   url.searchParams.set('prompt', 'consent')
   return url.toString()
