@@ -112,6 +112,7 @@ export function UserAuthForm({
   const hasOAuthLogin = Boolean(
     status?.github_oauth ||
     status?.discord_oauth ||
+    status?.dingtalk_login ||
     status?.oidc_enabled ||
     status?.linuxdo_oauth ||
     status?.telegram_oauth ||

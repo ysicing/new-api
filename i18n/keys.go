@@ -298,6 +298,7 @@ const (
 	MsgOAuthConnectFailed   = "oauth.connect_failed"
 	MsgOAuthTokenFailed     = "oauth.token_failed"
 	MsgOAuthUserInfoEmpty   = "oauth.user_info_empty"
+	MsgOAuthEmailRequired   = "oauth.email_required"
 	MsgOAuthTrustLevelLow   = "oauth.trust_level_low"
 )
 

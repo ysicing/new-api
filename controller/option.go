@@ -171,6 +171,12 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
+	case "dingtalk.enabled":
+		dingTalk := system_setting.GetDingTalkSettings()
+		if option.Value == "true" && (strings.TrimSpace(dingTalk.CorpId) == "" || strings.TrimSpace(dingTalk.ClientId) == "" || strings.TrimSpace(dingTalk.ClientSecret) == "") {
+			common.ApiErrorMsg(c, "无法启用钉钉登录，请先配置 Corp ID、Client ID 和 Client Secret")
+			return
+		}
 	case "oidc.enabled":
 		if option.Value == "true" && system_setting.GetOIDCSettings().ClientId == "" {
 			c.JSON(http.StatusOK, gin.H{

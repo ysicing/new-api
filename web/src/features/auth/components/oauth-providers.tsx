@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { ScanLine } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -65,6 +66,7 @@ export function OAuthProviders({
     githubButtonDisabled,
     handleGitHubLogin,
     handleDiscordLogin,
+    handleDingTalkLogin,
     handleOIDCLogin,
     handleLinuxDOLogin,
     handleTelegramLogin,
@@ -103,6 +105,15 @@ export function OAuthProviders({
       label: t('Continue with Discord'),
       onClick: handleDiscordLogin,
       icon: <IconDiscord className='h-4 w-4' />,
+    })
+  }
+
+  if (status?.dingtalk_login) {
+    providerButtons.push({
+      key: 'dingtalk',
+      label: t('Continue with DingTalk'),
+      onClick: handleDingTalkLogin,
+      icon: <ScanLine className='h-4 w-4' />,
     })
   }
 

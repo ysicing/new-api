@@ -91,6 +91,7 @@ type User struct {
 	DiscordId        string                     `json:"discord_id" gorm:"column:discord_id;index"`
 	OidcId           string                     `json:"oidc_id" gorm:"column:oidc_id;index"`
 	LDAPId           string                     `json:"ldap_id" gorm:"type:varchar(256);column:ldap_id;index"`
+	DingTalkId       string                     `json:"dingtalk_id" gorm:"type:varchar(256);column:dingtalk_id;index"`
 	WeChatId         string                     `json:"wechat_id" gorm:"column:wechat_id;index"`
 	TelegramId       string                     `json:"telegram_id" gorm:"column:telegram_id;index"`
 	VerificationCode string                     `json:"verification_code" gorm:"-:all"`                         // this field is only for Email verification, don't save it to database!
@@ -201,6 +202,7 @@ var userBindColumns = map[string]bool{
 	"github_id":   true,
 	"discord_id":  true,
 	"oidc_id":     true,
+	"dingtalk_id": true,
 	"linux_do_id": true,
 	"wechat_id":   true,
 }
@@ -902,6 +904,7 @@ func (user *User) ClearBinding(bindingType string) error {
 		"discord":  "discord_id",
 		"oidc":     "oidc_id",
 		"ldap":     "ldap_id",
+		"dingtalk": "dingtalk_id",
 		"wechat":   "wechat_id",
 		"telegram": "telegram_id",
 		"linuxdo":  "linux_do_id",
@@ -1087,6 +1090,14 @@ func (user *User) FillUserByOidcId() error {
 	return nil
 }
 
+// FillUserByDingTalkId 按钉钉 unionId 填充已绑定用户。
+func (user *User) FillUserByDingTalkId() error {
+	if user.DingTalkId == "" {
+		return errors.New("DingTalk id 为空！")
+	}
+	return DB.Where(User{DingTalkId: user.DingTalkId}).First(user).Error
+}
+
 func (user *User) FillUserByWeChatId() error {
 	if user.WeChatId == "" {
 		return errors.New("WeChat id 为空！")
@@ -1144,6 +1155,11 @@ func IsDiscordIdAlreadyTaken(discordId string) bool {
 
 func IsOidcIdAlreadyTaken(oidcId string) bool {
 	return DB.Where("oidc_id = ?", oidcId).Find(&User{}).RowsAffected == 1
+}
+
+// IsDingTalkIdAlreadyTaken 判断钉钉 unionId 是否已经绑定账号。
+func IsDingTalkIdAlreadyTaken(dingTalkId string) bool {
+	return DB.Unscoped().Where("dingtalk_id = ?", dingTalkId).Find(&User{}).RowsAffected == 1
 }
 
 func IsTelegramIdAlreadyTaken(telegramId string) bool {

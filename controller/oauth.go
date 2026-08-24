@@ -206,6 +206,8 @@ func HandleOAuth(c *gin.Context) {
 			common.ApiErrorI18n(c, i18n.MsgUserRegisterDisabled)
 		case *OAuthEmailAlreadyTakenError:
 			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
+		case *OAuthEmailRequiredError:
+			common.ApiErrorI18n(c, i18n.MsgOAuthEmailRequired, providerParams(provider.GetName()))
 		default:
 			common.ApiError(c, err)
 		}
@@ -325,6 +327,9 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 			}
 		}
 	}
+	if oauthUser.RequireEmailForRegistration && oauthUser.Email == "" {
+		return nil, &OAuthEmailRequiredError{}
+	}
 
 	if oauthUser.EmailVerified && oauthUser.Email != "" {
 		merged, err := mergeVerifiedOAuthEmail(provider, oauthUser)
@@ -419,6 +424,7 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 				"github_id":   user.GitHubId,
 				"discord_id":  user.DiscordId,
 				"oidc_id":     user.OidcId,
+				"dingtalk_id": user.DingTalkId,
 				"linux_do_id": user.LinuxDOId,
 				"wechat_id":   user.WeChatId,
 				"telegram_id": user.TelegramId,
@@ -456,6 +462,12 @@ type OAuthEmailAlreadyTakenError struct{}
 
 func (e *OAuthEmailAlreadyTakenError) Error() string {
 	return "email is already in use"
+}
+
+type OAuthEmailRequiredError struct{}
+
+func (e *OAuthEmailRequiredError) Error() string {
+	return "verified email is required for first-time OAuth login"
 }
 
 // handleOAuthError handles OAuth errors and returns translated message

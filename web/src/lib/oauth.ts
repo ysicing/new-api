@@ -57,6 +57,23 @@ export function buildDiscordOAuthUrl(clientId: string, state: string): string {
   return url.toString()
 }
 
+/** 构建钉钉官方托管的扫码授权地址。 */
+export function buildDingTalkOAuthUrl(
+  clientId: string,
+  state: string,
+  serverAddress = window.location.origin
+): string {
+  const url = new URL('https://login.dingtalk.com/oauth2/auth')
+  const callbackOrigin = serverAddress.trim().replace(/\/+$/, '')
+  url.searchParams.set('client_id', clientId)
+  url.searchParams.set('redirect_uri', `${callbackOrigin}/oauth/dingtalk`)
+  url.searchParams.set('response_type', 'code')
+  url.searchParams.set('scope', 'openid')
+  url.searchParams.set('state', state)
+  url.searchParams.set('prompt', 'consent')
+  return url.toString()
+}
+
 /**
  * Build OIDC OAuth URL
  */

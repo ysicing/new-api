@@ -21,6 +21,7 @@ import type { SystemStatus, OAuthProvider } from '../types'
 export {
   buildGitHubOAuthUrl,
   buildDiscordOAuthUrl,
+  buildDingTalkOAuthUrl,
   buildOIDCOAuthUrl,
   buildLinuxDOOAuthUrl,
 } from '@/lib/oauth'
@@ -54,6 +55,15 @@ export function getAvailableOAuthProviders(
       type: 'discord',
       enabled: true,
       clientId: status.discord_client_id,
+    })
+  }
+
+  if (status.dingtalk_login) {
+    providers.push({
+      name: 'DingTalk',
+      type: 'dingtalk',
+      enabled: true,
+      clientId: status.dingtalk_client_id,
     })
   }
 
@@ -95,6 +105,7 @@ export function hasOAuthProviders(status: SystemStatus | null): boolean {
   return !!(
     status.github_oauth ||
     status.discord_oauth ||
+    status.dingtalk_login ||
     status.oidc_enabled ||
     status.linuxdo_oauth ||
     status.telegram_oauth ||

@@ -26,6 +26,7 @@ import { createOAuthFlow, logout, telegramLogin } from '../api'
 import {
   buildGitHubOAuthUrl,
   buildDiscordOAuthUrl,
+  buildDingTalkOAuthUrl,
   buildOIDCOAuthUrl,
   buildLinuxDOOAuthUrl,
 } from '../lib/oauth'
@@ -116,6 +117,26 @@ export function useOAuthLogin(
       window.open(url, '_self')
     } catch {
       toast.error(t('Failed to start Discord login'))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleDingTalkLogin = async () => {
+    if (!status?.dingtalk_client_id) return
+
+    setIsLoading(true)
+    try {
+      await resetSession()
+      const state = await createOAuthFlow('dingtalk', 'login')
+      const url = buildDingTalkOAuthUrl(
+        status.dingtalk_client_id,
+        state,
+        status.server_address || window.location.origin
+      )
+      window.open(url, '_self')
+    } catch {
+      toast.error(t('Failed to start DingTalk login'))
     } finally {
       setIsLoading(false)
     }
@@ -239,6 +260,7 @@ export function useOAuthLogin(
     isTelegramPending,
     handleGitHubLogin,
     handleDiscordLogin,
+    handleDingTalkLogin,
     handleOIDCLogin,
     handleLinuxDOLogin,
     handleTelegramLogin,

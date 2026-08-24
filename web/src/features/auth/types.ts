@@ -94,12 +94,15 @@ export interface SystemStatus {
   message?: string
   data?: {
     version?: string
+    server_address?: string
     system_name?: string
     logo?: string
     github_oauth?: boolean
     github_client_id?: string
     discord_oauth?: boolean
     discord_client_id?: string
+    dingtalk_login?: boolean
+    dingtalk_client_id?: string
     oidc_enabled?: boolean
     oidc_authorization_endpoint?: string
     oidc_client_id?: string
@@ -139,12 +142,15 @@ export interface SystemStatus {
   }
   // Allow direct access to common properties
   version?: string
+  server_address?: string
   system_name?: string
   logo?: string
   github_oauth?: boolean
   github_client_id?: string
   discord_oauth?: boolean
   discord_client_id?: string
+  dingtalk_login?: boolean
+  dingtalk_client_id?: string
   oidc_enabled?: boolean
   oidc_authorization_endpoint?: string
   oidc_client_id?: string
@@ -189,7 +195,14 @@ export interface SystemStatus {
 
 export interface OAuthProvider {
   name: string
-  type: 'github' | 'discord' | 'oidc' | 'linuxdo' | 'telegram' | 'wechat'
+  type:
+    | 'github'
+    | 'discord'
+    | 'dingtalk'
+    | 'oidc'
+    | 'linuxdo'
+    | 'telegram'
+    | 'wechat'
   enabled: boolean
   clientId?: string
   authEndpoint?: string

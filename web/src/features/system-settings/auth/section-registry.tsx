@@ -21,6 +21,7 @@ import { createSectionRegistry } from '../utils/section-registry'
 import { BasicAuthSection } from './basic-auth-section'
 import { BotProtectionSection } from './bot-protection-section'
 import { CustomOAuthSection } from './custom-oauth/custom-oauth-section'
+import { DingTalkSection } from './dingtalk-section'
 import { LDAPSection } from './ldap-section'
 import { OAuthSection } from './oauth-section'
 import { PasskeySection } from './passkey-section'
@@ -76,6 +77,21 @@ const AUTH_SECTIONS = [
           WeChatServerAddress: settings.WeChatServerAddress,
           WeChatServerToken: settings.WeChatServerToken,
           WeChatAccountQRCodeImageURL: settings.WeChatAccountQRCodeImageURL,
+        }}
+      />
+    ),
+  },
+  {
+    id: 'dingtalk',
+    titleKey: 'DingTalk Authentication',
+    build: (settings: AuthSettings) => (
+      <DingTalkSection
+        serverAddress={settings.ServerAddress}
+        defaultValues={{
+          'dingtalk.enabled': settings['dingtalk.enabled'],
+          'dingtalk.corp_id': settings['dingtalk.corp_id'],
+          'dingtalk.client_id': settings['dingtalk.client_id'],
+          'dingtalk.client_secret': settings['dingtalk.client_secret'],
         }}
       />
     ),
