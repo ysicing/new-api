@@ -74,6 +74,7 @@ test('ordinary member sees the one-time trial notice in the new-user pool', () =
       'Please contact your department quota pool administrator to join the appropriate quota pool. The current pool provides a one-time trial quota only; no additional quota will be granted after it is used up.'
     )
   ).toBeInTheDocument()
+  expect(screen.queryByText('Pool administrators')).not.toBeInTheDocument()
 })
 
 test('ordinary member does not see the trial notice in a normal pool', () => {

@@ -59,6 +59,8 @@ export function QuotaPoolDetail(props: {
     props.selfMode === true &&
     !canViewManagement &&
     props.pool.pool_type === 'new_user'
+  const showPoolAdminContacts =
+    !canViewManagement && props.pool.pool_type !== 'new_user'
   const activeTab = canViewManagement ? tab : 'overview'
   const members = useQuery({
     queryKey: [
@@ -144,7 +146,7 @@ export function QuotaPoolDetail(props: {
               </Alert>
             ) : null}
             <PoolOverview pool={props.pool} />
-            {!canViewManagement && (
+            {showPoolAdminContacts && (
               <PoolAdminContacts contacts={props.adminContacts ?? []} />
             )}
           </TabsContent>
