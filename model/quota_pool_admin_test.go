@@ -26,3 +26,16 @@ func TestGrantQuotaPoolAdminUsesUnifiedLevelForPoolMembers(t *testing.T) {
 	err = GrantQuotaPoolAdmin(pool.Id, outsider.Id)
 	require.ErrorIs(t, err, ErrQuotaPoolMemberMismatch)
 }
+
+func TestGrantQuotaPoolAdminRejectsRootUser(t *testing.T) {
+	db := setupQuotaPoolFundsTestDB(t)
+	pool, root := seedQuotaPoolMember(t, db, 1000, 0)
+	require.NoError(t, db.Model(&root).Update("role", common.RoleRootUser).Error)
+
+	err := GrantQuotaPoolAdmin(pool.Id, root.Id)
+
+	require.ErrorIs(t, err, ErrQuotaPoolMemberMismatch)
+	var count int64
+	require.NoError(t, db.Model(&QuotaPoolAdmin{}).Where("user_id = ?", root.Id).Count(&count).Error)
+	assert.Zero(t, count)
+}

@@ -15,6 +15,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, test, vi } from 'vitest'
 
 import { formatQuota } from '@/lib/format'
+import { ROLE } from '@/lib/roles'
 
 import type {
   ApiResponse,
@@ -293,6 +294,28 @@ test('global administrator can remove a pool administrator', () => {
 
   expect(
     screen.getByRole('button', { name: 'Remove member' })
+  ).toBeInTheDocument()
+})
+
+test('root user cannot be set as a pool administrator', () => {
+  renderMembers(
+    { ...capabilities, can_manage_admins: true },
+    { memberRole: ROLE.SUPER_ADMIN }
+  )
+
+  expect(
+    screen.queryByRole('button', { name: 'Set pool administrator' })
+  ).not.toBeInTheDocument()
+})
+
+test('an existing root pool administrator can still be removed', () => {
+  renderMembers(
+    { ...capabilities, can_manage_admins: true },
+    { memberAdmin: true, memberRole: ROLE.SUPER_ADMIN }
+  )
+
+  expect(
+    screen.getByRole('button', { name: 'Remove pool administrator' })
   ).toBeInTheDocument()
 })
 

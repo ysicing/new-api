@@ -31,6 +31,13 @@ export function QuotaPoolMemberActions(props: {
     props.capabilities.can_remove_members &&
     (props.capabilities.can_manage_admins ||
       (!props.member.quota_pool_admin && props.member.role === ROLE.USER))
+  const canGrantPoolAdmin =
+    props.member.role === ROLE.USER ||
+    props.member.role === ROLE.QUOTA_POOL_SUPER_ADMIN ||
+    props.member.role === ROLE.ADMIN
+  const canManagePoolAdmin =
+    props.capabilities.can_manage_admins &&
+    (props.member.quota_pool_admin || canGrantPoolAdmin)
 
   return (
     <div className='flex justify-end gap-1'>
@@ -45,7 +52,7 @@ export function QuotaPoolMemberActions(props: {
         </Button>
       ) : null}
       <QuotaPoolMemberAdminAction
-        visible={props.capabilities.can_manage_admins}
+        visible={canManagePoolAdmin}
         administrator={props.member.quota_pool_admin}
         onAction={props.onAdminAction}
       />
