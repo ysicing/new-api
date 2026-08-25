@@ -87,27 +87,55 @@ func DispatchDingTalkNotification(ctx context.Context, request DingTalkNotificat
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	metadata, err := common.Marshal(request.Metadata)
+	record, err := newDingTalkNotificationRecord(request)
 	if err != nil {
-		return false, fmt.Errorf("marshal DingTalk notification metadata: %w", err)
-	}
-	recipient, _ := dingTalkUserIDFromEmail(request.UserEmail)
-	username, _ := model.GetUsernameById(request.UserId, false)
-	record := &model.DingTalkNotification{
-		EventType: request.EventType, DedupeKey: request.DedupeKey,
-		UserId: request.UserId, Username: username, Recipient: recipient,
-		Title: request.Title, Content: request.Content,
-		Status: model.DingTalkNotificationStatusPending, Metadata: string(metadata),
+		return false, err
 	}
 	created, err := model.CreateDingTalkNotification(record)
 	if err != nil || !created {
 		return created, err
 	}
+	return true, deliverDingTalkNotification(ctx, request, record)
+}
 
+func dispatchHourlyRateLimitedDingTalkNotification(ctx context.Context, request DingTalkNotificationRequest, occurredAt time.Time, maxCount int) (bool, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	record, err := newDingTalkNotificationRecord(request)
+	if err != nil {
+		return false, false, err
+	}
+	windowStart := time.Date(occurredAt.Year(), occurredAt.Month(), occurredAt.Day(), occurredAt.Hour(), 0, 0, 0, occurredAt.Location())
+	windowEnd := windowStart.Add(time.Hour)
+	record.CreatedAt = occurredAt.Unix()
+	created, allowed, err := model.CreateHourlyRateLimitedDingTalkNotification(record, windowStart.Unix(), windowEnd.Unix(), maxCount)
+	if err != nil || !created || !allowed {
+		return created, allowed, err
+	}
+	return true, true, deliverDingTalkNotification(ctx, request, record)
+}
+
+func newDingTalkNotificationRecord(request DingTalkNotificationRequest) (*model.DingTalkNotification, error) {
+	metadata, err := common.Marshal(request.Metadata)
+	if err != nil {
+		return nil, fmt.Errorf("marshal DingTalk notification metadata: %w", err)
+	}
+	recipient, _ := dingTalkUserIDFromEmail(request.UserEmail)
+	username, _ := model.GetUsernameById(request.UserId, false)
+	return &model.DingTalkNotification{
+		EventType: request.EventType, DedupeKey: request.DedupeKey,
+		UserId: request.UserId, Username: username, Recipient: recipient,
+		Title: request.Title, Content: request.Content,
+		Status: model.DingTalkNotificationStatusPending, Metadata: string(metadata),
+	}, nil
+}
+
+func deliverDingTalkNotification(ctx context.Context, request DingTalkNotificationRequest, record *model.DingTalkNotification) error {
 	settings := *system_setting.GetDingTalkSettings()
 	if !settings.IsRobotConfigured() {
 		errText := "DingTalk robot is not configured"
-		return true, model.UpdateDingTalkNotificationResult(record.Id, model.DingTalkNotificationStatusSkipped, errText, 0)
+		return model.UpdateDingTalkNotificationResult(record.Id, model.DingTalkNotificationStatusSkipped, errText, 0)
 	}
 	resolved, err := defaultDingTalkNotifier.resolveRecipient(ctx, settings, DingTalkRecipientRequest{
 		UserId: request.UserId, UserEmail: request.UserEmail,
@@ -117,25 +145,25 @@ func DispatchDingTalkNotification(ctx context.Context, request DingTalkNotificat
 		if errors.Is(err, ErrDingTalkInvalidEmail) {
 			status = model.DingTalkNotificationStatusSkipped
 		}
-		return true, model.UpdateDingTalkNotificationResult(record.Id, status, err.Error(), 0)
+		return model.UpdateDingTalkNotificationResult(record.Id, status, err.Error(), 0)
 	}
-	recipient = resolved.StaffUserId
+	recipient := resolved.StaffUserId
 	if err := model.DB.Model(&model.DingTalkNotification{}).Where("id = ?", record.Id).
 		Update("recipient", recipient).Error; err != nil {
-		return true, err
+		return err
 	}
 
 	sentAt := time.Now().Unix()
 	if err := defaultDingTalkNotifier.Send(ctx, settings, recipient, request.Title, request.Content); err != nil {
 		if updateErr := model.UpdateDingTalkNotificationResult(record.Id, model.DingTalkNotificationStatusFailed, err.Error(), sentAt); updateErr != nil {
-			return true, fmt.Errorf("send DingTalk notification: %w; update delivery record: %v", err, updateErr)
+			return fmt.Errorf("send DingTalk notification: %w; update delivery record: %v", err, updateErr)
 		}
-		return true, err
+		return err
 	}
 	if err := model.UpdateDingTalkNotificationResult(record.Id, model.DingTalkNotificationStatusSucceeded, "", sentAt); err != nil {
-		return true, fmt.Errorf("update DingTalk delivery record: %w", err)
+		return fmt.Errorf("update DingTalk delivery record: %w", err)
 	}
-	return true, nil
+	return nil
 }
 
 func (notifier *dingTalkNotifier) Send(ctx context.Context, settings system_setting.DingTalkSettings, userID, title, content string) error {

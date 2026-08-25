@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/glebarez/sqlite"
@@ -19,6 +20,50 @@ func setupDingTalkNotificationTestDB(t *testing.T) *gorm.DB {
 	DB = db
 	t.Cleanup(func() { DB = previousDB })
 	return db
+}
+
+func TestCreateHourlyRateLimitedDingTalkNotificationCapsConcurrentReservations(t *testing.T) {
+	db := setupDingTalkNotificationTestDB(t)
+	require.NoError(t, db.AutoMigrate(&User{}))
+	user := User{Username: "rate-limit-user", Password: "password", AffCode: "rate-limit-aff"}
+	require.NoError(t, db.Create(&user).Error)
+
+	const requestCount = 4
+	allowedResults := make(chan bool, requestCount)
+	errorResults := make(chan error, requestCount)
+	var waitGroup sync.WaitGroup
+	for index := 0; index < requestCount; index++ {
+		waitGroup.Add(1)
+		go func(index int) {
+			defer waitGroup.Done()
+			record := DingTalkNotification{
+				EventType: DingTalkNotificationEventSensitiveWordDetected,
+				DedupeKey: fmt.Sprintf("sensitive:%d", index), UserId: user.Id,
+				Status: DingTalkNotificationStatusPending, CreatedAt: 100,
+			}
+			_, allowed, err := CreateHourlyRateLimitedDingTalkNotification(&record, 0, 3600, 3)
+			allowedResults <- allowed
+			errorResults <- err
+		}(index)
+	}
+	waitGroup.Wait()
+	close(allowedResults)
+	close(errorResults)
+
+	allowedCount := 0
+	for allowed := range allowedResults {
+		if allowed {
+			allowedCount++
+		}
+	}
+	for err := range errorResults {
+		require.NoError(t, err)
+	}
+	assert.Equal(t, 3, allowedCount)
+	var skippedCount int64
+	require.NoError(t, db.Model(&DingTalkNotification{}).
+		Where("status = ?", DingTalkNotificationStatusSkipped).Count(&skippedCount).Error)
+	assert.EqualValues(t, 1, skippedCount)
 }
 
 func TestCreateDingTalkNotificationDeduplicatesEvent(t *testing.T) {

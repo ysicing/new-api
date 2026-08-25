@@ -68,3 +68,26 @@ func TestFindOrCreateOAuthUserMergesOnlyVerifiedEmail(t *testing.T) {
 	var conflict *OAuthEmailAlreadyTakenError
 	assert.ErrorAs(t, err, &conflict)
 }
+
+func TestFindOrCreateOAuthUserNotifiesOnlyNewRegistration(t *testing.T) {
+	setupOAuthEmailMergeTest(t)
+	provider := verifiedEmailTestProvider{}
+	previousNotify := notifyNewSelfRegisteredUser
+	notifiedUserIds := make([]int, 0, 1)
+	notifyNewSelfRegisteredUser = func(userId int) { notifiedUserIds = append(notifiedUserIds, userId) }
+	t.Cleanup(func() { notifyNewSelfRegisteredUser = previousNotify })
+
+	created, err := findOrCreateOAuthUser(nil, provider, &oauth.OAuthUser{
+		ProviderUserID: "new-provider-user", Username: "new-oauth-user",
+		Email: "new-oauth-user@example.com", EmailVerified: true,
+	}, "")
+	require.NoError(t, err)
+	assert.Equal(t, []int{created.Id}, notifiedUserIds)
+
+	existing, err := findOrCreateOAuthUser(nil, provider, &oauth.OAuthUser{
+		ProviderUserID: "new-provider-user", Email: "new-oauth-user@example.com", EmailVerified: true,
+	}, "")
+	require.NoError(t, err)
+	assert.Equal(t, created.Id, existing.Id)
+	assert.Equal(t, []int{created.Id}, notifiedUserIds)
+}

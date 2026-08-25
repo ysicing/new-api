@@ -9,6 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var notifyQuotaPoolMemberJoined = service.NotifyQuotaPoolJoined
+
 func GetQuotaPoolMembers(c *gin.Context) {
 	id, ok := parseQuotaPoolID(c)
 	if !ok || !requireQuotaPoolFeature(c) {
@@ -63,6 +65,7 @@ func AddQuotaPoolMember(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	notifyQuotaPoolMemberJoined(req.UserId, id)
 	recordQuotaPoolAudit(c, id, "quota_pool.member_add", map[string]any{"user_id": req.UserId})
 	recharge := service.TryAutoRechargeUserById(req.UserId)
 	common.ApiSuccess(c, gin.H{"move": result, "initial_recharge": recharge})

@@ -1,13 +1,19 @@
 package model
 
 import (
+	"fmt"
 	"strings"
+	"sync"
 
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 const (
 	DingTalkNotificationEventNewUserQuotaExhausted = "new_user_quota_exhausted"
+	DingTalkNotificationEventUserRegistered        = "user_registered"
+	DingTalkNotificationEventQuotaPoolJoined       = "quota_pool_joined"
+	DingTalkNotificationEventSensitiveWordDetected = "sensitive_word_detected"
 	DingTalkNotificationEventTest                  = "test"
 
 	DingTalkNotificationStatusPending   = "pending"
@@ -15,6 +21,10 @@ const (
 	DingTalkNotificationStatusFailed    = "failed"
 	DingTalkNotificationStatusSkipped   = "skipped"
 )
+
+const dingTalkNotificationHourlyLimitError = "DingTalk notification hourly limit exceeded"
+
+var dingTalkNotificationRateLimitMutex sync.Mutex
 
 // DingTalkNotification 记录钉钉消息的投递结果，并通过 DedupeKey 防止同一业务事件重复发送。
 type DingTalkNotification struct {
@@ -51,6 +61,56 @@ func CreateDingTalkNotification(notification *DingTalkNotification) (created boo
 		DoNothing: true,
 	}).Create(notification)
 	return result.RowsAffected == 1, result.Error
+}
+
+// CreateHourlyRateLimitedDingTalkNotification 在同一用户行锁内完成去重和小时额度预留。
+// 进程锁补足 SQLite 不支持 FOR UPDATE 的限制；MySQL/PostgreSQL 仍由数据库行锁保证多实例串行。
+func CreateHourlyRateLimitedDingTalkNotification(notification *DingTalkNotification, windowStart, windowEnd int64, maxCount int) (created, allowed bool, err error) {
+	if notification == nil || notification.UserId <= 0 || windowStart >= windowEnd || maxCount <= 0 {
+		return false, false, fmt.Errorf("invalid DingTalk notification hourly limit parameters")
+	}
+
+	dingTalkNotificationRateLimitMutex.Lock()
+	defer dingTalkNotificationRateLimitMutex.Unlock()
+
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := lockForUpdate(tx).Select("id").First(&user, notification.UserId).Error; err != nil {
+			return err
+		}
+
+		var duplicateCount int64
+		if err := tx.Model(&DingTalkNotification{}).
+			Where("dedupe_key = ?", notification.DedupeKey).
+			Count(&duplicateCount).Error; err != nil {
+			return err
+		}
+		if duplicateCount > 0 {
+			return nil
+		}
+
+		var hourlyCount int64
+		if err := tx.Model(&DingTalkNotification{}).
+			Where("event_type = ? AND user_id = ? AND created_at >= ? AND created_at < ?", notification.EventType, notification.UserId, windowStart, windowEnd).
+			Count(&hourlyCount).Error; err != nil {
+			return err
+		}
+		allowed = hourlyCount < int64(maxCount)
+		if !allowed {
+			notification.Status = DingTalkNotificationStatusSkipped
+			notification.Error = dingTalkNotificationHourlyLimitError
+		}
+		result := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "dedupe_key"}},
+			DoNothing: true,
+		}).Create(notification)
+		created = result.RowsAffected == 1
+		if !created {
+			allowed = false
+		}
+		return result.Error
+	})
+	return created, allowed, err
 }
 
 func UpdateDingTalkNotificationResult(id int64, status, errorText string, sentAt int64) error {

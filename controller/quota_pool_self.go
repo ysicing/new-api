@@ -216,6 +216,7 @@ func AddSelfQuotaPoolMember(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	notifyQuotaPoolMemberJoined(req.UserId, pool.Id)
 	recordQuotaPoolAudit(c, pool.Id, "quota_pool.member_add", map[string]any{"user_id": req.UserId})
 	recharge := service.TryAutoRechargeUserById(req.UserId)
 	common.ApiSuccess(c, gin.H{"move": result, "initial_recharge": recharge})

@@ -35,6 +35,8 @@ type LoginRequest struct {
 var (
 	errUserPasswordUnset    = errors.New("user password is not set")
 	errOriginalPasswordFail = errors.New("original password is incorrect")
+	// 测试可替换此入口，生产环境始终异步发送，不阻塞注册响应。
+	notifyNewSelfRegisteredUser = service.NotifyNewUserRegistered
 )
 
 func Login(c *gin.Context) {
@@ -321,6 +323,7 @@ func Register(c *gin.Context) {
 			return
 		}
 	}
+	notifyNewSelfRegisteredUser(insertedUser.Id)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

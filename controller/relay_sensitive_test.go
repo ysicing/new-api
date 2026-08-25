@@ -35,12 +35,20 @@ func TestRelayRecordsSensitiveWordRejectionAsErrorLog(t *testing.T) {
 	setting.CheckSensitiveEnabled = true
 	setting.CheckSensitiveOnPromptEnabled = true
 	setting.SensitiveWords = []string{"blocked_word"}
+	previousNotify := notifySensitiveWordsDetected
+	notifiedUserId := 0
+	var notifiedWords []string
+	notifySensitiveWordsDetected = func(userId int, words []string) {
+		notifiedUserId = userId
+		notifiedWords = append([]string(nil), words...)
+	}
 	t.Cleanup(func() {
 		model.LOG_DB = previousLogDB
 		constant.ErrorLogEnabled = previousErrorLogEnabled
 		setting.CheckSensitiveEnabled = previousCheckSensitiveEnabled
 		setting.CheckSensitiveOnPromptEnabled = previousCheckSensitiveOnPromptEnabled
 		setting.SensitiveWords = previousSensitiveWords
+		notifySensitiveWordsDetected = previousNotify
 	})
 
 	gin.SetMode(gin.TestMode)
@@ -69,4 +77,6 @@ func TestRelayRecordsSensitiveWordRejectionAsErrorLog(t *testing.T) {
 	other, err := common.StrToMap(log.Other)
 	require.NoError(t, err)
 	assert.Equal(t, string(types.ErrorCodeSensitiveWordsDetected), other["error_code"])
+	assert.Equal(t, 42, notifiedUserId)
+	assert.Equal(t, []string{"blocked_word"}, notifiedWords)
 }
