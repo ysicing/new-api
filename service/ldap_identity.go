@@ -10,28 +10,30 @@ import (
 	"gorm.io/gorm"
 )
 
-func findOrCreateLDAPUser(profile ldapProfile, allowCreate bool) (*model.User, error) {
+func findOrCreateLDAPUser(profile ldapProfile, allowCreate bool) (*model.User, bool, error) {
 	var user model.User
 	if profile.LDAPId != "" {
 		err := model.DB.Unscoped().Where("ldap_id = ?", profile.LDAPId).First(&user).Error
 		if err == nil {
-			return syncLDAPProfile(&user, profile)
+			user, syncErr := syncLDAPProfile(&user, profile)
+			return user, false, syncErr
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, err
+			return nil, false, err
 		}
 	}
 	if profile.Email != "" {
 		err := model.DB.Unscoped().Where("LOWER(email) = ?", profile.Email).First(&user).Error
 		if err == nil {
-			return syncLDAPProfile(&user, profile)
+			user, syncErr := syncLDAPProfile(&user, profile)
+			return user, false, syncErr
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, err
+			return nil, false, err
 		}
 	}
 	if !allowCreate {
-		return nil, errors.New("registration disabled")
+		return nil, false, errors.New("registration disabled")
 	}
 	user = model.User{
 		Username: ldapLocalUsername(profile), DisplayName: ldapDisplayName(profile),
@@ -39,9 +41,9 @@ func findOrCreateLDAPUser(profile ldapProfile, allowCreate bool) (*model.User, e
 		Role: common.RoleCommonUser, Status: common.UserStatusEnabled,
 	}
 	if err := user.Insert(0); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return &user, nil
+	return &user, true, nil
 }
 
 func syncLDAPProfile(user *model.User, profile ldapProfile) (*model.User, error) {

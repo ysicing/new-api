@@ -32,5 +32,12 @@ func LoginWithLDAP(username, password string) (*model.User, error) {
 	if err != nil {
 		return nil, err
 	}
-	return findOrCreateLDAPUser(profile, common.RegisterEnabled)
+	user, created, err := findOrCreateLDAPUser(profile, common.RegisterEnabled)
+	if err != nil {
+		return nil, err
+	}
+	if created {
+		NotifyNewUserRegistered(user.Id)
+	}
+	return user, nil
 }

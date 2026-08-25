@@ -42,7 +42,8 @@ func SyncLDAPUser(identifier string) (*model.User, error) {
 	if len(profiles) != 1 {
 		return nil, errors.New("ldap identity is ambiguous")
 	}
-	return findOrCreateLDAPUser(profiles[0], true)
+	user, _, err := findOrCreateLDAPUser(profiles[0], true)
+	return user, err
 }
 
 func SyncLDAPCandidate(candidate LDAPSyncCandidate) (*model.User, error) {
@@ -59,7 +60,8 @@ func SyncLDAPCandidate(candidate LDAPSyncCandidate) (*model.User, error) {
 	if err != nil {
 		return nil, err
 	}
-	return findOrCreateLDAPUser(profile, true)
+	user, _, err := findOrCreateLDAPUser(profile, true)
+	return user, err
 }
 
 func searchLDAPProfiles(identifier string) ([]ldapProfile, error) {

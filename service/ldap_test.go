@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -71,6 +72,36 @@ func TestLoginWithLDAPReusesExistingUserByNormalizedEmail(t *testing.T) {
 	assert.Equal(t, "LDAP Alice", user.DisplayName)
 	assert.Equal(t, "alice@example.com", user.LDAPId)
 	assert.Equal(t, "Engineering", user.Department)
+}
+
+func TestLoginWithLDAPNotifiesNewlyCreatedUser(t *testing.T) {
+	db := setupLDAPTest(t)
+	require.NoError(t, db.AutoMigrate(&model.DingTalkNotification{}))
+	dingTalkSettings := system_setting.GetDingTalkSettings()
+	previousDingTalkSettings := *dingTalkSettings
+	previousRedisEnabled := common.RedisEnabled
+	*dingTalkSettings = system_setting.DingTalkSettings{}
+	common.RedisEnabled = false
+	t.Cleanup(func() {
+		*dingTalkSettings = previousDingTalkSettings
+		common.RedisEnabled = previousRedisEnabled
+	})
+	ldapRequest = func(_ ergoldap.LdapConf, username, password string) (*goldap.SearchResult, error) {
+		assert.Equal(t, "alice", username)
+		assert.Equal(t, "secret", password)
+		return ldapTestSearchResult("alice", "alice@example.com"), nil
+	}
+
+	user, err := LoginWithLDAP("alice", "secret")
+
+	require.NoError(t, err)
+	var record model.DingTalkNotification
+	require.Eventually(t, func() bool {
+		err := db.Where("event_type = ? AND user_id = ?", model.DingTalkNotificationEventUserRegistered, user.Id).
+			First(&record).Error
+		return err == nil && record.Status == model.DingTalkNotificationStatusSkipped
+	}, time.Second, 10*time.Millisecond)
+	assert.Equal(t, "欢迎使用 iCode", record.Title)
 }
 
 func TestSearchAndSyncLDAPCandidateRejectsTampering(t *testing.T) {
