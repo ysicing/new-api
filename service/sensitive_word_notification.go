@@ -9,14 +9,23 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/bytedance/gopkg/util/gopool"
 )
 
 const (
 	sensitiveWordNotificationHourlyLimit = 3
 	sensitiveWordNotificationTitle       = "请求触发敏感词审查"
-	sensitiveWordNotificationContent     = "您的请求触发敏感词审查，请登录 iCode 在使用日志里查询错误类型日志。\n\n请先自查敏感词后再尝试提交请求，避免影响使用体验。如有误判,请联系管理员处理"
+	sensitiveWordNotificationBaseContent = "您的请求触发敏感词审查，请登录 iCode 在使用日志里查询错误类型日志。\n\n请先自查敏感词后再尝试提交请求，避免影响使用体验。"
 )
+
+func sensitiveWordNotificationContent() string {
+	contactMessage := setting.NormalizeSensitiveWordContactMessage(setting.SensitiveWordContactMessage)
+	if contactMessage == "" {
+		return sensitiveWordNotificationBaseContent
+	}
+	return sensitiveWordNotificationBaseContent + "\n\n" + contactMessage
+}
 
 // NotifySensitiveWordsDetected 异步发送敏感词审查通知，避免钉钉网络请求影响原始拒绝响应。
 func NotifySensitiveWordsDetected(userId int, words []string) {
@@ -53,7 +62,7 @@ func notifySensitiveWordsDetectedAt(userId int, words []string, detectedAt time.
 			EventType: model.DingTalkNotificationEventSensitiveWordDetected,
 			DedupeKey: fmt.Sprintf("%s:%d:%d:%x", model.DingTalkNotificationEventSensitiveWordDetected, user.Id, hourStart.Unix(), wordDigest),
 			UserId:    user.Id, UserEmail: user.Email,
-			Title: sensitiveWordNotificationTitle, Content: sensitiveWordNotificationContent,
+			Title: sensitiveWordNotificationTitle, Content: sensitiveWordNotificationContent(),
 			Metadata: map[string]any{"window_start": hourStart.Unix(), "window_end": hourStart.Add(time.Hour).Unix()},
 		}, detectedAt, sensitiveWordNotificationHourlyLimit)
 		if dispatchErr != nil {

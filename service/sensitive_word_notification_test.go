@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,8 +23,13 @@ func setupSensitiveWordNotificationTest(t *testing.T) (*model.User, time.Time) {
 	require.NoError(t, db.Create(&user).Error)
 	settings := system_setting.GetDingTalkSettings()
 	previousSettings := *settings
+	previousContactMessage := setting.SensitiveWordContactMessage
 	*settings = system_setting.DingTalkSettings{}
-	t.Cleanup(func() { *settings = previousSettings })
+	setting.SensitiveWordContactMessage = ""
+	t.Cleanup(func() {
+		*settings = previousSettings
+		setting.SensitiveWordContactMessage = previousContactMessage
+	})
 	return &user, time.Date(2026, time.August, 25, 10, 15, 0, 0, time.Local)
 }
 
@@ -37,9 +43,20 @@ func TestSensitiveWordNotificationDeduplicatesSameWordWithinHourWithoutPersistin
 	require.Len(t, records, 1)
 	assert.Equal(t, model.DingTalkNotificationEventSensitiveWordDetected, records[0].EventType)
 	assert.Equal(t, "请求触发敏感词审查", records[0].Title)
-	assert.Equal(t, "您的请求触发敏感词审查，请登录 iCode 在使用日志里查询错误类型日志。\n\n请先自查敏感词后再尝试提交请求，避免影响使用体验。如有误判,请联系管理员处理", records[0].Content)
+	assert.Equal(t, "您的请求触发敏感词审查，请登录 iCode 在使用日志里查询错误类型日志。\n\n请先自查敏感词后再尝试提交请求，避免影响使用体验。", records[0].Content)
 	persisted := strings.Join([]string{records[0].DedupeKey, records[0].Title, records[0].Content, records[0].Metadata, records[0].Error}, " ")
 	assert.NotContains(t, persisted, "classified-term")
+}
+
+func TestSensitiveWordNotificationAppendsConfiguredContactMessage(t *testing.T) {
+	user, detectedAt := setupSensitiveWordNotificationTest(t)
+	require.NoError(t, setting.SetSensitiveWordContactMessage("  如有误判，请通过钉钉联系张三处理。  "))
+
+	require.NoError(t, notifySensitiveWordsDetectedAt(user.Id, []string{"contact-word"}, detectedAt))
+
+	var record model.DingTalkNotification
+	require.NoError(t, model.DB.Where("user_id = ?", user.Id).First(&record).Error)
+	assert.Equal(t, "您的请求触发敏感词审查，请登录 iCode 在使用日志里查询错误类型日志。\n\n请先自查敏感词后再尝试提交请求，避免影响使用体验。\n\n如有误判，请通过钉钉联系张三处理。", record.Content)
 }
 
 func TestSensitiveWordNotificationCapsDistinctWordsAtThreePerUserHour(t *testing.T) {
