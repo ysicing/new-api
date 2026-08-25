@@ -3602,6 +3602,7 @@
     "Policy JSON": "ポリシーJSON",
     "Polling": "ポーリング",
     "Polling mode requires Redis and memory cache, otherwise performance will be significantly degraded": "ポーリングモードにはRedisとメモリキャッシュが必要です。そうでない場合、パフォーマンスが大幅に低下します",
+    "Pool administrator": "クォータプール管理者",
     "Pool administrators": "クォータプール管理者",
     "Pool Super Admin": "プール特権管理者",
     "Poor": "悪い",

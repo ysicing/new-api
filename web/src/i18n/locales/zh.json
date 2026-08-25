@@ -3602,6 +3602,7 @@
     "Policy JSON": "策略 JSON",
     "Polling": "轮询",
     "Polling mode requires Redis and memory cache, otherwise performance will be significantly degraded": "轮询模式需要 Redis 和内存缓存，否则性能将显著下降",
+    "Pool administrator": "池管理员",
     "Pool administrators": "池管理员",
     "Pool Super Admin": "池超级管理员",
     "Poor": "差",

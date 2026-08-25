@@ -3602,6 +3602,7 @@
     "Policy JSON": "Policy JSON",
     "Polling": "Polling",
     "Polling mode requires Redis and memory cache, otherwise performance will be significantly degraded": "Polling mode requires Redis and memory cache, otherwise performance will be significantly degraded",
+    "Pool administrator": "Pool administrator",
     "Pool administrators": "Pool administrators",
     "Pool Super Admin": "Pool Super Admin",
     "Poor": "Poor",

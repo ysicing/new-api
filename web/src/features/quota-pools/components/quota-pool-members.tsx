@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
 import { Input } from '@/components/ui/input'
@@ -177,7 +178,7 @@ export function PoolMembers(props: {
               <TableHead className='text-right'>
                 {t('Available quota / Total quota')}
               </TableHead>
-              <TableHead />
+              <TableHead className='w-12 text-right'>{t('Actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -194,7 +195,16 @@ export function PoolMembers(props: {
               return (
                 <TableRow key={member.id}>
                   <TableCell>
-                    {member.display_name || member.username}
+                    <div className='flex min-w-0 items-center gap-2'>
+                      <span className='min-w-0 truncate'>
+                        {member.display_name || member.username}
+                      </span>
+                      {member.quota_pool_admin ? (
+                        <Badge variant='secondary'>
+                          {t('Pool administrator')}
+                        </Badge>
+                      ) : null}
+                    </div>
                   </TableCell>
                   <TableCell>{member.department || '—'}</TableCell>
                   <TableCell className='min-w-48'>
@@ -208,7 +218,7 @@ export function PoolMembers(props: {
                       className='[&_[data-slot=progress-indicator]]:bg-success mt-1.5 gap-0'
                     />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className='w-12 text-right'>
                     <QuotaPoolMemberActions
                       pool={props.pool}
                       capabilities={props.capabilities}

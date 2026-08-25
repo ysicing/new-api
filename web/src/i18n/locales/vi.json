@@ -3602,6 +3602,7 @@
     "Policy JSON": "JSON chính sách",
     "Polling": "Thăm dò",
     "Polling mode requires Redis and memory cache, otherwise performance will be significantly degraded": "Chế độ thăm dò yêu cầu Redis và bộ nhớ đệm, nếu không hiệu suất sẽ bị suy giảm đáng kể.",
+    "Pool administrator": "Quản trị viên nhóm hạn mức",
     "Pool administrators": "Quản trị viên nhóm hạn mức",
     "Pool Super Admin": "Siêu quản trị nhóm",
     "Poor": "Nghèo",

@@ -3602,6 +3602,7 @@
     "Policy JSON": "JSON политики",
     "Polling": "Опрос",
     "Polling mode requires Redis and memory cache, otherwise performance will be significantly degraded": "Режим опроса требует Redis и кэш памяти, в противном случае производительность будет значительно снижена",
+    "Pool administrator": "Администратор пула квот",
     "Pool administrators": "Администраторы пула квот",
     "Pool Super Admin": "Суперадминистратор пула",
     "Poor": "Плохо",

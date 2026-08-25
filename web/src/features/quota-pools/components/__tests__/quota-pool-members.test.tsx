@@ -69,7 +69,8 @@ function membersQuery(
   quotaPoolAdmin = false,
   memberRole = 1,
   quota = 100,
-  usedQuota = 20
+  usedQuota = 20,
+  reclaimAmounts: number[] = [500, 250]
 ): UseQueryResult<ApiResponse<PageData<QuotaPoolMember>>> {
   return {
     isLoading: false,
@@ -90,7 +91,7 @@ function membersQuery(
             used_quota: usedQuota,
             quota_pool_id: 7,
             quota_pool_admin: quotaPoolAdmin,
-            reclaim_amounts: [500, 250],
+            reclaim_amounts: reclaimAmounts,
           },
         ],
         total: 25,
@@ -108,6 +109,7 @@ function renderMembers(
     memberRole?: number
     quota?: number
     usedQuota?: number
+    reclaimAmounts?: number[]
   }
 ) {
   const queryClient = new QueryClient()
@@ -121,7 +123,8 @@ function renderMembers(
           options?.memberAdmin,
           options?.memberRole,
           options?.quota,
-          options?.usedQuota
+          options?.usedQuota,
+          options?.reclaimAmounts
         )}
         page={1}
         pageSize={10}
@@ -132,6 +135,11 @@ function renderMembers(
       />
     </QueryClientProvider>
   )
+}
+
+async function openMemberActions() {
+  fireEvent.click(screen.getByRole('button', { name: 'Open menu' }))
+  return screen.findByRole('menu')
 }
 
 beforeEach(() => {
@@ -201,10 +209,23 @@ test('member quota progress is zero when total quota is zero', () => {
   ).toHaveAttribute('aria-valuenow', '0')
 })
 
+test('marks pool administrators next to the member name', () => {
+  renderMembers(capabilities, { memberAdmin: true })
+
+  expect(screen.getByText('Pool administrator')).toBeInTheDocument()
+})
+
+test('does not mark ordinary members as pool administrators', () => {
+  renderMembers()
+
+  expect(screen.queryByText('Pool administrator')).not.toBeInTheDocument()
+})
+
 test('member recharge requires confirmation before submitting', async () => {
   renderMembers({ ...capabilities, can_manage_members: true })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Recharge' }))
+  await openMemberActions()
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Recharge' }))
 
   expect(apiMocks.rechargeQuotaPoolMember).not.toHaveBeenCalled()
   expect(screen.getByRole('alertdialog')).toHaveTextContent(
@@ -220,7 +241,8 @@ test('member recharge requires confirmation before submitting', async () => {
 test('member reclaim submits the selected allowed amount', async () => {
   renderMembers({ ...capabilities, can_manage_members: true })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Reclaim' }))
+  await openMemberActions()
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Reclaim' }))
   fireEvent.click(screen.getByRole('radio', { name: formatQuota(250) }))
   fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
 
@@ -237,7 +259,8 @@ test('member reclaim submits the selected allowed amount', async () => {
 test('member removal requires confirmation and explains quota recovery', async () => {
   renderMembers({ ...capabilities, can_remove_members: true })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Remove member' }))
+  await openMemberActions()
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Remove member' }))
 
   expect(apiMocks.removeQuotaPoolMember).not.toHaveBeenCalled()
   const dialog = screen.getByRole('alertdialog', { name: 'Remove member' })
@@ -251,10 +274,11 @@ test('member removal requires confirmation and explains quota recovery', async (
   })
 })
 
-test('canceling member removal does not call the API', () => {
+test('canceling member removal does not call the API', async () => {
   renderMembers({ ...capabilities, can_remove_members: true })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Remove member' }))
+  await openMemberActions()
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Remove member' }))
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
 
   expect(apiMocks.removeQuotaPoolMember).not.toHaveBeenCalled()
@@ -267,7 +291,7 @@ test('pool administrator cannot remove another pool administrator', () => {
   )
 
   expect(
-    screen.queryByRole('button', { name: 'Remove member' })
+    screen.queryByRole('button', { name: 'Open menu' })
   ).not.toBeInTheDocument()
 })
 
@@ -278,11 +302,11 @@ test('pool administrator cannot remove a privileged system user', () => {
   )
 
   expect(
-    screen.queryByRole('button', { name: 'Remove member' })
+    screen.queryByRole('button', { name: 'Open menu' })
   ).not.toBeInTheDocument()
 })
 
-test('global administrator can remove a pool administrator', () => {
+test('global administrator can remove a pool administrator', async () => {
   renderMembers(
     {
       ...capabilities,
@@ -292,8 +316,9 @@ test('global administrator can remove a pool administrator', () => {
     { memberAdmin: true }
   )
 
+  await openMemberActions()
   expect(
-    screen.getByRole('button', { name: 'Remove member' })
+    screen.getByRole('menuitem', { name: 'Remove member' })
   ).toBeInTheDocument()
 })
 
@@ -304,18 +329,61 @@ test('root user cannot be set as a pool administrator', () => {
   )
 
   expect(
-    screen.queryByRole('button', { name: 'Set pool administrator' })
+    screen.queryByRole('button', { name: 'Open menu' })
   ).not.toBeInTheDocument()
 })
 
-test('an existing root pool administrator can still be removed', () => {
+test('groups member operations in the actions menu', async () => {
+  renderMembers({
+    ...capabilities,
+    can_manage_members: true,
+    can_remove_members: true,
+    can_manage_admins: true,
+  })
+
+  expect(
+    screen.getByRole('columnheader', { name: 'Actions' })
+  ).toBeInTheDocument()
+  expect(
+    screen.queryByRole('button', { name: 'Recharge' })
+  ).not.toBeInTheDocument()
+  const menuTrigger = screen.getByRole('button', { name: 'Open menu' })
+  expect(menuTrigger.closest('td')).toHaveClass('w-12', 'text-right')
+  expect(screen.getByText('Alice').closest('td')).not.toHaveClass('w-12')
+  fireEvent.click(menuTrigger)
+
+  for (const name of [
+    'Recharge',
+    'Reclaim',
+    'Set pool administrator',
+    'Remove member',
+  ]) {
+    expect(await screen.findByRole('menuitem', { name })).toBeInTheDocument()
+  }
+})
+
+test('disables reclaim in the menu when no reclaim amount is available', async () => {
+  renderMembers(
+    { ...capabilities, can_manage_members: true },
+    { reclaimAmounts: [] }
+  )
+
+  await openMemberActions()
+  expect(screen.getByRole('menuitem', { name: 'Reclaim' })).toHaveAttribute(
+    'aria-disabled',
+    'true'
+  )
+})
+
+test('an existing root pool administrator can still be removed', async () => {
   renderMembers(
     { ...capabilities, can_manage_admins: true },
     { memberAdmin: true, memberRole: ROLE.SUPER_ADMIN }
   )
 
+  await openMemberActions()
   expect(
-    screen.getByRole('button', { name: 'Remove pool administrator' })
+    screen.getByRole('menuitem', { name: 'Remove pool administrator' })
   ).toBeInTheDocument()
 })
 
@@ -326,7 +394,8 @@ test('failed member removal keeps the confirmation dialog open', async () => {
   })
   renderMembers({ ...capabilities, can_remove_members: true })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Remove member' }))
+  await openMemberActions()
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Remove member' }))
   fireEvent.click(screen.getByRole('button', { name: 'Confirm removal' }))
 
   await waitFor(() => expect(apiMocks.removeQuotaPoolMember).toHaveBeenCalled())
@@ -339,7 +408,8 @@ test('network failure keeps the member removal dialog open', async () => {
   apiMocks.removeQuotaPoolMember.mockRejectedValue(new Error('network error'))
   renderMembers({ ...capabilities, can_remove_members: true })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Remove member' }))
+  await openMemberActions()
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Remove member' }))
   fireEvent.click(screen.getByRole('button', { name: 'Confirm removal' }))
 
   await waitFor(() => expect(apiMocks.removeQuotaPoolMember).toHaveBeenCalled())
