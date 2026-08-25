@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -35,6 +36,11 @@ func TestRelayRecordsSensitiveWordRejectionAsErrorLog(t *testing.T) {
 	setting.CheckSensitiveEnabled = true
 	setting.CheckSensitiveOnPromptEnabled = true
 	setting.SensitiveWords = []string{"blocked_word"}
+	var stdout bytes.Buffer
+	previousWriter := gin.DefaultWriter
+	common.LogWriterMu.Lock()
+	gin.DefaultWriter = &stdout
+	common.LogWriterMu.Unlock()
 	previousNotify := notifySensitiveWordsDetected
 	notifiedUserId := 0
 	var notifiedWords []string
@@ -49,6 +55,9 @@ func TestRelayRecordsSensitiveWordRejectionAsErrorLog(t *testing.T) {
 		setting.CheckSensitiveOnPromptEnabled = previousCheckSensitiveOnPromptEnabled
 		setting.SensitiveWords = previousSensitiveWords
 		notifySensitiveWordsDetected = previousNotify
+		common.LogWriterMu.Lock()
+		gin.DefaultWriter = previousWriter
+		common.LogWriterMu.Unlock()
 	})
 
 	gin.SetMode(gin.TestMode)
@@ -79,4 +88,42 @@ func TestRelayRecordsSensitiveWordRejectionAsErrorLog(t *testing.T) {
 	assert.Equal(t, string(types.ErrorCodeSensitiveWordsDetected), other["error_code"])
 	assert.Equal(t, 42, notifiedUserId)
 	assert.Equal(t, []string{"blocked_word"}, notifiedWords)
+	assert.Contains(t, stdout.String(), `"event":"sensitive_word_prompt"`)
+	assert.Contains(t, stdout.String(), `"prompt":"user\nblocked_word"`)
+}
+
+func TestLogSensitivePromptAuditWritesCompleteSingleLineJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var stdout bytes.Buffer
+	previousWriter := gin.DefaultWriter
+	common.LogWriterMu.Lock()
+	gin.DefaultWriter = &stdout
+	common.LogWriterMu.Unlock()
+	t.Cleanup(func() {
+		common.LogWriterMu.Lock()
+		gin.DefaultWriter = previousWriter
+		common.LogWriterMu.Unlock()
+	})
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Set("id", 42)
+	c.Set(common.RequestIdKey, "req-sensitive-prompt")
+	prompt := "first line\n" + strings.Repeat("x", common.LocalLogContentLimit+100) + `"final line"`
+
+	logSensitivePromptAudit(c, prompt)
+
+	line := stdout.String()
+	assert.Equal(t, 1, strings.Count(line, "\n"))
+	var payload struct {
+		Event     string `json:"event"`
+		UserId    int    `json:"user_id"`
+		RequestId string `json:"request_id"`
+		Prompt    string `json:"prompt"`
+	}
+	require.NoError(t, common.Unmarshal([]byte(strings.TrimSpace(line)), &payload))
+	assert.Equal(t, "sensitive_word_prompt", payload.Event)
+	assert.Equal(t, 42, payload.UserId)
+	assert.Equal(t, "req-sensitive-prompt", payload.RequestId)
+	assert.Equal(t, prompt, payload.Prompt)
+	assert.NotContains(t, line, "[truncated")
 }

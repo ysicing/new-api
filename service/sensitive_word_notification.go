@@ -15,7 +15,7 @@ import (
 const (
 	sensitiveWordNotificationHourlyLimit = 3
 	sensitiveWordNotificationTitle       = "请求触发敏感词审查"
-	sensitiveWordNotificationContent     = "您的请求触发敏感词审查，请登录 iCode 在使用日志里查询错误类型日志。"
+	sensitiveWordNotificationContent     = "您的请求触发敏感词审查，请登录 iCode 在使用日志里查询错误类型日志。\n\n请先自查敏感词后再尝试提交请求，避免影响使用体验。如有误判,请联系管理员处理"
 )
 
 // NotifySensitiveWordsDetected 异步发送敏感词审查通知，避免钉钉网络请求影响原始拒绝响应。

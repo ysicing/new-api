@@ -145,6 +145,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			newAPIError = types.NewError(err, types.ErrorCodeSensitiveWordsDetected)
 			// 敏感词在请求上游前被拒绝，不会进入渠道错误处理，需要在此记录请求错误日志。
 			recordRelayErrorLog(c, newAPIError, fmt.Sprintf("sensitive_words=%s", strings.Join(words, ", ")))
+			logSensitivePromptAudit(c, meta.CombineText)
 			notifySensitiveWordsDetected(relayInfo.UserId, words)
 			return
 		}
@@ -418,6 +419,27 @@ func recordRelayErrorLog(c *gin.Context, err *types.NewAPIError, contentMarker s
 		logContent += ", " + contentMarker
 	}
 	model.RecordErrorLog(c, userId, channelId, modelName, tokenName, logContent, tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
+}
+
+// logSensitivePromptAudit 将完整检测文本转义为单行 JSON 输出到 stdout。
+// 按审查需求不做应用层截断；日志采集侧仍可能受运行环境的单行大小限制。
+func logSensitivePromptAudit(c *gin.Context, prompt string) {
+	payload, err := common.Marshal(struct {
+		Event     string `json:"event"`
+		UserId    int    `json:"user_id"`
+		RequestId string `json:"request_id"`
+		Prompt    string `json:"prompt"`
+	}{
+		Event: "sensitive_word_prompt", UserId: c.GetInt("id"),
+		RequestId: c.GetString(common.RequestIdKey), Prompt: prompt,
+	})
+	if err != nil {
+		logger.LogError(c, fmt.Sprintf("marshal sensitive prompt audit log: %s", err.Error()))
+		return
+	}
+	common.LogWriterMu.RLock()
+	_, _ = fmt.Fprintln(gin.DefaultWriter, string(payload))
+	common.LogWriterMu.RUnlock()
 }
 
 func RelayMidjourney(c *gin.Context) {

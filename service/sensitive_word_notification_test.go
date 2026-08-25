@@ -37,7 +37,7 @@ func TestSensitiveWordNotificationDeduplicatesSameWordWithinHourWithoutPersistin
 	require.Len(t, records, 1)
 	assert.Equal(t, model.DingTalkNotificationEventSensitiveWordDetected, records[0].EventType)
 	assert.Equal(t, "请求触发敏感词审查", records[0].Title)
-	assert.Equal(t, "您的请求触发敏感词审查，请登录 iCode 在使用日志里查询错误类型日志。", records[0].Content)
+	assert.Equal(t, "您的请求触发敏感词审查，请登录 iCode 在使用日志里查询错误类型日志。\n\n请先自查敏感词后再尝试提交请求，避免影响使用体验。如有误判,请联系管理员处理", records[0].Content)
 	persisted := strings.Join([]string{records[0].DedupeKey, records[0].Title, records[0].Content, records[0].Metadata, records[0].Error}, " ")
 	assert.NotContains(t, persisted, "classified-term")
 }
