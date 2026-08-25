@@ -76,6 +76,14 @@ func TestRelayRecordsSensitiveWordRejectionAsErrorLog(t *testing.T) {
 
 	Relay(c, types.RelayFormatOpenAI)
 
+	assert.Equal(t, http.StatusForbidden, recorder.Code)
+	var response struct {
+		Error types.OpenAIError `json:"error"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.Equal(t, string(types.ErrorCodeSensitiveWordsDetected), response.Error.Code)
+	assert.Contains(t, response.Error.Message, "请求触发敏感词审查，请修改后重试")
+
 	var log model.Log
 	require.NoError(t, db.First(&log).Error)
 	assert.Equal(t, model.LogTypeError, log.Type)
@@ -83,13 +91,24 @@ func TestRelayRecordsSensitiveWordRejectionAsErrorLog(t *testing.T) {
 	assert.Equal(t, "gpt-5", log.ModelName)
 	assert.Equal(t, "req-sensitive", log.RequestId)
 	assert.Contains(t, log.Content, "sensitive_words=blocked_word")
+	assert.Contains(t, log.Content, "status_code=403")
 	other, err := common.StrToMap(log.Other)
 	require.NoError(t, err)
 	assert.Equal(t, string(types.ErrorCodeSensitiveWordsDetected), other["error_code"])
+	assert.EqualValues(t, http.StatusForbidden, other["status_code"])
 	assert.Equal(t, 42, notifiedUserId)
 	assert.Equal(t, []string{"blocked_word"}, notifiedWords)
 	assert.Contains(t, stdout.String(), `"event":"sensitive_word_prompt"`)
 	assert.Contains(t, stdout.String(), `"prompt":"user\nblocked_word"`)
+}
+
+func TestNewSensitiveWordsDetectedErrorIsForbiddenAndNotRetryable(t *testing.T) {
+	err := newSensitiveWordsDetectedError()
+
+	assert.Equal(t, http.StatusForbidden, err.StatusCode)
+	assert.Equal(t, types.ErrorCodeSensitiveWordsDetected, err.GetErrorCode())
+	assert.True(t, types.IsSkipRetryError(err))
+	assert.Equal(t, "请求触发敏感词审查，请修改后重试", err.Error())
 }
 
 func TestLogSensitivePromptAuditWritesCompleteSingleLineJSON(t *testing.T) {

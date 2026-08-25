@@ -35,6 +35,15 @@ import (
 
 var notifySensitiveWordsDetected = service.NotifySensitiveWordsDetected
 
+func newSensitiveWordsDetectedError() *types.NewAPIError {
+	return types.NewError(
+		errors.New("请求触发敏感词审查，请修改后重试"),
+		types.ErrorCodeSensitiveWordsDetected,
+		types.ErrOptionWithStatusCode(http.StatusForbidden),
+		types.ErrOptionWithSkipRetry(),
+	)
+}
+
 func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
 	var err *types.NewAPIError
 	switch info.RelayMode {
@@ -142,7 +151,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		contains, words := service.CheckSensitiveText(meta.CombineText)
 		if contains {
 			logger.LogWarn(c, fmt.Sprintf("user sensitive words detected: %s", strings.Join(words, ", ")))
-			newAPIError = types.NewError(err, types.ErrorCodeSensitiveWordsDetected)
+			newAPIError = newSensitiveWordsDetectedError()
 			// 敏感词在请求上游前被拒绝，不会进入渠道错误处理，需要在此记录请求错误日志。
 			recordRelayErrorLog(c, newAPIError, fmt.Sprintf("sensitive_words=%s", strings.Join(words, ", ")))
 			logSensitivePromptAudit(c, meta.CombineText)
