@@ -80,7 +80,9 @@ export function Wallet(props: WalletProps) {
     useState<CreemProduct | null>(null)
   const [showSubscriptionPanel, setShowSubscriptionPanel] = useState(true)
 
-  const { status } = useStatus()
+  const { status, loading: statusLoading } = useStatus()
+  const affiliateEnabled =
+    !statusLoading && status?.self_use_mode_enabled !== true
   const { currency } = useSystemConfig()
   const { topupInfo, presetAmounts, loading: topupLoading } = useTopupInfo()
 
@@ -102,7 +104,7 @@ export function Wallet(props: WalletProps) {
     loading: affiliateLoading,
     transferQuota,
     transferring,
-  } = useAffiliate()
+  } = useAffiliate(affiliateEnabled)
   const { redeeming, redeemCode } = useRedemption()
   const { processing: creemProcessing, processCreemPayment } = useCreemPayment()
   const { processing: waffoProcessing, processWaffoPayment } = useWaffoPayment()
@@ -339,15 +341,17 @@ export function Wallet(props: WalletProps) {
               />
             </div>
 
-            <AffiliateRewardsCard
-              user={user}
-              affiliateLink={affiliateLink}
-              onTransfer={() => setTransferDialogOpen(true)}
-              complianceConfirmed={
-                topupInfo?.payment_compliance_confirmed !== false
-              }
-              loading={affiliateLoading}
-            />
+            {affiliateEnabled ? (
+              <AffiliateRewardsCard
+                user={user}
+                affiliateLink={affiliateLink}
+                onTransfer={() => setTransferDialogOpen(true)}
+                complianceConfirmed={
+                  topupInfo?.payment_compliance_confirmed !== false
+                }
+                loading={affiliateLoading}
+              />
+            ) : null}
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
@@ -365,13 +369,15 @@ export function Wallet(props: WalletProps) {
         usdExchangeRate={effectiveUsdExchangeRate}
       />
 
-      <TransferDialog
-        open={transferDialogOpen}
-        onOpenChange={setTransferDialogOpen}
-        onConfirm={handleTransfer}
-        availableQuota={user?.aff_quota ?? 0}
-        transferring={transferring}
-      />
+      {affiliateEnabled ? (
+        <TransferDialog
+          open={transferDialogOpen}
+          onOpenChange={setTransferDialogOpen}
+          onConfirm={handleTransfer}
+          availableQuota={user?.aff_quota ?? 0}
+          transferring={transferring}
+        />
+      ) : null}
 
       <BillingHistoryDialog
         open={billingDialogOpen}

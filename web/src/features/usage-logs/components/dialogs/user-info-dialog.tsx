@@ -23,6 +23,7 @@ import { toast } from 'sonner'
 
 import { Dialog } from '@/components/dialog'
 import { Label } from '@/components/ui/label'
+import { useStatus } from '@/hooks/use-status'
 import { formatQuota, formatCompactNumber } from '@/lib/format'
 
 import { getUserInfo } from '../../api'
@@ -49,6 +50,9 @@ export function UserInfoDialog({
   onOpenChange,
 }: UserInfoDialogProps) {
   const { t } = useTranslation()
+  const { status, loading: statusLoading } = useStatus()
+  const invitationEnabled =
+    !statusLoading && status?.self_use_mode_enabled !== true
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null)
   const [isLoading, setIsLoading] = useState(false)
 
@@ -136,33 +140,34 @@ export function UserInfoDialog({
         </div>
 
         {/* Invitation Info */}
-        {(userInfo.aff_code ||
-          userInfo.aff_count !== undefined ||
-          (userInfo.aff_quota !== undefined && userInfo.aff_quota > 0)) && (
-          <>
-            <div className='grid grid-cols-2 gap-4'>
-              {userInfo.aff_code && (
-                <InfoItem
-                  label={t('Invitation Code')}
-                  value={userInfo.aff_code}
-                />
-              )}
-              {userInfo.aff_count !== undefined && (
-                <InfoItem
-                  label={t('Invited Users')}
-                  value={formatCompactNumber(userInfo.aff_count)}
-                />
-              )}
-            </div>
+        {invitationEnabled &&
+          (userInfo.aff_code ||
+            userInfo.aff_count !== undefined ||
+            (userInfo.aff_quota !== undefined && userInfo.aff_quota > 0)) && (
+            <>
+              <div className='grid grid-cols-2 gap-4'>
+                {userInfo.aff_code && (
+                  <InfoItem
+                    label={t('Invitation Code')}
+                    value={userInfo.aff_code}
+                  />
+                )}
+                {userInfo.aff_count !== undefined && (
+                  <InfoItem
+                    label={t('Invited Users')}
+                    value={formatCompactNumber(userInfo.aff_count)}
+                  />
+                )}
+              </div>
 
-            {userInfo.aff_quota !== undefined && userInfo.aff_quota > 0 && (
-              <InfoItem
-                label={t('Invitation Quota')}
-                value={formatQuota(userInfo.aff_quota)}
-              />
-            )}
-          </>
-        )}
+              {userInfo.aff_quota !== undefined && userInfo.aff_quota > 0 && (
+                <InfoItem
+                  label={t('Invitation Quota')}
+                  value={formatQuota(userInfo.aff_quota)}
+                />
+              )}
+            </>
+          )}
 
         {/* Remark */}
         {userInfo.remark && (
@@ -184,9 +189,13 @@ export function UserInfoDialog({
       open={open}
       onOpenChange={onOpenChange}
       title={t('User Information')}
-      description={t(
-        'View detailed information about this user including balance, usage statistics, and invitation details.'
-      )}
+      description={
+        invitationEnabled
+          ? t(
+              'View detailed information about this user including balance, usage statistics, and invitation details.'
+            )
+          : undefined
+      }
       contentClassName='sm:max-w-lg'
       contentHeight='auto'
       bodyClassName='space-y-4'

@@ -308,6 +308,7 @@ export type ModelSettings = {
 }
 
 export type BillingSettings = {
+  SelfUseModeEnabled: boolean
   QuotaForNewUser: number
   PreConsumedQuota: number
   QuotaForInviter: number

@@ -25,6 +25,7 @@ import {
 } from './section-registry.tsx'
 
 const defaultBillingSettings: BillingSettings = {
+  SelfUseModeEnabled: false,
   QuotaForNewUser: 0,
   PreConsumedQuota: 0,
   QuotaForInviter: 0,

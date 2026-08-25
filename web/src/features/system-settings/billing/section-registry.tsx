@@ -76,6 +76,7 @@ const BILLING_SECTIONS = [
           (settings['payment_setting.compliance_confirmed'] ?? false) &&
           settings['payment_setting.compliance_terms_version'] === 'v1'
         }
+        selfUseModeEnabled={settings.SelfUseModeEnabled}
       />
     ),
   },

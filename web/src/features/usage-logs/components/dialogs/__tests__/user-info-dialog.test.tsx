@@ -14,8 +14,10 @@ import { useAuthStore } from '@/stores/auth-store'
 import { UserInfoDialog } from '../user-info-dialog'
 
 const apiMocks = vi.hoisted(() => ({ getUserInfo: vi.fn() }))
+const statusMocks = vi.hoisted(() => ({ useStatus: vi.fn() }))
 
 vi.mock('../../../api', () => apiMocks)
+vi.mock('@/hooks/use-status', () => statusMocks)
 
 const userInfo = {
   id: 12,
@@ -33,6 +35,39 @@ const userInfo = {
 beforeEach(() => {
   apiMocks.getUserInfo.mockReset()
   apiMocks.getUserInfo.mockResolvedValue({ success: true, data: userInfo })
+  statusMocks.useStatus.mockReset()
+  statusMocks.useStatus.mockReturnValue({
+    status: { self_use_mode_enabled: false },
+    loading: false,
+  })
+})
+
+test('hides invitation details in self-use mode', async () => {
+  statusMocks.useStatus.mockReturnValue({
+    status: { self_use_mode_enabled: true },
+    loading: false,
+  })
+  apiMocks.getUserInfo.mockResolvedValue({
+    success: true,
+    data: {
+      ...userInfo,
+      aff_code: 'invite-code',
+      aff_count: 3,
+      aff_quota: 1000,
+    },
+  })
+
+  render(<UserInfoDialog userId={12} open onOpenChange={() => undefined} />)
+
+  expect(await screen.findByText('alice')).toBeInTheDocument()
+  expect(screen.queryByText('Invitation Code')).not.toBeInTheDocument()
+  expect(screen.queryByText('Invited Users')).not.toBeInTheDocument()
+  expect(screen.queryByText('Invitation Quota')).not.toBeInTheDocument()
+  expect(
+    screen.queryByText(
+      'View detailed information about this user including balance, usage statistics, and invitation details.'
+    )
+  ).not.toBeInTheDocument()
 })
 
 afterEach(() => {

@@ -30,15 +30,21 @@ import { generateAffiliateLink } from '../lib'
 // Affiliate Hook
 // ============================================================================
 
-export function useAffiliate() {
+export function useAffiliate(enabled = true) {
   const [affiliateCode, setAffiliateCode] = useState<string>('')
   const [affiliateLink, setAffiliateLink] = useState<string>('')
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(enabled)
   const [transferring, setTransferring] = useState(false)
   const { copyToClipboard } = useCopyToClipboard()
 
   // Fetch affiliate code
   const fetchAffiliateCode = useCallback(async () => {
+    if (!enabled) {
+      setAffiliateCode('')
+      setAffiliateLink('')
+      setLoading(false)
+      return
+    }
     try {
       setLoading(true)
       const response = await getAffiliateCode()
@@ -54,7 +60,7 @@ export function useAffiliate() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [enabled])
 
   // Copy affiliate link
   const copyAffiliateLink = useCallback(() => {
@@ -75,7 +81,7 @@ export function useAffiliate() {
 
       toast.error(response.message || i18next.t('Transfer failed'))
       return false
-    } catch (_error) {
+    } catch {
       toast.error(i18next.t('Transfer failed'))
       return false
     } finally {

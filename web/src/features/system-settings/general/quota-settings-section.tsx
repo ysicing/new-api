@@ -74,11 +74,13 @@ function formatQuotaInputValue(value: QuotaInputValue): string {
 type QuotaSettingsSectionProps = {
   defaultValues: QuotaFormValues
   complianceConfirmed?: boolean
+  selfUseModeEnabled?: boolean
 }
 
 export function QuotaSettingsSection({
   defaultValues,
   complianceConfirmed = true,
+  selfUseModeEnabled = false,
 }: QuotaSettingsSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
@@ -111,7 +113,7 @@ export function QuotaSettingsSection({
     <SettingsSection title={t('Quota Settings')}>
       <FormNavigationGuard when={isDirty} />
 
-      {!complianceConfirmed ? (
+      {!selfUseModeEnabled && !complianceConfirmed ? (
         <Alert variant='destructive'>
           <AlertDescription>
             {t(
@@ -182,60 +184,67 @@ export function QuotaSettingsSection({
               )}
             />
 
-            <FormField
-              control={form.control}
-              name='QuotaForInviter'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Inviter Reward')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      value={field.value ?? ''}
-                      onChange={handleNumberChange(field.onChange)}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      ref={field.ref}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Quota given to users who invite others ({{formattedQuota}})',
-                      {
-                        formattedQuota: formatQuotaInputValue(field.value),
-                      }
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {!selfUseModeEnabled ? (
+              <>
+                <FormField
+                  control={form.control}
+                  name='QuotaForInviter'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Inviter Reward')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type='number'
+                          value={field.value ?? ''}
+                          onChange={handleNumberChange(field.onChange)}
+                          name={field.name}
+                          onBlur={field.onBlur}
+                          ref={field.ref}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Quota given to users who invite others ({{formattedQuota}})',
+                          {
+                            formattedQuota: formatQuotaInputValue(field.value),
+                          }
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-            <FormField
-              control={form.control}
-              name='QuotaForInvitee'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Invitee Reward')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      value={field.value ?? ''}
-                      onChange={handleNumberChange(field.onChange)}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      ref={field.ref}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t('Quota given to invited users ({{formattedQuota}})', {
-                      formattedQuota: formatQuotaInputValue(field.value),
-                    })}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                <FormField
+                  control={form.control}
+                  name='QuotaForInvitee'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Invitee Reward')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type='number'
+                          value={field.value ?? ''}
+                          onChange={handleNumberChange(field.onChange)}
+                          name={field.name}
+                          onBlur={field.onBlur}
+                          ref={field.ref}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Quota given to invited users ({{formattedQuota}})',
+                          {
+                            formattedQuota: formatQuotaInputValue(field.value),
+                          }
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </>
+            ) : null}
 
             <SettingsFormGridItem span='full'>
               <FormField
