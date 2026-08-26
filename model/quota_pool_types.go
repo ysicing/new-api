@@ -165,3 +165,10 @@ type QuotaPoolAdminContact struct {
 	DisplayName string `json:"display_name"`
 	Email       string `json:"email"`
 }
+
+// QuotaPoolDirectoryItem 仅暴露新用户联系部门负责人所需的安全字段。
+type QuotaPoolDirectoryItem struct {
+	Id            int                     `json:"id"`
+	Name          string                  `json:"name"`
+	AdminContacts []QuotaPoolAdminContact `json:"admin_contacts"`
+}

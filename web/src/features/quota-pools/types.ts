@@ -59,6 +59,12 @@ export interface QuotaPoolAdminContact {
   email: string
 }
 
+export interface QuotaPoolDirectoryItem {
+  id: number
+  name: string
+  admin_contacts: QuotaPoolAdminContact[]
+}
+
 export interface QuotaPoolTransaction {
   id: number
   pool_id: number

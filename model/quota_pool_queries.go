@@ -187,6 +187,28 @@ func ListQuotaPoolAdminContacts(poolId int) ([]QuotaPoolAdminContact, error) {
 	return contacts, nil
 }
 
+// ListAvailableQuotaPoolDirectory 返回启用的普通额度池及其负责人联系方式。
+// 目录不包含额度、成员数量等管理字段，供新用户只读选择部门负责人。
+func ListAvailableQuotaPoolDirectory() ([]QuotaPoolDirectoryItem, error) {
+	var pools []QuotaPool
+	if err := DB.Select("id", "name").
+		Where("pool_type = ? AND enabled = ?", QuotaPoolTypeNormal, true).
+		Order("name ASC, id ASC").Find(&pools).Error; err != nil {
+		return nil, err
+	}
+	items := make([]QuotaPoolDirectoryItem, 0, len(pools))
+	for _, pool := range pools {
+		contacts, err := ListQuotaPoolAdminContacts(pool.Id)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, QuotaPoolDirectoryItem{
+			Id: pool.Id, Name: pool.Name, AdminContacts: contacts,
+		})
+	}
+	return items, nil
+}
+
 func ListQuotaPoolCandidates(keyword string, page *common.PageInfo) ([]QuotaPoolMember, int64, error) {
 	var newUserPool QuotaPool
 	if err := DB.Where("pool_type = ?", QuotaPoolTypeNewUser).First(&newUserPool).Error; errors.Is(err, gorm.ErrRecordNotFound) {

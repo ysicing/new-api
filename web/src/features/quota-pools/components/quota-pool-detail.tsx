@@ -20,6 +20,7 @@ import type {
   QuotaPool,
   QuotaPoolAdminContact,
   QuotaPoolCapabilities,
+  QuotaPoolDirectoryItem,
   QuotaPoolStatsPeriod,
 } from '../types'
 import { PoolConfiguration } from './quota-pool-configuration'
@@ -29,6 +30,7 @@ import {
   PoolOverview,
   PoolTransactions,
 } from './quota-pool-data'
+import { AvailableQuotaPoolDirectory } from './quota-pool-directory'
 import { PoolMembers } from './quota-pool-members'
 import { PoolStats } from './quota-pool-stats'
 
@@ -44,6 +46,7 @@ export function QuotaPoolDetail(props: {
   pool: QuotaPool
   capabilities: QuotaPoolCapabilities
   adminContacts?: QuotaPoolAdminContact[]
+  availablePools?: QuotaPoolDirectoryItem[]
   selfMode?: boolean
   onBack?: () => void
   title?: ReactNode
@@ -146,6 +149,9 @@ export function QuotaPoolDetail(props: {
               </Alert>
             ) : null}
             <PoolOverview pool={props.pool} />
+            {showNewUserNotice ? (
+              <AvailableQuotaPoolDirectory pools={props.availablePools ?? []} />
+            ) : null}
             {showPoolAdminContacts && (
               <PoolAdminContacts contacts={props.adminContacts ?? []} />
             )}

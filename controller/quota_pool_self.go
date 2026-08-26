@@ -64,6 +64,14 @@ func GetSelfQuotaPool(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
+	availablePools := []model.QuotaPoolDirectoryItem{}
+	if admin == nil && pool.IsNewUserPool() {
+		availablePools, err = model.ListAvailableQuotaPoolDirectory()
+		if err != nil {
+			writeQuotaPoolError(c, err)
+			return
+		}
+	}
 	poolItem, err := model.GetQuotaPoolListItemById(pool.Id)
 	if err != nil {
 		writeQuotaPoolError(c, err)
@@ -75,6 +83,7 @@ func GetSelfQuotaPool(c *gin.Context) {
 		"capabilities":               selfQuotaPoolCapabilities(c, admin),
 		"weekly_auto_recharge_usage": weeklyUsage,
 		"admin_contacts":             contacts,
+		"available_pools":            availablePools,
 	})
 }
 

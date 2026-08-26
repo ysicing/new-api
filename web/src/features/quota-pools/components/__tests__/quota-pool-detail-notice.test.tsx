@@ -7,7 +7,7 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test } from 'vitest'
 
 import type { QuotaPool, QuotaPoolCapabilities } from '../../types'
@@ -46,6 +46,16 @@ function renderDetail(options?: {
   poolType?: QuotaPool['pool_type']
   selfMode?: boolean
   canManageMembers?: boolean
+  availablePools?: Array<{
+    id: number
+    name: string
+    admin_contacts: Array<{
+      id: number
+      username: string
+      display_name: string
+      email: string
+    }>
+  }>
 }) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -59,6 +69,7 @@ function renderDetail(options?: {
           can_manage_members: options?.canManageMembers ?? false,
         }}
         selfMode={options?.selfMode ?? true}
+        availablePools={options?.availablePools}
       />
     </QueryClientProvider>
   )
@@ -75,6 +86,36 @@ test('ordinary member sees the one-time trial notice in the new-user pool', () =
     )
   ).toBeInTheDocument()
   expect(screen.queryByText('Pool administrators')).not.toBeInTheDocument()
+})
+
+test('new-user member selects an available pool before seeing its administrators', () => {
+  renderDetail({
+    availablePools: [
+      {
+        id: 7,
+        name: '研发部额度池',
+        admin_contacts: [
+          {
+            id: 19,
+            username: 'rd-owner',
+            display_name: '研发负责人',
+            email: 'rd@example.com',
+          },
+        ],
+      },
+    ],
+  })
+
+  const selector = screen.getByRole('combobox', {
+    name: 'Available quota pools',
+  })
+  expect(screen.queryByText('Pool administrators')).not.toBeInTheDocument()
+
+  fireEvent.change(selector, { target: { value: '7' } })
+
+  expect(screen.getByText('Pool administrators')).toBeInTheDocument()
+  expect(screen.getByText('研发负责人')).toBeInTheDocument()
+  expect(screen.getByText('rd@example.com')).toBeInTheDocument()
 })
 
 test('ordinary member does not see the trial notice in a normal pool', () => {
