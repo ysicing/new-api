@@ -262,6 +262,36 @@ func TestBuildQuotaPoolReclaimAmountsPreservesThreshold(t *testing.T) {
 	assert.Empty(t, buildQuotaPoolReclaimAmounts(1000, 100, 100))
 }
 
+func TestResolveQuotaPoolRechargeAmountUsesDefaultAndValidatesCustomRange(t *testing.T) {
+	minimum := common.QuotaRound(10 * common.QuotaPerUnit)
+	defaultAmount := common.QuotaRound(50 * common.QuotaPerUnit)
+	pool := &model.QuotaPool{
+		PoolType: model.QuotaPoolTypeNormal,
+		Quota:    defaultAmount * 2, AutoRechargeAmount: defaultAmount,
+	}
+
+	amount, err := resolveQuotaPoolRechargeAmount(pool, nil)
+	require.NoError(t, err)
+	assert.Equal(t, defaultAmount, amount)
+
+	amount, err = resolveQuotaPoolRechargeAmount(pool, &minimum)
+	require.NoError(t, err)
+	assert.Equal(t, minimum, amount)
+
+	belowMinimum := minimum - 1
+	_, err = resolveQuotaPoolRechargeAmount(pool, &belowMinimum)
+	assert.ErrorIs(t, err, model.ErrQuotaPoolInvalidAmount)
+
+	aboveDefault := defaultAmount + 1
+	_, err = resolveQuotaPoolRechargeAmount(pool, &aboveDefault)
+	assert.ErrorIs(t, err, model.ErrQuotaPoolInvalidAmount)
+
+	pool.Quota = minimum
+	aboveAvailable := minimum + 1
+	_, err = resolveQuotaPoolRechargeAmount(pool, &aboveAvailable)
+	assert.ErrorIs(t, err, model.ErrQuotaPoolInsufficientQuota)
+}
+
 func TestReclaimQuotaPoolMemberUsesRequestedAllowedAmount(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.QuotaPool{}, &model.QuotaPoolTransaction{}))

@@ -252,6 +252,23 @@ func quotaPoolRechargeAmount(pool *model.QuotaPool) int {
 	return amount
 }
 
+// resolveQuotaPoolRechargeAmount 将手动充值限制在 10 到额度池默认充值金额之间，
+// 避免池管理员通过接口绕过前端范围校验进行超额拨付。
+func resolveQuotaPoolRechargeAmount(pool *model.QuotaPool, requestedAmount *int) (int, error) {
+	defaultAmount := quotaPoolRechargeAmount(pool)
+	if requestedAmount == nil {
+		return defaultAmount, nil
+	}
+	minimumAmount := common.QuotaRound(10 * common.QuotaPerUnit)
+	if *requestedAmount < minimumAmount || *requestedAmount > defaultAmount {
+		return 0, model.ErrQuotaPoolInvalidAmount
+	}
+	if pool != nil && pool.Quota >= 0 && *requestedAmount > pool.Quota {
+		return 0, model.ErrQuotaPoolInsufficientQuota
+	}
+	return *requestedAmount, nil
+}
+
 func quotaPoolReclaimAmounts(pool *model.QuotaPool, userQuota int) []int {
 	config := operation_setting.GetAutoRechargeSetting()
 	threshold := -1

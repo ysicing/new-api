@@ -134,12 +134,30 @@ func RechargeQuotaPoolMember(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
-	change, err := model.AllocateQuotaFromPool(id, userId, quotaPoolRechargeAmount(pool), model.QuotaPoolTransactionAllocateManual, c.GetInt("id"))
+	rechargeQuotaPoolMember(c, pool, userId)
+}
+
+func rechargeQuotaPoolMember(c *gin.Context, pool *model.QuotaPool, userId int) {
+	var req struct {
+		Amount *int `json:"amount"`
+	}
+	if c.Request.ContentLength != 0 {
+		if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+			writeQuotaPoolError(c, model.ErrQuotaPoolInvalidAmount)
+			return
+		}
+	}
+	amount, err := resolveQuotaPoolRechargeAmount(pool, req.Amount)
 	if err != nil {
 		writeQuotaPoolError(c, err)
 		return
 	}
-	recordQuotaPoolAudit(c, id, "quota_pool.member_recharge", map[string]any{"user_id": userId, "amount": -change.Amount})
+	change, err := model.AllocateQuotaFromPool(pool.Id, userId, amount, model.QuotaPoolTransactionAllocateManual, c.GetInt("id"))
+	if err != nil {
+		writeQuotaPoolError(c, err)
+		return
+	}
+	recordQuotaPoolAudit(c, pool.Id, "quota_pool.member_recharge", map[string]any{"user_id": userId, "amount": -change.Amount})
 	common.ApiSuccess(c, change)
 }
 

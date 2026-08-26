@@ -25,6 +25,7 @@ export function QuotaPoolMemberActions(props: {
   pool: QuotaPool
   capabilities: QuotaPoolCapabilities
   member: QuotaPoolMember
+  rechargeDisabled?: boolean
   onQuotaAction: (action: 'recharge' | 'reclaim') => void
   onRemove: () => void
   onAdminAction: (action: 'grant' | 'revoke') => void
@@ -51,7 +52,10 @@ export function QuotaPoolMemberActions(props: {
     <DataTableRowActionMenu ariaLabel={t('Open menu')}>
       {showQuotaActions ? (
         <>
-          <DropdownMenuItem onClick={() => props.onQuotaAction('recharge')}>
+          <DropdownMenuItem
+            disabled={props.rechargeDisabled}
+            onClick={() => props.onQuotaAction('recharge')}
+          >
             {t('Recharge')}
           </DropdownMenuItem>
           <DropdownMenuItem

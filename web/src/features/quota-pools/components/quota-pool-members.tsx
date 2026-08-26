@@ -18,6 +18,10 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { formatQuota } from '@/lib/format'
+import {
+  DEFAULT_CURRENCY_CONFIG,
+  useSystemConfigStore,
+} from '@/stores/system-config-store'
 
 import {
   removeQuotaPoolMember,
@@ -52,6 +56,22 @@ export function PoolMembers(props: {
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const configuredQuotaPerUnit = useSystemConfigStore(
+    (state) => state.config.currency.quotaPerUnit
+  )
+  const quotaPerUnit =
+    configuredQuotaPerUnit > 0
+      ? configuredQuotaPerUnit
+      : DEFAULT_CURRENCY_CONFIG.quotaPerUnit
+  const minimumRechargeAmount = Math.round(10 * quotaPerUnit)
+  const defaultRechargeAmount =
+    props.pool.pool_type === 'default' || props.pool.auto_recharge_amount < 0
+      ? (props.pool.system_auto_recharge?.amount ?? 0)
+      : props.pool.auto_recharge_amount
+  const maximumRechargeAmount =
+    props.pool.quota < 0
+      ? defaultRechargeAmount
+      : Math.min(defaultRechargeAmount, props.pool.quota)
   const [searchValue, setSearchValue] = useState(props.keyword)
   const [quotaAction, setQuotaAction] = useState<{
     action: 'recharge' | 'reclaim'
@@ -66,10 +86,11 @@ export function PoolMembers(props: {
     { value: 20, label: t('20 / page') },
     { value: 50, label: t('50 / page') },
   ]
-  const recharge = async (userId: number) => {
+  const recharge = async (userId: number, amount: number) => {
     const result = await rechargeQuotaPoolMember(
       props.pool.id,
       userId,
+      amount,
       props.selfMode
     )
     if (!result.success) {
@@ -223,6 +244,9 @@ export function PoolMembers(props: {
                       pool={props.pool}
                       capabilities={props.capabilities}
                       member={member}
+                      rechargeDisabled={
+                        maximumRechargeAmount < minimumRechargeAmount
+                      }
                       onQuotaAction={(action) =>
                         setQuotaAction({ action, member })
                       }
@@ -274,12 +298,15 @@ export function PoolMembers(props: {
             quotaAction.member.display_name || quotaAction.member.username
           }
           reclaimAmounts={quotaAction.member.reclaim_amounts ?? []}
+          defaultRechargeAmount={defaultRechargeAmount}
+          maximumRechargeAmount={maximumRechargeAmount}
           onOpenChange={(open) => !open && setQuotaAction(undefined)}
-          onConfirm={(amount) =>
-            quotaAction.action === 'recharge'
-              ? recharge(quotaAction.member.id)
+          onConfirm={(amount) => {
+            if (amount === undefined) return Promise.resolve(false)
+            return quotaAction.action === 'recharge'
+              ? recharge(quotaAction.member.id, amount)
               : runMemberAction('reclaim', quotaAction.member.id, amount)
-          }
+          }}
         />
       ) : null}
       {removeMember ? (

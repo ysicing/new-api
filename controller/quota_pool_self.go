@@ -278,13 +278,7 @@ func RechargeSelfQuotaPoolMember(c *gin.Context) {
 	if !ok {
 		return
 	}
-	change, err := model.AllocateQuotaFromPool(pool.Id, userId, quotaPoolRechargeAmount(pool), model.QuotaPoolTransactionAllocateManual, c.GetInt("id"))
-	if err != nil {
-		writeQuotaPoolError(c, err)
-		return
-	}
-	recordQuotaPoolAudit(c, pool.Id, "quota_pool.member_recharge", map[string]any{"user_id": userId, "amount": -change.Amount})
-	common.ApiSuccess(c, change)
+	rechargeQuotaPoolMember(c, pool, userId)
 }
 
 func ReclaimSelfQuotaPoolMember(c *gin.Context) {

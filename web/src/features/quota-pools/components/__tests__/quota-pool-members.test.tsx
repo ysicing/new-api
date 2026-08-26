@@ -36,15 +36,17 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock('../../api', () => apiMocks)
 
+const quotaPerUnit = 500_000
+
 const pool: QuotaPool = {
   id: 7,
   name: '研发池',
   pool_type: 'normal',
   enabled: true,
   is_default: false,
-  base_quota: 1000,
-  quota: 800,
-  auto_recharge_amount: 0,
+  base_quota: 100 * quotaPerUnit,
+  quota: 100 * quotaPerUnit,
+  auto_recharge_amount: 50 * quotaPerUnit,
   weekly_limit: 0,
   monthly_limit: 0,
   monthly_refill_enabled: false,
@@ -52,6 +54,14 @@ const pool: QuotaPool = {
   monthly_refill_amount: 0,
   monthly_refill_day: 1,
   last_refill_month: 0,
+  system_auto_recharge: {
+    enabled: true,
+    interval: 30,
+    threshold: 10 * quotaPerUnit,
+    amount: 40 * quotaPerUnit,
+    weekly_limit: 0,
+    monthly_limit: 0,
+  },
 }
 
 const capabilities: QuotaPoolCapabilities = {
@@ -110,13 +120,14 @@ function renderMembers(
     quota?: number
     usedQuota?: number
     reclaimAmounts?: number[]
+    pool?: Partial<QuotaPool>
   }
 ) {
   const queryClient = new QueryClient()
   return render(
     <QueryClientProvider client={queryClient}>
       <PoolMembers
-        pool={pool}
+        pool={{ ...pool, ...options?.pool }}
         capabilities={memberCapabilities}
         selfMode={false}
         query={membersQuery(
@@ -228,13 +239,107 @@ test('member recharge requires confirmation before submitting', async () => {
   fireEvent.click(screen.getByRole('menuitem', { name: 'Recharge' }))
 
   expect(apiMocks.rechargeQuotaPoolMember).not.toHaveBeenCalled()
+  expect(screen.getByRole('alertdialog')).toHaveTextContent('Alice')
   expect(screen.getByRole('alertdialog')).toHaveTextContent(
-    'Confirm recharge for Alice?'
+    formatQuota(pool.auto_recharge_amount)
   )
   fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
 
   await waitFor(() => {
-    expect(apiMocks.rechargeQuotaPoolMember).toHaveBeenCalledWith(7, 1, false)
+    expect(apiMocks.rechargeQuotaPoolMember).toHaveBeenCalledWith(
+      7,
+      1,
+      pool.auto_recharge_amount,
+      false
+    )
+  })
+})
+
+test('member recharge accepts a custom amount from the allowed range', async () => {
+  renderMembers({ ...capabilities, can_manage_members: true })
+
+  await openMemberActions()
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Recharge' }))
+  fireEvent.click(screen.getByRole('radio', { name: 'Custom' }))
+  const input = screen.getByRole('spinbutton', { name: 'Recharge amount' })
+  expect(input).toHaveAttribute('min', '10')
+  expect(input).toHaveAttribute('max', '50')
+  fireEvent.change(input, { target: { value: '20' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+  await waitFor(() => {
+    expect(apiMocks.rechargeQuotaPoolMember).toHaveBeenCalledWith(
+      7,
+      1,
+      20 * quotaPerUnit,
+      false
+    )
+  })
+})
+
+test('member recharge disables confirmation below the minimum amount', async () => {
+  renderMembers({ ...capabilities, can_manage_members: true })
+
+  await openMemberActions()
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Recharge' }))
+  fireEvent.click(screen.getByRole('radio', { name: 'Custom' }))
+  fireEvent.change(
+    screen.getByRole('spinbutton', { name: 'Recharge amount' }),
+    { target: { value: '9' } }
+  )
+
+  expect(screen.getByRole('button', { name: 'Confirm' })).toBeDisabled()
+})
+
+test('member recharge caps the custom range at the pool available quota', async () => {
+  renderMembers(
+    { ...capabilities, can_manage_members: true },
+    { pool: { quota: 30 * quotaPerUnit } }
+  )
+
+  await openMemberActions()
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Recharge' }))
+  fireEvent.click(screen.getByRole('radio', { name: 'Custom' }))
+
+  expect(
+    screen.getByRole('spinbutton', { name: 'Recharge amount' })
+  ).toHaveAttribute('max', '30')
+})
+
+test('member recharge is disabled when the pool has less than the minimum amount', async () => {
+  renderMembers(
+    { ...capabilities, can_manage_members: true },
+    { pool: { quota: 9 * quotaPerUnit } }
+  )
+
+  await openMemberActions()
+
+  expect(screen.getByRole('menuitem', { name: 'Recharge' })).toHaveAttribute(
+    'aria-disabled',
+    'true'
+  )
+})
+
+test('member recharge resolves an inherited pool default amount', async () => {
+  renderMembers(
+    { ...capabilities, can_manage_members: true },
+    { pool: { auto_recharge_amount: -1 } }
+  )
+
+  await openMemberActions()
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Recharge' }))
+  expect(screen.getByRole('alertdialog')).toHaveTextContent(
+    formatQuota(pool.system_auto_recharge?.amount ?? 0)
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+  await waitFor(() => {
+    expect(apiMocks.rechargeQuotaPoolMember).toHaveBeenCalledWith(
+      7,
+      1,
+      pool.system_auto_recharge?.amount,
+      false
+    )
   })
 })
 

@@ -14,6 +14,7 @@ import {
   getQuotaPool,
   getQuotaPools,
   moveUserQuotaPool,
+  rechargeQuotaPoolMember,
   removeQuotaPoolMember,
   reclaimQuotaPoolMember,
   setQuotaPoolAdmin,
@@ -114,6 +115,15 @@ describe('quota pool members API', () => {
     expect(apiMocks.post).toHaveBeenCalledWith(
       '/api/quota_pool/7/members/3/reclaim',
       { amount: 250 }
+    )
+  })
+
+  test('passes the selected recharge amount to the backend', async () => {
+    await rechargeQuotaPoolMember(7, 3, 10_000_000, false)
+
+    expect(apiMocks.post).toHaveBeenCalledWith(
+      '/api/quota_pool/7/members/3/recharge',
+      { amount: 10_000_000 }
     )
   })
 

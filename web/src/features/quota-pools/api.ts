@@ -174,12 +174,13 @@ export async function moveUserQuotaPool(userId: number, poolId: number) {
 export async function rechargeQuotaPoolMember(
   poolId: number,
   userId: number,
+  amount: number,
   self = false
 ) {
   const endpoint = self
     ? `/api/quota_pool/self/members/${userId}/recharge`
     : `/api/quota_pool/${poolId}/members/${userId}/recharge`
-  const response = await api.post<ApiResponse>(endpoint)
+  const response = await api.post<ApiResponse>(endpoint, { amount })
   return response.data
 }
 
