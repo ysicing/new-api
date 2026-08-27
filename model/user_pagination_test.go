@@ -77,3 +77,36 @@ func TestSearchUsersFiltersByQuotaPool(t *testing.T) {
 	assert.EqualValues(t, 2, total)
 	assert.Equal(t, []int{2, 4}, collectUserIDs(users))
 }
+
+func TestDefaultPoolUsersUseTheSystemPoolRecordName(t *testing.T) {
+	truncateTables(t)
+	require.NoError(t, DB.AutoMigrate(&QuotaPool{}))
+	require.NoError(t, DB.Exec("DELETE FROM quota_pools").Error)
+	t.Cleanup(func() {
+		require.NoError(t, DB.Exec("DELETE FROM quota_pools").Error)
+	})
+
+	require.NoError(t, DB.Create(&QuotaPool{
+		Name: QuotaPoolDefaultName, PoolType: QuotaPoolTypeDefault,
+		Enabled: true, IsDefault: true, BaseQuota: -1, Quota: -1,
+	}).Error)
+	user := &User{
+		Username: "default-pool-user", Password: "password",
+		AffCode: "default-pool-user-aff", Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, QuotaPoolId: QuotaPoolDefaultUserPoolId,
+	}
+	require.NoError(t, DB.Create(user).Error)
+
+	users, total, err := GetAllUsers(
+		&common.PageInfo{Page: 1, PageSize: 20},
+		NewUserSortOptions("id", "asc"),
+	)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	require.Len(t, users, 1)
+	assert.Equal(t, QuotaPoolDefaultName, users[0].QuotaPoolName)
+
+	detail, err := GetUserById(user.Id, false)
+	require.NoError(t, err)
+	assert.Equal(t, QuotaPoolDefaultName, detail.QuotaPoolName)
+}

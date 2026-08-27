@@ -52,14 +52,17 @@ const adminContacts = [
   },
 ]
 
-function renderDetail(capabilities: QuotaPoolCapabilities) {
+function renderDetail(
+  capabilities: QuotaPoolCapabilities,
+  poolOverrides?: Partial<QuotaPool>
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   return render(
     <QueryClientProvider client={queryClient}>
       <QuotaPoolDetail
-        pool={pool}
+        pool={{ ...pool, ...poolOverrides }}
         capabilities={capabilities}
         adminContacts={adminContacts}
         selfMode
@@ -84,6 +87,20 @@ test('ordinary pool member only sees the overview tab', () => {
   expect(screen.getByText('Pool administrators')).toBeInTheDocument()
   expect(screen.getByText('Alice Chen')).toBeInTheDocument()
   expect(screen.getByText('alice@example.com')).toBeInTheDocument()
+})
+
+test('default pool member does not see pool administrator contacts', () => {
+  renderDetail(memberCapabilities, {
+    name: '产研中心默认额度池(存量)',
+    pool_type: 'default',
+    is_default: true,
+    base_quota: -1,
+    quota: -1,
+  })
+
+  expect(screen.getByRole('tab', { name: 'Overview' })).toBeInTheDocument()
+  expect(screen.queryByText('Pool administrators')).not.toBeInTheDocument()
+  expect(screen.queryByText('Alice Chen')).not.toBeInTheDocument()
 })
 
 test('pool manager keeps all management tabs', () => {

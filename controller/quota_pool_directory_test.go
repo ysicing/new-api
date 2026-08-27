@@ -15,12 +15,73 @@ import (
 type selfQuotaPoolDirectoryResponse struct {
 	Success bool `json:"success"`
 	Data    struct {
+		Pool struct {
+			Id       int    `json:"id"`
+			Name     string `json:"name"`
+			PoolType string `json:"pool_type"`
+		} `json:"pool"`
+		Capabilities struct {
+			CanView          bool `json:"can_view"`
+			CanEdit          bool `json:"can_edit"`
+			CanRefill        bool `json:"can_refill"`
+			CanManageMembers bool `json:"can_manage_members"`
+			CanManageAdmins  bool `json:"can_manage_admins"`
+			CanDelete        bool `json:"can_delete"`
+		} `json:"capabilities"`
 		AvailablePools []struct {
 			Id            int                           `json:"id"`
 			Name          string                        `json:"name"`
 			AdminContacts []model.QuotaPoolAdminContact `json:"admin_contacts"`
 		} `json:"available_pools"`
 	} `json:"data"`
+}
+
+func TestGetSelfQuotaPoolAllowsDefaultPoolMemberReadOnly(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(
+		&model.Log{},
+		&model.QuotaPool{},
+		&model.QuotaPoolAdmin{},
+		&model.QuotaPoolTransaction{},
+	))
+	defaultPool := model.QuotaPool{
+		Name: model.QuotaPoolDefaultName, PoolType: model.QuotaPoolTypeDefault,
+		Enabled: true, IsDefault: true, BaseQuota: -1, Quota: -1,
+	}
+	require.NoError(t, db.Create(&defaultPool).Error)
+	user := model.User{
+		Username: "default-member", Password: "password", AffCode: "default-member-aff",
+		Role: common.RoleCommonUser, Status: common.UserStatusEnabled,
+		QuotaPoolId: model.QuotaPoolDefaultUserPoolId,
+	}
+	require.NoError(t, db.Create(&user).Error)
+
+	previous := common.QuotaPoolEnabled
+	common.QuotaPoolEnabled = true
+	t.Cleanup(func() { common.QuotaPoolEnabled = previous })
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/quota_pool/self/", nil)
+	c.Set("id", user.Id)
+	c.Set("role", common.RoleCommonUser)
+
+	GetSelfQuotaPool(c)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	var response selfQuotaPoolDirectoryResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.True(t, response.Success)
+	assert.Equal(t, defaultPool.Id, response.Data.Pool.Id)
+	assert.Equal(t, model.QuotaPoolDefaultName, response.Data.Pool.Name)
+	assert.Equal(t, model.QuotaPoolTypeDefault, response.Data.Pool.PoolType)
+	assert.True(t, response.Data.Capabilities.CanView)
+	assert.False(t, response.Data.Capabilities.CanEdit)
+	assert.False(t, response.Data.Capabilities.CanRefill)
+	assert.False(t, response.Data.Capabilities.CanManageMembers)
+	assert.False(t, response.Data.Capabilities.CanManageAdmins)
+	assert.False(t, response.Data.Capabilities.CanDelete)
+	assert.Empty(t, response.Data.AvailablePools)
 }
 
 func TestGetSelfQuotaPoolLimitsAvailableDirectoryToNewUserMembers(t *testing.T) {

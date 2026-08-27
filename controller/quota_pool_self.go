@@ -32,7 +32,15 @@ func selfQuotaPool(c *gin.Context) (*model.QuotaPool, *model.QuotaPoolAdminSumma
 		}
 		return pool, admin, true
 	}
-	if user.QuotaPoolId <= 0 {
+	if user.QuotaPoolId == model.QuotaPoolDefaultUserPoolId {
+		pool, err := model.GetDefaultQuotaPool()
+		if err != nil {
+			writeQuotaPoolError(c, err)
+			return nil, nil, false
+		}
+		return pool, nil, true
+	}
+	if user.QuotaPoolId < 0 {
 		writeQuotaPoolError(c, model.ErrQuotaPoolPermissionDenied)
 		return nil, nil, false
 	}

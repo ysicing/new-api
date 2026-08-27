@@ -63,7 +63,7 @@ export function QuotaPoolDetail(props: {
     !canViewManagement &&
     props.pool.pool_type === 'new_user'
   const showPoolAdminContacts =
-    !canViewManagement && props.pool.pool_type !== 'new_user'
+    !canViewManagement && props.pool.pool_type === 'normal'
   const activeTab = canViewManagement ? tab : 'overview'
   const members = useQuery({
     queryKey: [

@@ -79,6 +79,17 @@ func GetNewUserQuotaPool() (*QuotaPool, error) {
 	return &pool, nil
 }
 
+// GetDefaultQuotaPool 返回 quota_pool_id=0 对应的系统默认池记录。
+// 用户表保留 0 作为兼容标识，因此不能按额度池主键直接查询。
+func GetDefaultQuotaPool() (*QuotaPool, error) {
+	var pool QuotaPool
+	if err := DB.Where("pool_type = ? OR is_default = ?", QuotaPoolTypeDefault, true).
+		Order("id ASC").First(&pool).Error; err != nil {
+		return nil, mapQuotaPoolRecordError(err)
+	}
+	return &pool, nil
+}
+
 func GetQuotaPoolAuditName(poolId int) (string, error) {
 	var pool QuotaPool
 	if err := DB.Unscoped().Select("name").Where("id = ?", poolId).

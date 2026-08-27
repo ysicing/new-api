@@ -521,10 +521,8 @@ func GetUserById(id int, selectAll bool) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
-	if user.QuotaPoolId > 0 {
-		if err = fillUserQuotaPoolNames(DB, []*User{&user}); err != nil {
-			return nil, err
-		}
+	if err = fillUserQuotaPoolNames(DB, []*User{&user}); err != nil {
+		return nil, err
 	}
 	return &user, err
 }
