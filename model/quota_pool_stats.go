@@ -24,7 +24,7 @@ func GetQuotaPoolStats(poolId int, startTimestamp, endTimestamp int64) (*QuotaPo
 	usage := make(map[int]usageBucket)
 	if len(ids) > 0 {
 		var err error
-		usage, err = aggregateUsage(startTimestamp, endTimestamp, "", ids)
+		usage, err = aggregateOperationsUsage(startTimestamp, endTimestamp, "", ids)
 		if err != nil {
 			return nil, err
 		}

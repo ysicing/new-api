@@ -56,6 +56,7 @@ func TestSelfQuotaPoolManagementEndpointsRequirePoolManager(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&model.Log{},
+		&model.QuotaData{},
 		&model.QuotaPool{},
 		&model.QuotaPoolAdmin{},
 		&model.QuotaPoolTransaction{},

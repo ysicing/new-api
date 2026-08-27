@@ -97,6 +97,32 @@ func TestGetQuotaPoolStatsAggregatesMembersAndTransactions(t *testing.T) {
 	assert.Equal(t, 45, stats.Usage[0].DeepSeekQuota)
 }
 
+func TestGetQuotaPoolStatsCombinesQuotaDataWithRecentLogTail(t *testing.T) {
+	mainDB, logDB := setupICodeStatsTest(t)
+	now := time.Date(2026, time.August, 27, 12, 30, 0, 0, time.Local)
+	start := now.AddDate(0, 0, -3)
+	pool := QuotaPool{Name: "聚合统计池", PoolType: QuotaPoolTypeNormal, Enabled: true}
+	require.NoError(t, mainDB.Create(&pool).Error)
+	user := User{Username: "pool-aggregate-user", Password: "password", AffCode: "pool-aggregate", QuotaPoolId: pool.Id}
+	require.NoError(t, mainDB.Create(&user).Error)
+	require.NoError(t, mainDB.Create(&QuotaData{
+		UserID: user.Id, Username: user.Username, ModelName: "gpt-5",
+		CreatedAt: now.Add(-24 * time.Hour).Truncate(time.Hour).Unix(), Quota: 100,
+	}).Error)
+	require.NoError(t, logDB.Create(&[]Log{
+		{UserId: user.Id, Type: LogTypeConsume, CreatedAt: now.Add(-24 * time.Hour).Unix(), ModelName: "gpt-5", Quota: 1000},
+		{UserId: user.Id, Type: LogTypeConsume, CreatedAt: now.Add(-30 * time.Minute).Unix(), ModelName: "claude-4", Quota: 50},
+	}).Error)
+
+	stats, err := GetQuotaPoolStats(pool.Id, start.Unix(), now.Unix())
+
+	require.NoError(t, err)
+	assert.Equal(t, 150, stats.TotalUsage)
+	require.Len(t, stats.Usage, 1)
+	assert.Equal(t, 100, stats.Usage[0].GptQuota)
+	assert.Equal(t, 50, stats.Usage[0].ClaudeQuota)
+}
+
 func TestGetQuotaPoolStatsDoesNotAggregateUnrelatedLogsForEmptyPool(t *testing.T) {
 	mainDB, logDB := setupICodeStatsTest(t)
 	pool := QuotaPool{Name: "空池", PoolType: QuotaPoolTypeNormal, Enabled: true}
