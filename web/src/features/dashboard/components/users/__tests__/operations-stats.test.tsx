@@ -79,6 +79,18 @@ describe('operations statistics', () => {
     })
   })
 
+  test('uses one shared Top limit for both leaderboards', async () => {
+    renderOperationsStats()
+
+    expect(await screen.findByText('alice')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Top 20' }))
+
+    await waitFor(() => {
+      expect(apiMocks.getTopUsers).toHaveBeenCalledWith(20, 'week')
+      expect(apiMocks.getRechargeLeaderboard).toHaveBeenCalledWith(20)
+    })
+  })
+
   test('keeps the recharge leaderboard visible when top users fail', async () => {
     apiMocks.getTopUsers.mockRejectedValue(new Error('failed'))
 

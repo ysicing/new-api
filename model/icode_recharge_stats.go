@@ -6,26 +6,29 @@ import (
 )
 
 type rechargeCountRow struct {
-	UserId int `gorm:"column:user_id"`
-	Count  int `gorm:"column:count"`
+	UserId    int `gorm:"column:user_id"`
+	AutoCount int `gorm:"column:auto_count"`
+	TempCount int `gorm:"column:temp_count"`
 }
 
 func GetRechargeLeaderboard(limit int) ([]UserRechargeStat, error) {
 	limit = normalizeStatsLimit(limit)
 	weekStart := statsWeekStart(time.Now()).Unix()
-	autoCounts, err := groupedRechargeCounts(
-		LogTypeSystem, weekStart,
-		"content LIKE ? OR content LIKE ? OR other LIKE ?",
-		"系统自动赠送%", "额度池%自动赠送%", `%"recharge_source":"auto"%`,
-	)
+	countRows, err := groupedRechargeCounts(weekStart)
 	if err != nil {
 		return nil, err
 	}
-	tempCounts, err := groupedRechargeCounts(LogTypeManage, weekStart, "content LIKE ?", "%临时额度%")
-	if err != nil {
-		return nil, err
+	if len(countRows) == 0 {
+		return []UserRechargeStat{}, nil
 	}
-	ids := rechargeCandidateIds(autoCounts, tempCounts)
+	autoCounts := make(map[int]int, len(countRows))
+	tempCounts := make(map[int]int, len(countRows))
+	ids := make([]int, 0, len(countRows))
+	for _, row := range countRows {
+		autoCounts[row.UserId] = row.AutoCount
+		tempCounts[row.UserId] = row.TempCount
+		ids = append(ids, row.UserId)
+	}
 	usage, err := aggregateUsage(weekStart, 0, "", ids)
 	if err != nil {
 		return nil, err
@@ -61,35 +64,40 @@ func GetRechargeLeaderboard(limit int) ([]UserRechargeStat, error) {
 	return result, nil
 }
 
-func groupedRechargeCounts(logType int, since int64, condition string, args ...any) (map[int]int, error) {
+// groupedRechargeCounts 使用一次日志扫描同时统计自动充值和临时额度次数，
+// 避免两条带 LIKE 条件的周范围查询重复遍历日志表。
+func groupedRechargeCounts(since int64) ([]rechargeCountRow, error) {
+	const selectSQL = `user_id,
+COALESCE(SUM(CASE WHEN type = ? AND (
+  content LIKE ? OR content LIKE ? OR other LIKE ?
+) THEN 1 ELSE 0 END), 0) AS auto_count,
+COALESCE(SUM(CASE WHEN type = ? AND content LIKE ?
+  THEN 1 ELSE 0 END), 0) AS temp_count`
+	const matchingCondition = `(type = ? AND (
+  content LIKE ? OR content LIKE ? OR other LIKE ?
+)) OR (type = ? AND content LIKE ?)`
+	autoContentPattern := "系统自动赠送%"
+	poolAutoContentPattern := "额度池%自动赠送%"
+	autoSourcePattern := `%"recharge_source":"auto"%`
+	tempContentPattern := "%临时额度%"
 	query := LOG_DB.Model(&Log{}).
-		Select("user_id, COUNT(*) AS count").
-		Where("type = ? AND created_at >= ?", logType, since).
-		Where(condition, args...).Group("user_id")
+		Select(
+			selectSQL,
+			LogTypeSystem, autoContentPattern, poolAutoContentPattern, autoSourcePattern,
+			LogTypeManage, tempContentPattern,
+		).
+		Where("created_at >= ?", since).
+		Where(
+			matchingCondition,
+			LogTypeSystem, autoContentPattern, poolAutoContentPattern, autoSourcePattern,
+			LogTypeManage, tempContentPattern,
+		).
+		Group("user_id")
 	var rows []rechargeCountRow
 	if err := query.Scan(&rows).Error; err != nil {
 		return nil, err
 	}
-	result := make(map[int]int, len(rows))
-	for _, row := range rows {
-		result[row.UserId] = row.Count
-	}
-	return result, nil
-}
-
-func rechargeCandidateIds(first, second map[int]int) []int {
-	seen := make(map[int]struct{}, len(first)+len(second))
-	for id := range first {
-		seen[id] = struct{}{}
-	}
-	for id := range second {
-		seen[id] = struct{}{}
-	}
-	ids := make([]int, 0, len(seen))
-	for id := range seen {
-		ids = append(ids, id)
-	}
-	return ids
+	return rows, nil
 }
 
 func statsWeekStart(now time.Time) time.Time {

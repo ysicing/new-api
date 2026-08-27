@@ -42,18 +42,24 @@ interface UserStat {
   total_count?: number
 }
 
+const TOP_LIMIT_OPTIONS = [10, 20, 30] as const
+const OPERATIONS_STATS_STALE_TIME = 60_000
+
 export function OperationsStats() {
   const { t } = useTranslation()
   const [period, setPeriod] = useState<OperationsStatsPeriod>('week')
+  const [limit, setLimit] = useState<(typeof TOP_LIMIT_OPTIONS)[number]>(10)
   const topUsers = useQuery({
-    queryKey: ['operations', 'top-users', period],
-    queryFn: () => getTopUsers(10, period),
+    queryKey: ['operations', 'top-users', period, limit],
+    queryFn: () => getTopUsers(limit, period),
     retry: false,
+    staleTime: OPERATIONS_STATS_STALE_TIME,
   })
   const recharge = useQuery({
-    queryKey: ['operations', 'recharge'],
-    queryFn: () => getRechargeLeaderboard(10),
+    queryKey: ['operations', 'recharge', limit],
+    queryFn: () => getRechargeLeaderboard(limit),
     retry: false,
+    staleTime: OPERATIONS_STATS_STALE_TIME,
   })
   const topItems = (topUsers.data?.data ?? []) as UserStat[]
   const rechargeItems = (recharge.data?.data?.list ?? []) as UserStat[]
@@ -77,26 +83,44 @@ export function OperationsStats() {
       </Button>
     </ButtonGroup>
   )
+  const limitControls = (
+    <ButtonGroup aria-label={t('Top Users')}>
+      {TOP_LIMIT_OPTIONS.map((option) => (
+        <Button
+          key={option}
+          size='sm'
+          variant={limit === option ? 'secondary' : 'outline'}
+          aria-pressed={limit === option}
+          onClick={() => setLimit(option)}
+        >
+          {t('Top {{count}}', { count: option })}
+        </Button>
+      ))}
+    </ButtonGroup>
+  )
   return (
-    <div className='grid gap-4 xl:grid-cols-2'>
-      <StatTable
-        title={t('Top users')}
-        action={periodControls}
-        items={topItems}
-        loading={topUsers.isLoading}
-        error={topUsers.isError}
-        value={(item) => formatQuota(item.used_quota)}
-        valueTitle={t('Usage')}
-      />
-      <StatTable
-        title={t('Recharge leaderboard')}
-        description={t('This week')}
-        items={rechargeItems}
-        loading={recharge.isLoading}
-        error={recharge.isError}
-        value={(item) => String(item.total_count ?? 0)}
-        valueTitle={t('Recharges')}
-      />
+    <div className='space-y-3'>
+      <div className='flex justify-end'>{limitControls}</div>
+      <div className='grid gap-4 xl:grid-cols-2'>
+        <StatTable
+          title={t('Top users')}
+          action={periodControls}
+          items={topItems}
+          loading={topUsers.isLoading}
+          error={topUsers.isError}
+          value={(item) => formatQuota(item.used_quota)}
+          valueTitle={t('Usage')}
+        />
+        <StatTable
+          title={t('Recharge leaderboard')}
+          description={t('This week')}
+          items={rechargeItems}
+          loading={recharge.isLoading}
+          error={recharge.isError}
+          value={(item) => String(item.total_count ?? 0)}
+          valueTitle={t('Recharges')}
+        />
+      </div>
     </div>
   )
 }
