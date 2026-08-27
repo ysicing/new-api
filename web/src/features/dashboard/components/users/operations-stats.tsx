@@ -9,6 +9,7 @@ import {
   CardAction,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
@@ -27,23 +28,18 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { formatQuota } from '@/lib/format'
+import { formatQuota, formatTimestamp } from '@/lib/format'
 
 import {
   getRechargeLeaderboard,
   getTopUsers,
   type OperationsStatsPeriod,
+  type OperationsStatsUserStat,
 } from '../../api'
-
-interface UserStat {
-  user_id: number
-  username: string
-  used_quota: number
-  total_count?: number
-}
 
 const TOP_LIMIT_OPTIONS = [10, 20, 30] as const
 const OPERATIONS_STATS_STALE_TIME = 60_000
+const OPERATIONS_STATS_PENDING_POLL_INTERVAL = 5_000
 
 export function OperationsStats() {
   const { t } = useTranslation()
@@ -54,15 +50,28 @@ export function OperationsStats() {
     queryFn: () => getTopUsers(limit, period),
     retry: false,
     staleTime: OPERATIONS_STATS_STALE_TIME,
+    refetchInterval: (query) =>
+      query.state.data?.refreshing
+        ? OPERATIONS_STATS_PENDING_POLL_INTERVAL
+        : false,
   })
   const recharge = useQuery({
     queryKey: ['operations', 'recharge', limit],
     queryFn: () => getRechargeLeaderboard(limit),
     retry: false,
     staleTime: OPERATIONS_STATS_STALE_TIME,
+    refetchInterval: (query) =>
+      query.state.data?.refreshing
+        ? OPERATIONS_STATS_PENDING_POLL_INTERVAL
+        : false,
   })
-  const topItems = (topUsers.data?.data ?? []) as UserStat[]
-  const rechargeItems = (recharge.data?.data?.list ?? []) as UserStat[]
+  const topItems = topUsers.data?.data ?? []
+  const rechargeItems = recharge.data?.data.list ?? []
+  const topRefreshSchedule =
+    topUsers.data?.refresh_schedule === 'daily_after_midnight'
+      ? t('Refreshes daily after midnight')
+      : t('Refreshes every 30 minutes')
+  const rechargeRefreshSchedule = t('Refreshes every 30 minutes')
   const periodControls = (
     <ButtonGroup aria-label={t('Statistics')}>
       <Button
@@ -108,6 +117,9 @@ export function OperationsStats() {
           items={topItems}
           loading={topUsers.isLoading}
           error={topUsers.isError}
+          refreshing={topUsers.data?.refreshing ?? false}
+          generatedAt={topUsers.data?.generated_at ?? 0}
+          refreshSchedule={topRefreshSchedule}
           value={(item) => formatQuota(item.used_quota)}
           valueTitle={t('Usage')}
         />
@@ -117,6 +129,9 @@ export function OperationsStats() {
           items={rechargeItems}
           loading={recharge.isLoading}
           error={recharge.isError}
+          refreshing={recharge.data?.refreshing ?? false}
+          generatedAt={recharge.data?.generated_at ?? 0}
+          refreshSchedule={rechargeRefreshSchedule}
           value={(item) => String(item.total_count ?? 0)}
           valueTitle={t('Recharges')}
         />
@@ -129,12 +144,16 @@ function StatTable(props: {
   title: string
   description?: string
   action?: ReactNode
-  items: UserStat[]
+  items: OperationsStatsUserStat[]
   loading: boolean
   error: boolean
+  refreshing: boolean
+  generatedAt: number
+  refreshSchedule: string
   valueTitle: string
-  value: (item: UserStat) => string
+  value: (item: OperationsStatsUserStat) => string
 }) {
+  const { t } = useTranslation()
   return (
     <Card>
       <CardHeader>
@@ -151,16 +170,25 @@ function StatTable(props: {
       <CardContent>
         <StatTableContent {...props} />
       </CardContent>
+      <CardFooter className='text-muted-foreground flex-col items-start gap-1 text-xs'>
+        {props.generatedAt > 0 ? (
+          <span>
+            {t('Last updated:')} {formatTimestamp(props.generatedAt)}
+          </span>
+        ) : null}
+        <span>{props.refreshSchedule}</span>
+      </CardFooter>
     </Card>
   )
 }
 
 function StatTableContent(props: {
-  items: UserStat[]
+  items: OperationsStatsUserStat[]
   loading: boolean
   error: boolean
+  refreshing: boolean
   valueTitle: string
-  value: (item: UserStat) => string
+  value: (item: OperationsStatsUserStat) => string
 }) {
   const { t } = useTranslation()
   if (props.loading) return <Skeleton className='h-60 w-full' />
@@ -170,6 +198,15 @@ function StatTableContent(props: {
         <EmptyHeader>
           <EmptyTitle>{t('Loading failed')}</EmptyTitle>
           <EmptyDescription>{t('Request failed')}</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    )
+  }
+  if (props.refreshing) {
+    return (
+      <Empty>
+        <EmptyHeader>
+          <EmptyTitle>{t('Thinking...')}</EmptyTitle>
         </EmptyHeader>
       </Empty>
     )

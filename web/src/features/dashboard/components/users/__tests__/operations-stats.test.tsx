@@ -42,6 +42,9 @@ describe('operations statistics', () => {
     apiMocks.getTopUsers.mockResolvedValue({
       success: true,
       data: [{ user_id: 1, username: 'alice', used_quota: 100 }],
+      refreshing: false,
+      generated_at: 1_700_000_000,
+      refresh_schedule: 'every_30_minutes',
     })
     apiMocks.getRechargeLeaderboard.mockResolvedValue({
       success: true,
@@ -55,6 +58,9 @@ describe('operations statistics', () => {
           },
         ],
       },
+      refreshing: false,
+      generated_at: 1_700_000_100,
+      refresh_schedule: 'every_30_minutes',
     })
   })
 
@@ -89,6 +95,49 @@ describe('operations statistics', () => {
       expect(apiMocks.getTopUsers).toHaveBeenCalledWith(20, 'week')
       expect(apiMocks.getRechargeLeaderboard).toHaveBeenCalledWith(20)
     })
+  })
+
+  test('shows thinking state while the first snapshot is generated', async () => {
+    apiMocks.getTopUsers.mockResolvedValue({
+      success: true,
+      data: [],
+      refreshing: true,
+      generated_at: 0,
+      refresh_schedule: 'every_30_minutes',
+    })
+    apiMocks.getRechargeLeaderboard.mockResolvedValue({
+      success: true,
+      data: { list: [] },
+      refreshing: true,
+      generated_at: 0,
+      refresh_schedule: 'every_30_minutes',
+    })
+
+    renderOperationsStats()
+
+    expect(await screen.findAllByText('Thinking...')).toHaveLength(2)
+    expect(screen.queryByText('No data')).not.toBeInTheDocument()
+  })
+
+  test('shows snapshot time and refresh schedule', async () => {
+    renderOperationsStats()
+
+    expect(await screen.findByText('alice')).toBeInTheDocument()
+    expect(screen.getAllByText(/Last updated:/)).toHaveLength(2)
+    expect(screen.getAllByText('Refreshes every 30 minutes')).toHaveLength(2)
+
+    apiMocks.getTopUsers.mockResolvedValue({
+      success: true,
+      data: [{ user_id: 1, username: 'alice', used_quota: 100 }],
+      refreshing: false,
+      generated_at: 1_700_000_200,
+      refresh_schedule: 'daily_after_midnight',
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Past month' }))
+
+    expect(
+      await screen.findByText('Refreshes daily after midnight')
+    ).toBeInTheDocument()
   })
 
   test('keeps the recharge leaderboard visible when top users fail', async () => {

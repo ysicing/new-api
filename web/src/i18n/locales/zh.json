@@ -3899,6 +3899,8 @@
     "Refresh interval (minutes)": "刷新间隔 (分钟)",
     "Refresh Stats": "刷新统计",
     "Refresh the list and try again.": "请刷新列表后重试。",
+    "Refreshes daily after midnight": "每天凌晨后刷新",
+    "Refreshes every 30 minutes": "每 30 分钟刷新",
     "Refreshing...": "刷新中...",
     "Refund": "退款",
     "Refund Details": "退款详情",

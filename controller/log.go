@@ -3,10 +3,10 @@ package controller
 import (
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
@@ -36,26 +36,77 @@ func GetAllLogs(c *gin.Context) {
 }
 
 func GetTopUsers(c *gin.Context) {
-	start, end := statsRange(c, time.Now())
 	limit, _ := strconv.Atoi(c.Query("limit"))
-	items, err := model.GetTopUsers(start, end, c.Query("model_name"), limit)
+	limit = normalizeOperationsStatsLimit(limit)
+	snapshot, err := service.GetOperationsStatsSnapshot()
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, items)
+	items := make([]model.UserQuotaStat, 0)
+	generatedAt := int64(0)
+	refreshSchedule := "every_30_minutes"
+	if snapshot != nil {
+		section := snapshot.WeeklyTopUsers
+		if c.Query("period") == "month" {
+			section = snapshot.MonthlyTopUsers
+			refreshSchedule = "daily_after_midnight"
+		}
+		generatedAt = section.GeneratedAt
+		items = section.Items
+		if len(items) > limit {
+			items = items[:limit]
+		}
+	} else if c.Query("period") == "month" {
+		refreshSchedule = "daily_after_midnight"
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success":          true,
+		"message":          "",
+		"data":             items,
+		"refreshing":       snapshot == nil,
+		"generated_at":     generatedAt,
+		"refresh_schedule": refreshSchedule,
+	})
 }
 
 func GetRechargeLeaderboard(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.Query("limit"))
-	items, err := model.GetRechargeLeaderboard(limit)
+	limit = normalizeOperationsStatsLimit(limit)
+	snapshot, err := service.GetOperationsStatsSnapshot()
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{
-		"list": items, "weekly_limit": operation_setting.GetAutoRechargeSetting().WeeklyLimit,
+	items := make([]model.UserRechargeStat, 0)
+	generatedAt := int64(0)
+	if snapshot != nil {
+		generatedAt = snapshot.RechargeLeaderboard.GeneratedAt
+		items = snapshot.RechargeLeaderboard.Items
+		if len(items) > limit {
+			items = items[:limit]
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"list": items, "weekly_limit": operation_setting.GetAutoRechargeSetting().WeeklyLimit,
+		},
+		"refreshing":       snapshot == nil,
+		"generated_at":     generatedAt,
+		"refresh_schedule": "every_30_minutes",
 	})
+}
+
+func normalizeOperationsStatsLimit(limit int) int {
+	if limit <= 0 {
+		return 10
+	}
+	if limit > 30 {
+		return 30
+	}
+	return limit
 }
 
 func GetUserLogs(c *gin.Context) {

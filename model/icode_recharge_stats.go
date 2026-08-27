@@ -12,8 +12,14 @@ type rechargeCountRow struct {
 }
 
 func GetRechargeLeaderboard(limit int) ([]UserRechargeStat, error) {
+	return GetRechargeLeaderboardAt(limit, time.Now())
+}
+
+// GetRechargeLeaderboardAt 使用统一的统计时点生成周榜，保证后台快照中
+// 各榜单边界一致，也便于在跨周边界时稳定复现结果。
+func GetRechargeLeaderboardAt(limit int, now time.Time) ([]UserRechargeStat, error) {
 	limit = normalizeStatsLimit(limit)
-	weekStart := statsWeekStart(time.Now()).Unix()
+	weekStart := statsWeekStart(now).Unix()
 	countRows, err := groupedRechargeCounts(weekStart)
 	if err != nil {
 		return nil, err

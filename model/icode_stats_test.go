@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/glebarez/sqlite"
@@ -127,6 +128,23 @@ func TestGetRechargeLeaderboardUsesStableSecondaryUsageSort(t *testing.T) {
 	assert.Equal(t, 2, results[0].UserId)
 	assert.Equal(t, 1, results[0].AutoRechargeCount)
 	assert.Equal(t, 50, results[0].UsedQuota)
+}
+
+func TestGetRechargeLeaderboardAtUsesProvidedWeek(t *testing.T) {
+	mainDB, logDB := setupICodeStatsTest(t)
+	user := User{Id: 1, Username: "alice", Password: "password", AffCode: "recharge-at"}
+	require.NoError(t, mainDB.Create(&user).Error)
+	now := time.Date(2026, time.August, 27, 12, 0, 0, 0, time.Local)
+	require.NoError(t, logDB.Create(&[]Log{
+		{UserId: user.Id, Type: LogTypeSystem, CreatedAt: now.Add(-24 * time.Hour).Unix(), Content: "系统自动赠送 100"},
+		{UserId: user.Id, Type: LogTypeSystem, CreatedAt: now.Add(-8 * 24 * time.Hour).Unix(), Content: "系统自动赠送 100"},
+	}).Error)
+
+	results, err := GetRechargeLeaderboardAt(10, now)
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, 1, results[0].TotalCount)
 }
 
 func TestListQuotaPoolOperationLogsMatchesExactPoolID(t *testing.T) {

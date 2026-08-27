@@ -93,14 +93,33 @@ export async function getUptimeStatus() {
 }
 
 export type OperationsStatsPeriod = 'week' | 'month'
+export type OperationsStatsRefreshSchedule =
+  | 'every_30_minutes'
+  | 'daily_after_midnight'
+
+export interface OperationsStatsUserStat {
+  user_id: number
+  username: string
+  used_quota: number
+  total_count?: number
+}
+
+interface OperationsStatsResponse<T> {
+  success: boolean
+  message: string
+  data: T
+  refreshing: boolean
+  generated_at: number
+  refresh_schedule: OperationsStatsRefreshSchedule
+}
 
 export async function getTopUsers(
   limit = 10,
   period: OperationsStatsPeriod = 'week'
 ) {
-  const response = await api.get('/api/log/top_users', {
-    params: { limit, period },
-  })
+  const response = await api.get<
+    OperationsStatsResponse<OperationsStatsUserStat[]>
+  >('/api/log/top_users', { params: { limit, period } })
   if (!response.data.success) {
     throw new Error(response.data.message || 'Request failed')
   }
@@ -108,9 +127,12 @@ export async function getTopUsers(
 }
 
 export async function getRechargeLeaderboard(limit = 10) {
-  const response = await api.get('/api/log/recharge_leaderboard', {
-    params: { limit },
-  })
+  const response = await api.get<
+    OperationsStatsResponse<{
+      list: OperationsStatsUserStat[]
+      weekly_limit: number
+    }>
+  >('/api/log/recharge_leaderboard', { params: { limit } })
   if (!response.data.success) {
     throw new Error(response.data.message || 'Request failed')
   }

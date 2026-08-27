@@ -350,3 +350,27 @@ func TestSystemTaskUpdatesRequireUnexpiredLock(t *testing.T) {
 	assert.Equal(t, SystemTaskStatusRunning, reloaded.Status)
 	assert.Empty(t, reloaded.State)
 }
+
+func TestGetLatestSucceededSystemTaskKeepsLastGoodResult(t *testing.T) {
+	truncateTables(t)
+	const taskType = "operations_stats_refresh"
+	require.NoError(t, DB.Create(&SystemTask{
+		TaskID: "stats-success", Type: taskType, Status: SystemTaskStatusSucceeded,
+		Result: `{"value":42}`, CreatedAt: 100, UpdatedAt: 100,
+	}).Error)
+	require.NoError(t, DB.Create(&SystemTask{
+		TaskID: "stats-failed", Type: taskType, Status: SystemTaskStatusFailed,
+		Result: `{"value":99}`, Error: "refresh failed", CreatedAt: 200, UpdatedAt: 200,
+	}).Error)
+
+	task, err := GetLatestSucceededSystemTask(taskType)
+
+	require.NoError(t, err)
+	require.NotNil(t, task)
+	assert.Equal(t, "stats-success", task.TaskID)
+	var result struct {
+		Value int `json:"value"`
+	}
+	require.NoError(t, task.DecodeResult(&result))
+	assert.Equal(t, 42, result.Value)
+}
