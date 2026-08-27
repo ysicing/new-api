@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -56,27 +57,31 @@ func captureStatsLogDB(t *testing.T, logDB *gorm.DB) *statsSQLCapture {
 	return capture
 }
 
-func TestGetTopUsersPushesRankingAndLimitIntoSQL(t *testing.T) {
+func TestGetTopUsersRestrictsLogQueryToRecentTail(t *testing.T) {
 	mainDB, logDB := setupICodeStatsTest(t)
+	now := time.Date(2026, time.August, 27, 12, 30, 0, 0, time.Local)
+	start := now.AddDate(0, 0, -3)
 	require.NoError(t, mainDB.Create(&User{
 		Id: 1, Username: "alice", Password: "password", AffCode: "top-sql-alice",
 	}).Error)
-	require.NoError(t, logDB.Create(&[]Log{
-		{UserId: 1, Type: LogTypeConsume, CreatedAt: 100, ModelName: "gpt-5", Quota: 30},
-		{UserId: 1, Type: LogTypeConsume, CreatedAt: 101, ModelName: "claude-4", Quota: 20},
+	require.NoError(t, mainDB.Create(&QuotaData{
+		UserID: 1, Username: "alice", ModelName: "gpt-5",
+		CreatedAt: now.Add(-24 * time.Hour).Truncate(time.Hour).Unix(), Quota: 30,
+	}).Error)
+	require.NoError(t, logDB.Create(&Log{
+		UserId: 1, Type: LogTypeConsume, CreatedAt: now.Add(-30 * time.Minute).Unix(), ModelName: "claude-4", Quota: 20,
 	}).Error)
 	capture := captureStatsLogDB(t, logDB)
 	capture.reset()
 
-	_, err := GetTopUsers(90, 120, "", 10)
+	_, err := GetTopUsers(start.Unix(), now.Unix(), "", 10)
 
 	require.NoError(t, err)
 	queries := capture.matching("from `logs`")
 	require.Len(t, queries, 1)
 	assert.Contains(t, queries[0], "group by `user_id`")
-	assert.Contains(t, queries[0], "order by used_quota desc")
-	assert.Contains(t, queries[0], "limit 10")
-	assert.NotContains(t, queries[0], "group by user_id, model_name")
+	tailStart := operationsStatsLogTailStart(start.Unix(), now.Unix())
+	assert.Contains(t, queries[0], fmt.Sprintf("created_at >= %d", tailStart))
 }
 
 func TestGetRechargeLeaderboardScansRechargeCountsOnce(t *testing.T) {

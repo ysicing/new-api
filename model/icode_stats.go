@@ -1,5 +1,11 @@
 package model
 
+import (
+	"sort"
+
+	"github.com/QuantumNous/new-api/common"
+)
+
 type usageAggregateRow struct {
 	UserId        int `gorm:"column:user_id"`
 	UsedQuota     int `gorm:"column:used_quota"`
@@ -40,27 +46,93 @@ func GetTopUsers(startTimestamp, endTimestamp int64, modelName string, limit int
 	if startTimestamp > 0 && endTimestamp > 0 && endTimestamp-startTimestamp > 30*24*60*60 {
 		startTimestamp = endTimestamp - 30*24*60*60
 	}
-	rows, err := aggregateUsageRows(startTimestamp, endTimestamp, modelName, nil, limit)
+	usage, err := aggregateOperationsUsage(startTimestamp, endTimestamp, modelName, nil)
 	if err != nil {
 		return nil, err
 	}
-	ids := make([]int, 0, len(rows))
-	for _, row := range rows {
-		ids = append(ids, row.UserId)
+	ids := make([]int, 0, len(usage))
+	for userId, bucket := range usage {
+		if bucket.UsedQuota != 0 {
+			ids = append(ids, userId)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		if usage[ids[i]].UsedQuota != usage[ids[j]].UsedQuota {
+			return usage[ids[i]].UsedQuota > usage[ids[j]].UsedQuota
+		}
+		return ids[i] < ids[j]
+	})
+	if len(ids) > limit {
+		ids = ids[:limit]
 	}
 	users, err := statsUsersById(ids)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]UserQuotaStat, 0, len(rows))
-	for _, row := range rows {
-		user, ok := users[row.UserId]
+	result := make([]UserQuotaStat, 0, len(ids))
+	for _, userId := range ids {
+		user, ok := users[userId]
 		if !ok {
 			continue
 		}
-		result = append(result, userQuotaStat(user, row.bucket()))
+		result = append(result, userQuotaStat(user, usage[userId]))
 	}
 	return result, nil
+}
+
+// aggregateOperationsUsage 使用小时聚合表承载历史区间，只从日志库补算最近两个
+// 小时桶。额外保留一个完整小时作为安全窗口，覆盖 quota_data 默认五分钟落库
+// 以及跨整点时仍停留在各节点内存缓存中的数据。
+func aggregateOperationsUsage(startTimestamp, endTimestamp int64, modelName string, userIds []int) (map[int]usageBucket, error) {
+	tailStart := operationsStatsLogTailStart(startTimestamp, endTimestamp)
+	result := make(map[int]usageBucket)
+
+	if startTimestamp < tailStart {
+		query := DB.Table("quota_data").
+			Select(usageAggregateSelect).
+			Where("created_at >= ? AND created_at < ?", startTimestamp, tailStart)
+		if modelName != "" {
+			query = query.Where("model_name = ?", modelName)
+		}
+		if len(userIds) > 0 {
+			query = query.Where("user_id IN ?", userIds)
+		}
+		var rows []usageAggregateRow
+		if err := query.Group("user_id").Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			result[row.UserId] = row.bucket()
+		}
+	}
+
+	rows, err := aggregateUsageRows(tailStart, endTimestamp, modelName, userIds, 0)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		bucket := result[row.UserId]
+		bucket.UsedQuota += row.UsedQuota
+		bucket.GptQuota += row.GptQuota
+		bucket.ClaudeQuota += row.ClaudeQuota
+		bucket.DeepSeekQuota += row.DeepSeekQuota
+		bucket.GeminiQuota += row.GeminiQuota
+		bucket.QwenQuota += row.QwenQuota
+		bucket.OtherQuota += row.OtherQuota
+		result[row.UserId] = bucket
+	}
+	return result, nil
+}
+
+func operationsStatsLogTailStart(startTimestamp, endTimestamp int64) int64 {
+	if endTimestamp <= 0 {
+		endTimestamp = common.GetTimestamp()
+	}
+	tailStart := endTimestamp - endTimestamp%3600 - 3600
+	if tailStart < startTimestamp {
+		return startTimestamp
+	}
+	return tailStart
 }
 
 func aggregateUsage(startTimestamp, endTimestamp int64, modelName string, userIds []int) (map[int]usageBucket, error) {

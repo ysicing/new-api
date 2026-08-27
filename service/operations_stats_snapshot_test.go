@@ -19,6 +19,10 @@ func TestOperationsStatsSnapshotRefreshesMonthlyOnlyAfterDayChanges(t *testing.T
 		Status: common.UserStatusEnabled,
 	}
 	require.NoError(t, model.DB.Create(&user).Error)
+	require.NoError(t, model.DB.Create(&model.QuotaData{
+		UserID: user.Id, Username: user.Username, ModelName: "gpt-5",
+		CreatedAt: now.Add(-time.Hour).Truncate(time.Hour).Unix(), Quota: 30,
+	}).Error)
 	require.NoError(t, model.LOG_DB.Create(&[]model.Log{
 		{UserId: user.Id, Type: model.LogTypeConsume, CreatedAt: now.Add(-time.Hour).Unix(), ModelName: "gpt-5", Quota: 30},
 		{UserId: user.Id, Type: model.LogTypeSystem, CreatedAt: now.Add(-time.Hour).Unix(), Content: "系统自动赠送 100"},

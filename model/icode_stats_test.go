@@ -18,7 +18,7 @@ func setupICodeStatsTest(t *testing.T) (*gorm.DB, *gorm.DB) {
 	require.NoError(t, err)
 	logDB, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:stats-log-%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, mainDB.AutoMigrate(&User{}, &QuotaPool{}, &QuotaPoolTransaction{}))
+	require.NoError(t, mainDB.AutoMigrate(&User{}, &QuotaData{}, &QuotaPool{}, &QuotaPoolTransaction{}))
 	require.NoError(t, logDB.AutoMigrate(&Log{}))
 	previousDB, previousLogDB := DB, LOG_DB
 	DB, LOG_DB = mainDB, logDB
@@ -49,6 +49,34 @@ func TestGetTopUsersAggregatesLogDBAndHydratesMainDB(t *testing.T) {
 	assert.Equal(t, 70, results[0].ClaudeQuota)
 	assert.Equal(t, 20, results[0].GptQuota)
 	assert.Equal(t, "bob", results[0].Username)
+}
+
+func TestGetTopUsersCombinesQuotaDataWithRecentLogTail(t *testing.T) {
+	mainDB, logDB := setupICodeStatsTest(t)
+	now := time.Date(2026, time.August, 27, 12, 30, 0, 0, time.Local)
+	start := now.AddDate(0, 0, -3)
+	users := []User{
+		{Id: 1, Username: "stored", Password: "password", AffCode: "stats-stored"},
+		{Id: 2, Username: "old-log", Password: "password", AffCode: "stats-old-log"},
+	}
+	require.NoError(t, mainDB.Create(&users).Error)
+	require.NoError(t, mainDB.Create(&QuotaData{
+		UserID: 1, Username: "stored", ModelName: "gpt-5",
+		CreatedAt: now.Add(-24 * time.Hour).Truncate(time.Hour).Unix(), Quota: 100,
+	}).Error)
+	require.NoError(t, logDB.Create(&[]Log{
+		{UserId: 2, Type: LogTypeConsume, CreatedAt: now.Add(-24 * time.Hour).Unix(), ModelName: "gpt-5", Quota: 1000},
+		{UserId: 1, Type: LogTypeConsume, CreatedAt: now.Add(-30 * time.Minute).Unix(), ModelName: "claude-4", Quota: 50},
+	}).Error)
+
+	results, err := GetTopUsers(start.Unix(), now.Unix(), "", 10)
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, 1, results[0].UserId)
+	assert.Equal(t, 150, results[0].UsedQuota)
+	assert.Equal(t, 100, results[0].GptQuota)
+	assert.Equal(t, 50, results[0].ClaudeQuota)
 }
 
 func TestGetQuotaPoolStatsAggregatesMembersAndTransactions(t *testing.T) {
@@ -114,11 +142,16 @@ func TestGetRechargeLeaderboardUsesStableSecondaryUsageSort(t *testing.T) {
 	}
 	require.NoError(t, mainDB.Create(&users).Error)
 	now := common.GetTimestamp()
+	require.NoError(t, mainDB.Create(&[]QuotaPoolTransaction{
+		{PoolId: 1, UserId: 1, Type: QuotaPoolTransactionAllocateAuto, Amount: -100, CreatedAt: now},
+		{PoolId: 1, UserId: 2, Type: QuotaPoolTransactionAllocateAuto, Amount: -100, CreatedAt: now},
+	}).Error)
+	require.NoError(t, mainDB.Create(&[]QuotaData{
+		{UserID: 1, Username: "alice", ModelName: "gpt-5", CreatedAt: now - now%3600 - 7200, Quota: 20},
+		{UserID: 2, Username: "bob", ModelName: "claude-4", CreatedAt: now - now%3600 - 7200, Quota: 50},
+	}).Error)
 	require.NoError(t, logDB.Create(&[]Log{
-		{UserId: 1, Type: LogTypeSystem, CreatedAt: now, Content: "系统自动赠送 100"},
-		{UserId: 2, Type: LogTypeSystem, CreatedAt: now, Other: `{"recharge_source":"auto"}`},
-		{UserId: 1, Type: LogTypeConsume, CreatedAt: now, ModelName: "gpt-5", Quota: 20},
-		{UserId: 2, Type: LogTypeConsume, CreatedAt: now, ModelName: "claude-4", Quota: 50},
+		{UserId: 1, Type: LogTypeConsume, CreatedAt: now, ModelName: "gpt-5", Quota: 0},
 	}).Error)
 
 	results, err := GetRechargeLeaderboard(10)
@@ -131,13 +164,13 @@ func TestGetRechargeLeaderboardUsesStableSecondaryUsageSort(t *testing.T) {
 }
 
 func TestGetRechargeLeaderboardAtUsesProvidedWeek(t *testing.T) {
-	mainDB, logDB := setupICodeStatsTest(t)
+	mainDB, _ := setupICodeStatsTest(t)
 	user := User{Id: 1, Username: "alice", Password: "password", AffCode: "recharge-at"}
 	require.NoError(t, mainDB.Create(&user).Error)
 	now := time.Date(2026, time.August, 27, 12, 0, 0, 0, time.Local)
-	require.NoError(t, logDB.Create(&[]Log{
-		{UserId: user.Id, Type: LogTypeSystem, CreatedAt: now.Add(-24 * time.Hour).Unix(), Content: "系统自动赠送 100"},
-		{UserId: user.Id, Type: LogTypeSystem, CreatedAt: now.Add(-8 * 24 * time.Hour).Unix(), Content: "系统自动赠送 100"},
+	require.NoError(t, mainDB.Create(&[]QuotaPoolTransaction{
+		{PoolId: 1, UserId: user.Id, Type: QuotaPoolTransactionAllocateAuto, Amount: -100, CreatedAt: now.Add(-24 * time.Hour).Unix()},
+		{PoolId: 1, UserId: user.Id, Type: QuotaPoolTransactionAllocateAuto, Amount: -100, CreatedAt: now.Add(-8 * 24 * time.Hour).Unix()},
 	}).Error)
 
 	results, err := GetRechargeLeaderboardAt(10, now)
@@ -145,6 +178,40 @@ func TestGetRechargeLeaderboardAtUsesProvidedWeek(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, 1, results[0].TotalCount)
+}
+
+func TestGetRechargeLeaderboardUsesTransactionsAndOnlyRecentDefaultLogs(t *testing.T) {
+	mainDB, logDB := setupICodeStatsTest(t)
+	now := time.Date(2026, time.August, 27, 12, 30, 0, 0, time.Local)
+	users := []User{
+		{Id: 1, Username: "pool-user", Password: "password", AffCode: "recharge-pool"},
+		{Id: 2, Username: "default-recent", Password: "password", AffCode: "recharge-default-recent"},
+		{Id: 3, Username: "default-old", Password: "password", AffCode: "recharge-default-old"},
+	}
+	require.NoError(t, mainDB.Create(&users).Error)
+	require.NoError(t, mainDB.Create(&QuotaPoolTransaction{
+		PoolId: 1, Type: QuotaPoolTransactionAllocateAuto, Amount: -100,
+		UserId: 1, CreatedAt: now.Add(-24 * time.Hour).Unix(),
+	}).Error)
+	require.NoError(t, mainDB.Create(&[]QuotaData{
+		{UserID: 1, Username: "pool-user", ModelName: "gpt-5", CreatedAt: now.Add(-24 * time.Hour).Truncate(time.Hour).Unix(), Quota: 50},
+		{UserID: 2, Username: "default-recent", ModelName: "claude-4", CreatedAt: now.Add(-24 * time.Hour).Truncate(time.Hour).Unix(), Quota: 20},
+	}).Error)
+	require.NoError(t, logDB.Create(&[]Log{
+		{UserId: 2, Type: LogTypeSystem, CreatedAt: now.Add(-30 * time.Minute).Unix(), Content: "系统自动赠送 100", Other: `{"recharge_source":"auto","quota_pool_id":0}`},
+		{UserId: 3, Type: LogTypeSystem, CreatedAt: now.Add(-24 * time.Hour).Unix(), Content: "系统自动赠送 100", Other: `{"recharge_source":"auto","quota_pool_id":0}`},
+	}).Error)
+
+	results, err := GetRechargeLeaderboardAt(10, now)
+
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+	assert.Equal(t, 1, results[0].UserId)
+	assert.Equal(t, 1, results[0].AutoRechargeCount)
+	assert.Equal(t, 50, results[0].UsedQuota)
+	assert.Equal(t, 2, results[1].UserId)
+	assert.Equal(t, 1, results[1].AutoRechargeCount)
+	assert.Equal(t, 20, results[1].UsedQuota)
 }
 
 func TestListQuotaPoolOperationLogsMatchesExactPoolID(t *testing.T) {
