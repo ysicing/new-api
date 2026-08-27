@@ -49,6 +49,7 @@ import {
   parseLogOther,
   isViolationFeeLog,
   renderAuditContent,
+  renderAutomaticRechargeContent,
 } from '../../lib/format'
 import {
   isDisplayableLogType,
@@ -120,6 +121,11 @@ function buildTypeDetailSegments(
   // structured op descriptor instead of the raw (English-fallback) content.
   if (log.type === 3 || log.type === 7) {
     const text = renderAuditContent(other, t)
+    return text ? [{ text }] : []
+  }
+
+  if (log.type === 4) {
+    const text = renderAutomaticRechargeContent(other, t)
     return text ? [{ text }] : []
   }
 

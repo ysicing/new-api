@@ -11,7 +11,7 @@ import { expect, test } from 'vitest'
 import { formatQuota } from '@/lib/format'
 
 import type { LogOtherData } from '../../types'
-import { renderAuditContent } from '../format'
+import { renderAuditContent, renderAutomaticRechargeContent } from '../format'
 
 const translate = (key: string, options: Record<string, unknown> = {}) =>
   Object.entries(options).reduce(
@@ -53,4 +53,33 @@ test('renders quota pool member add with pool and member names', () => {
   )
 
   expect(text).toBe('Added member 张三 (ID: 25) to 平台保障部')
+})
+
+test('renders existing automatic recharge logs with formatted quota', () => {
+  const text = renderAutomaticRechargeContent(
+    {
+      recharge_source: 'auto',
+      quota_pool_id: 0,
+      amount: 5_000_000,
+    },
+    translate
+  )
+
+  expect(text).toBe(`System automatically granted ${formatQuota(5_000_000)}`)
+})
+
+test('renders automatic recharge logs with the quota pool name', () => {
+  const text = renderAutomaticRechargeContent(
+    {
+      recharge_source: 'auto',
+      quota_pool_id: 7,
+      quota_pool_name: '平台保障部',
+      amount: 5_000_000,
+    },
+    translate
+  )
+
+  expect(text).toBe(
+    `Quota pool 平台保障部 automatically granted ${formatQuota(5_000_000)}`
+  )
 })

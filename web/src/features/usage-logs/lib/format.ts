@@ -24,6 +24,7 @@ import {
   type ParsedTier,
 } from '@/features/pricing/lib/billing-expr'
 import { renderQuotaPoolOperationDescriptor } from '@/features/quota-pools/lib/operation-format'
+import { formatQuota } from '@/lib/format'
 
 import type { UsageLog } from '../data/schema'
 import type { LogOtherData } from '../types'
@@ -491,4 +492,25 @@ export function renderAuditContent(
   const template = AUDIT_TEMPLATES[op.action]
   if (!template) return null
   return t(template, (op.params ?? {}) as Record<string, unknown>)
+}
+
+export function renderAutomaticRechargeContent(
+  other: LogOtherData | null | undefined,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): string | null {
+  if (other?.recharge_source !== 'auto') return null
+  const amount = Number(other.amount)
+  if (!Number.isFinite(amount)) return null
+  const formattedAmount = formatQuota(amount)
+  if (Number(other.quota_pool_id) > 0) {
+    const poolName = other.quota_pool_name?.trim()
+    const pool = poolName || `#${other.quota_pool_id}`
+    return t('Quota pool {{pool}} automatically granted {{amount}}', {
+      pool,
+      amount: formattedAmount,
+    })
+  }
+  return t('System automatically granted {{amount}}', {
+    amount: formattedAmount,
+  })
 }

@@ -162,6 +162,10 @@ export interface LogOtherData {
   login_method?: string
   user_agent?: string
   request_path?: string
+  recharge_source?: string
+  quota_pool_id?: number
+  quota_pool_name?: string
+  amount?: number
   request_conversion?: string[]
   ws?: boolean
   audio?: boolean
