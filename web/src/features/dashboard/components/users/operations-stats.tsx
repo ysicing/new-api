@@ -39,7 +39,6 @@ import {
 
 const TOP_LIMIT_OPTIONS = [10, 20, 30] as const
 const OPERATIONS_STATS_STALE_TIME = 60_000
-const OPERATIONS_STATS_PENDING_POLL_INTERVAL = 5_000
 
 export function OperationsStats() {
   const { t } = useTranslation()
@@ -50,28 +49,16 @@ export function OperationsStats() {
     queryFn: () => getTopUsers(limit, period),
     retry: false,
     staleTime: OPERATIONS_STATS_STALE_TIME,
-    refetchInterval: (query) =>
-      query.state.data?.refreshing
-        ? OPERATIONS_STATS_PENDING_POLL_INTERVAL
-        : false,
   })
   const recharge = useQuery({
     queryKey: ['operations', 'recharge', limit],
     queryFn: () => getRechargeLeaderboard(limit),
     retry: false,
     staleTime: OPERATIONS_STATS_STALE_TIME,
-    refetchInterval: (query) =>
-      query.state.data?.refreshing
-        ? OPERATIONS_STATS_PENDING_POLL_INTERVAL
-        : false,
   })
   const topItems = topUsers.data?.data ?? []
   const rechargeItems = recharge.data?.data.list ?? []
-  const topRefreshSchedule =
-    topUsers.data?.refresh_schedule === 'daily_after_midnight'
-      ? t('Refreshes daily after midnight')
-      : t('Refreshes every 30 minutes')
-  const rechargeRefreshSchedule = t('Refreshes every 30 minutes')
+  const refreshSchedule = t('Refreshes every 5 minutes')
   const periodControls = (
     <ButtonGroup aria-label={t('Statistics')}>
       <Button
@@ -117,9 +104,8 @@ export function OperationsStats() {
           items={topItems}
           loading={topUsers.isLoading}
           error={topUsers.isError}
-          refreshing={topUsers.data?.refreshing ?? false}
           generatedAt={topUsers.data?.generated_at ?? 0}
-          refreshSchedule={topRefreshSchedule}
+          refreshSchedule={refreshSchedule}
           value={(item) => formatQuota(item.used_quota)}
           valueTitle={t('Usage')}
         />
@@ -129,9 +115,8 @@ export function OperationsStats() {
           items={rechargeItems}
           loading={recharge.isLoading}
           error={recharge.isError}
-          refreshing={recharge.data?.refreshing ?? false}
           generatedAt={recharge.data?.generated_at ?? 0}
-          refreshSchedule={rechargeRefreshSchedule}
+          refreshSchedule={refreshSchedule}
           value={(item) => String(item.total_count ?? 0)}
           valueTitle={t('Recharges')}
         />
@@ -147,7 +132,6 @@ function StatTable(props: {
   items: OperationsStatsUserStat[]
   loading: boolean
   error: boolean
-  refreshing: boolean
   generatedAt: number
   refreshSchedule: string
   valueTitle: string
@@ -186,7 +170,6 @@ function StatTableContent(props: {
   items: OperationsStatsUserStat[]
   loading: boolean
   error: boolean
-  refreshing: boolean
   valueTitle: string
   value: (item: OperationsStatsUserStat) => string
 }) {
@@ -198,15 +181,6 @@ function StatTableContent(props: {
         <EmptyHeader>
           <EmptyTitle>{t('Loading failed')}</EmptyTitle>
           <EmptyDescription>{t('Request failed')}</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    )
-  }
-  if (props.refreshing) {
-    return (
-      <Empty>
-        <EmptyHeader>
-          <EmptyTitle>{t('Thinking...')}</EmptyTitle>
         </EmptyHeader>
       </Empty>
     )

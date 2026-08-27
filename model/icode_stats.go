@@ -1,10 +1,6 @@
 package model
 
-import (
-	"sort"
-
-	"github.com/QuantumNous/new-api/common"
-)
+import "sort"
 
 type usageAggregateRow struct {
 	UserId        int `gorm:"column:user_id"`
@@ -80,79 +76,10 @@ func GetTopUsers(startTimestamp, endTimestamp int64, modelName string, limit int
 	return result, nil
 }
 
-// aggregateOperationsUsage 使用小时聚合表承载历史区间，只从日志库补算最近两个
-// 小时桶。额外保留一个完整小时作为安全窗口，覆盖 quota_data 默认五分钟落库
-// 以及跨整点时仍停留在各节点内存缓存中的数据。
+// aggregateOperationsUsage 只读取按小时落库的 quota_data 聚合数据。
+// 实时性由数据落库周期和上层五分钟缓存共同约束，避免统计请求扫描原始日志。
 func aggregateOperationsUsage(startTimestamp, endTimestamp int64, modelName string, userIds []int) (map[int]usageBucket, error) {
-	tailStart := operationsStatsLogTailStart(startTimestamp, endTimestamp)
-	result := make(map[int]usageBucket)
-
-	if startTimestamp < tailStart {
-		query := DB.Table("quota_data").
-			Select(usageAggregateSelect).
-			Where("created_at >= ? AND created_at < ?", startTimestamp, tailStart)
-		if modelName != "" {
-			query = query.Where("model_name = ?", modelName)
-		}
-		if len(userIds) > 0 {
-			query = query.Where("user_id IN ?", userIds)
-		}
-		var rows []usageAggregateRow
-		if err := query.Group("user_id").Scan(&rows).Error; err != nil {
-			return nil, err
-		}
-		for _, row := range rows {
-			result[row.UserId] = row.bucket()
-		}
-	}
-
-	rows, err := aggregateUsageRows(tailStart, endTimestamp, modelName, userIds, 0)
-	if err != nil {
-		return nil, err
-	}
-	for _, row := range rows {
-		bucket := result[row.UserId]
-		bucket.UsedQuota += row.UsedQuota
-		bucket.GptQuota += row.GptQuota
-		bucket.ClaudeQuota += row.ClaudeQuota
-		bucket.DeepSeekQuota += row.DeepSeekQuota
-		bucket.GeminiQuota += row.GeminiQuota
-		bucket.QwenQuota += row.QwenQuota
-		bucket.OtherQuota += row.OtherQuota
-		result[row.UserId] = bucket
-	}
-	return result, nil
-}
-
-func operationsStatsLogTailStart(startTimestamp, endTimestamp int64) int64 {
-	if endTimestamp <= 0 {
-		endTimestamp = common.GetTimestamp()
-	}
-	tailStart := endTimestamp - endTimestamp%3600 - 3600
-	if tailStart < startTimestamp {
-		return startTimestamp
-	}
-	return tailStart
-}
-
-func aggregateUsage(startTimestamp, endTimestamp int64, modelName string, userIds []int) (map[int]usageBucket, error) {
-	rows, err := aggregateUsageRows(startTimestamp, endTimestamp, modelName, userIds, 0)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[int]usageBucket, len(rows))
-	for _, row := range rows {
-		result[row.UserId] = row.bucket()
-	}
-	return result, nil
-}
-
-// aggregateUsageRows 在数据库内按用户完成模型族聚合，并在排行榜场景下
-// 下推排序与 LIMIT，避免把整个时间窗口的“用户 × 模型”结果拉回进程排序。
-func aggregateUsageRows(startTimestamp, endTimestamp int64, modelName string, userIds []int, limit int) ([]usageAggregateRow, error) {
-	query := LOG_DB.Model(&Log{}).
-		Select(usageAggregateSelect).
-		Where("type = ?", LogTypeConsume)
+	query := DB.Table("quota_data").Select(usageAggregateSelect)
 	if startTimestamp > 0 {
 		query = query.Where("created_at >= ?", startTimestamp)
 	}
@@ -165,15 +92,15 @@ func aggregateUsageRows(startTimestamp, endTimestamp int64, modelName string, us
 	if len(userIds) > 0 {
 		query = query.Where("user_id IN ?", userIds)
 	}
-	query = query.Group("user_id").Having("COALESCE(SUM(quota), 0) <> 0")
-	if limit > 0 {
-		query = query.Order("used_quota DESC, user_id ASC").Limit(limit)
-	}
 	var rows []usageAggregateRow
-	if err := query.Scan(&rows).Error; err != nil {
+	if err := query.Group("user_id").Scan(&rows).Error; err != nil {
 		return nil, err
 	}
-	return rows, nil
+	result := make(map[int]usageBucket, len(rows))
+	for _, row := range rows {
+		result[row.UserId] = row.bucket()
+	}
+	return result, nil
 }
 
 func (row usageAggregateRow) bucket() usageBucket {

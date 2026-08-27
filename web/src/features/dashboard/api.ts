@@ -93,9 +93,7 @@ export async function getUptimeStatus() {
 }
 
 export type OperationsStatsPeriod = 'week' | 'month'
-export type OperationsStatsRefreshSchedule =
-  | 'every_30_minutes'
-  | 'daily_after_midnight'
+export type OperationsStatsRefreshSchedule = 'every_5_minutes'
 
 export interface OperationsStatsUserStat {
   user_id: number

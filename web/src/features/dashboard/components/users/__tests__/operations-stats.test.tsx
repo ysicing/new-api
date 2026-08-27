@@ -44,7 +44,7 @@ describe('operations statistics', () => {
       data: [{ user_id: 1, username: 'alice', used_quota: 100 }],
       refreshing: false,
       generated_at: 1_700_000_000,
-      refresh_schedule: 'every_30_minutes',
+      refresh_schedule: 'every_5_minutes',
     })
     apiMocks.getRechargeLeaderboard.mockResolvedValue({
       success: true,
@@ -60,7 +60,7 @@ describe('operations statistics', () => {
       },
       refreshing: false,
       generated_at: 1_700_000_100,
-      refresh_schedule: 'every_30_minutes',
+      refresh_schedule: 'every_5_minutes',
     })
   })
 
@@ -97,26 +97,26 @@ describe('operations statistics', () => {
     })
   })
 
-  test('shows thinking state while the first snapshot is generated', async () => {
+  test('shows no-data state for an empty direct result', async () => {
     apiMocks.getTopUsers.mockResolvedValue({
       success: true,
       data: [],
-      refreshing: true,
-      generated_at: 0,
-      refresh_schedule: 'every_30_minutes',
+      refreshing: false,
+      generated_at: 1_700_000_000,
+      refresh_schedule: 'every_5_minutes',
     })
     apiMocks.getRechargeLeaderboard.mockResolvedValue({
       success: true,
       data: { list: [] },
-      refreshing: true,
-      generated_at: 0,
-      refresh_schedule: 'every_30_minutes',
+      refreshing: false,
+      generated_at: 1_700_000_000,
+      refresh_schedule: 'every_5_minutes',
     })
 
     renderOperationsStats()
 
-    expect(await screen.findAllByText('Thinking...')).toHaveLength(2)
-    expect(screen.queryByText('No data')).not.toBeInTheDocument()
+    expect(await screen.findAllByText('No data')).toHaveLength(2)
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
   })
 
   test('shows snapshot time and refresh schedule', async () => {
@@ -124,20 +124,20 @@ describe('operations statistics', () => {
 
     expect(await screen.findByText('alice')).toBeInTheDocument()
     expect(screen.getAllByText(/Last updated:/)).toHaveLength(2)
-    expect(screen.getAllByText('Refreshes every 30 minutes')).toHaveLength(2)
+    expect(screen.getAllByText('Refreshes every 5 minutes')).toHaveLength(2)
 
     apiMocks.getTopUsers.mockResolvedValue({
       success: true,
       data: [{ user_id: 1, username: 'alice', used_quota: 100 }],
       refreshing: false,
       generated_at: 1_700_000_200,
-      refresh_schedule: 'daily_after_midnight',
+      refresh_schedule: 'every_5_minutes',
     })
     fireEvent.click(screen.getByRole('button', { name: 'Past month' }))
 
     expect(
-      await screen.findByText('Refreshes daily after midnight')
-    ).toBeInTheDocument()
+      await screen.findAllByText('Refreshes every 5 minutes')
+    ).toHaveLength(2)
   })
 
   test('keeps the recharge leaderboard visible when top users fail', async () => {

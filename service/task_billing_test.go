@@ -48,6 +48,7 @@ func TestMain(m *testing.M) {
 		&model.Midjourney{},
 		&model.TopUp{},
 		&model.QuotaData{},
+		&model.QuotaPool{},
 		&model.QuotaPoolTransaction{},
 		&model.UserSubscription{},
 		&model.SystemTask{},
@@ -74,6 +75,7 @@ func truncate(t *testing.T) {
 		model.DB.Exec("DELETE FROM midjourneys")
 		model.DB.Exec("DELETE FROM top_ups")
 		model.DB.Exec("DELETE FROM quota_data")
+		model.DB.Exec("DELETE FROM quota_pools")
 		model.DB.Exec("DELETE FROM quota_pool_transactions")
 		model.DB.Exec("DELETE FROM user_subscriptions")
 		model.DB.Exec("DELETE FROM system_task_locks")

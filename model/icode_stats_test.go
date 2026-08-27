@@ -27,17 +27,17 @@ func setupICodeStatsTest(t *testing.T) (*gorm.DB, *gorm.DB) {
 	return mainDB, logDB
 }
 
-func TestGetTopUsersAggregatesLogDBAndHydratesMainDB(t *testing.T) {
-	mainDB, logDB := setupICodeStatsTest(t)
+func TestGetTopUsersAggregatesQuotaDataAndHydratesMainDB(t *testing.T) {
+	mainDB, _ := setupICodeStatsTest(t)
 	users := []User{
 		{Id: 1, Username: "alice", Password: "password", AffCode: "stats-a", Quota: 500, UsedQuota: 300},
 		{Id: 2, Username: "bob", Password: "password", AffCode: "stats-b", Quota: 200, UsedQuota: 900},
 	}
 	require.NoError(t, mainDB.Create(&users).Error)
-	require.NoError(t, logDB.Create(&[]Log{
-		{UserId: 1, Type: LogTypeConsume, CreatedAt: 100, ModelName: "gpt-5", Quota: 30},
-		{UserId: 2, Type: LogTypeConsume, CreatedAt: 100, ModelName: "claude-4", Quota: 70},
-		{UserId: 2, Type: LogTypeConsume, CreatedAt: 110, ModelName: "gpt-5", Quota: 20},
+	require.NoError(t, mainDB.Create(&[]QuotaData{
+		{UserID: 1, Username: "alice", CreatedAt: 100, ModelName: "gpt-5", Quota: 30},
+		{UserID: 2, Username: "bob", CreatedAt: 100, ModelName: "claude-4", Quota: 70},
+		{UserID: 2, Username: "bob", CreatedAt: 110, ModelName: "gpt-5", Quota: 20},
 	}).Error)
 
 	results, err := GetTopUsers(90, 120, "", 10)
@@ -51,7 +51,7 @@ func TestGetTopUsersAggregatesLogDBAndHydratesMainDB(t *testing.T) {
 	assert.Equal(t, "bob", results[0].Username)
 }
 
-func TestGetTopUsersCombinesQuotaDataWithRecentLogTail(t *testing.T) {
+func TestGetTopUsersUsesQuotaDataWithoutLogTail(t *testing.T) {
 	mainDB, logDB := setupICodeStatsTest(t)
 	now := time.Date(2026, time.August, 27, 12, 30, 0, 0, time.Local)
 	start := now.AddDate(0, 0, -3)
@@ -74,18 +74,18 @@ func TestGetTopUsersCombinesQuotaDataWithRecentLogTail(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, 1, results[0].UserId)
-	assert.Equal(t, 150, results[0].UsedQuota)
+	assert.Equal(t, 100, results[0].UsedQuota)
 	assert.Equal(t, 100, results[0].GptQuota)
-	assert.Equal(t, 50, results[0].ClaudeQuota)
+	assert.Zero(t, results[0].ClaudeQuota)
 }
 
 func TestGetQuotaPoolStatsAggregatesMembersAndTransactions(t *testing.T) {
-	mainDB, logDB := setupICodeStatsTest(t)
+	mainDB, _ := setupICodeStatsTest(t)
 	pool := QuotaPool{Name: "统计池", PoolType: QuotaPoolTypeNormal, Enabled: true, BaseQuota: 1000, Quota: 800}
 	require.NoError(t, mainDB.Create(&pool).Error)
 	user := User{Username: "pool-stats-user", Password: "password", AffCode: "pool-stats-aff", QuotaPoolId: pool.Id}
 	require.NoError(t, mainDB.Create(&user).Error)
-	require.NoError(t, logDB.Create(&Log{UserId: user.Id, Type: LogTypeConsume, CreatedAt: 100, ModelName: "deepseek-r1", Quota: 45}).Error)
+	require.NoError(t, mainDB.Create(&QuotaData{UserID: user.Id, Username: user.Username, CreatedAt: 100, ModelName: "deepseek-r1", Quota: 45}).Error)
 	require.NoError(t, mainDB.Create(&QuotaPoolTransaction{PoolId: pool.Id, Type: QuotaPoolTransactionAllocateAuto, Amount: -200, CreatedAt: 100}).Error)
 
 	stats, err := GetQuotaPoolStats(pool.Id, 90, 120)
@@ -97,7 +97,7 @@ func TestGetQuotaPoolStatsAggregatesMembersAndTransactions(t *testing.T) {
 	assert.Equal(t, 45, stats.Usage[0].DeepSeekQuota)
 }
 
-func TestGetQuotaPoolStatsCombinesQuotaDataWithRecentLogTail(t *testing.T) {
+func TestGetQuotaPoolStatsUsesQuotaDataWithoutLogTail(t *testing.T) {
 	mainDB, logDB := setupICodeStatsTest(t)
 	now := time.Date(2026, time.August, 27, 12, 30, 0, 0, time.Local)
 	start := now.AddDate(0, 0, -3)
@@ -117,10 +117,10 @@ func TestGetQuotaPoolStatsCombinesQuotaDataWithRecentLogTail(t *testing.T) {
 	stats, err := GetQuotaPoolStats(pool.Id, start.Unix(), now.Unix())
 
 	require.NoError(t, err)
-	assert.Equal(t, 150, stats.TotalUsage)
+	assert.Equal(t, 100, stats.TotalUsage)
 	require.Len(t, stats.Usage, 1)
 	assert.Equal(t, 100, stats.Usage[0].GptQuota)
-	assert.Equal(t, 50, stats.Usage[0].ClaudeQuota)
+	assert.Zero(t, stats.Usage[0].ClaudeQuota)
 }
 
 func TestGetQuotaPoolStatsDoesNotAggregateUnrelatedLogsForEmptyPool(t *testing.T) {
@@ -143,13 +143,13 @@ func TestGetQuotaPoolStatsDoesNotAggregateUnrelatedLogsForEmptyPool(t *testing.T
 }
 
 func TestGetQuotaPoolStatsMapsDefaultPoolMembersToVirtualPoolID(t *testing.T) {
-	mainDB, logDB := setupICodeStatsTest(t)
+	mainDB, _ := setupICodeStatsTest(t)
 	pool := QuotaPool{Name: QuotaPoolDefaultName, PoolType: QuotaPoolTypeDefault, IsDefault: true, Enabled: true}
 	require.NoError(t, mainDB.Create(&pool).Error)
 	user := User{Username: "default-pool-user", Password: "password", AffCode: "default-pool-stats", QuotaPoolId: QuotaPoolDefaultUserPoolId}
 	require.NoError(t, mainDB.Create(&user).Error)
-	require.NoError(t, logDB.Create(&Log{
-		UserId: user.Id, Type: LogTypeConsume, CreatedAt: 100, ModelName: "claude-4", Quota: 45,
+	require.NoError(t, mainDB.Create(&QuotaData{
+		UserID: user.Id, Username: user.Username, CreatedAt: 100, ModelName: "claude-4", Quota: 45,
 	}).Error)
 
 	stats, err := GetQuotaPoolStats(pool.Id, 90, 120)
@@ -161,7 +161,7 @@ func TestGetQuotaPoolStatsMapsDefaultPoolMembersToVirtualPoolID(t *testing.T) {
 }
 
 func TestGetRechargeLeaderboardUsesStableSecondaryUsageSort(t *testing.T) {
-	mainDB, logDB := setupICodeStatsTest(t)
+	mainDB, _ := setupICodeStatsTest(t)
 	users := []User{
 		{Id: 1, Username: "alice", Password: "password", AffCode: "recharge-a"},
 		{Id: 2, Username: "bob", Password: "password", AffCode: "recharge-b"},
@@ -176,10 +176,6 @@ func TestGetRechargeLeaderboardUsesStableSecondaryUsageSort(t *testing.T) {
 		{UserID: 1, Username: "alice", ModelName: "gpt-5", CreatedAt: now - now%3600 - 7200, Quota: 20},
 		{UserID: 2, Username: "bob", ModelName: "claude-4", CreatedAt: now - now%3600 - 7200, Quota: 50},
 	}).Error)
-	require.NoError(t, logDB.Create(&[]Log{
-		{UserId: 1, Type: LogTypeConsume, CreatedAt: now, ModelName: "gpt-5", Quota: 0},
-	}).Error)
-
 	results, err := GetRechargeLeaderboard(10)
 
 	require.NoError(t, err)
@@ -206,7 +202,7 @@ func TestGetRechargeLeaderboardAtUsesProvidedWeek(t *testing.T) {
 	assert.Equal(t, 1, results[0].TotalCount)
 }
 
-func TestGetRechargeLeaderboardUsesTransactionsAndOnlyRecentDefaultLogs(t *testing.T) {
+func TestGetRechargeLeaderboardUsesTransactionsWithoutLogs(t *testing.T) {
 	mainDB, logDB := setupICodeStatsTest(t)
 	now := time.Date(2026, time.August, 27, 12, 30, 0, 0, time.Local)
 	users := []User{
@@ -231,13 +227,10 @@ func TestGetRechargeLeaderboardUsesTransactionsAndOnlyRecentDefaultLogs(t *testi
 	results, err := GetRechargeLeaderboardAt(10, now)
 
 	require.NoError(t, err)
-	require.Len(t, results, 2)
+	require.Len(t, results, 1)
 	assert.Equal(t, 1, results[0].UserId)
 	assert.Equal(t, 1, results[0].AutoRechargeCount)
 	assert.Equal(t, 50, results[0].UsedQuota)
-	assert.Equal(t, 2, results[1].UserId)
-	assert.Equal(t, 1, results[1].AutoRechargeCount)
-	assert.Equal(t, 20, results[1].UsedQuota)
 }
 
 func TestListQuotaPoolOperationLogsMatchesExactPoolID(t *testing.T) {

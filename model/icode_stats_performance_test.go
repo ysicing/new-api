@@ -2,7 +2,6 @@ package model
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -57,7 +56,7 @@ func captureStatsLogDB(t *testing.T, logDB *gorm.DB) *statsSQLCapture {
 	return capture
 }
 
-func TestGetTopUsersRestrictsLogQueryToRecentTail(t *testing.T) {
+func TestGetTopUsersDoesNotQueryLogs(t *testing.T) {
 	mainDB, logDB := setupICodeStatsTest(t)
 	now := time.Date(2026, time.August, 27, 12, 30, 0, 0, time.Local)
 	start := now.AddDate(0, 0, -3)
@@ -78,13 +77,10 @@ func TestGetTopUsersRestrictsLogQueryToRecentTail(t *testing.T) {
 
 	require.NoError(t, err)
 	queries := capture.matching("from `logs`")
-	require.Len(t, queries, 1)
-	assert.Contains(t, queries[0], "group by `user_id`")
-	tailStart := operationsStatsLogTailStart(start.Unix(), now.Unix())
-	assert.Contains(t, queries[0], fmt.Sprintf("created_at >= %d", tailStart))
+	assert.Empty(t, queries)
 }
 
-func TestGetRechargeLeaderboardScansRechargeCountsOnce(t *testing.T) {
+func TestGetRechargeLeaderboardDoesNotQueryLogs(t *testing.T) {
 	_, logDB := setupICodeStatsTest(t)
 	capture := captureStatsLogDB(t, logDB)
 	capture.reset()
@@ -93,6 +89,5 @@ func TestGetRechargeLeaderboardScansRechargeCountsOnce(t *testing.T) {
 
 	require.NoError(t, err)
 	queries := capture.matching("from `logs`")
-	require.Len(t, queries, 1)
-	assert.Contains(t, queries[0], "group by `user_id`")
+	assert.Empty(t, queries)
 }

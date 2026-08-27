@@ -16,13 +16,12 @@ const (
 	SystemTaskStatusSucceeded SystemTaskStatus = "succeeded"
 	SystemTaskStatusFailed    SystemTaskStatus = "failed"
 
-	SystemTaskTypeLogCleanup             = "log_cleanup"
-	SystemTaskTypeChannelTest            = "channel_test"
-	SystemTaskTypeModelUpdate            = "model_update"
-	SystemTaskTypeMidjourneyPoll         = "midjourney_poll"
-	SystemTaskTypeAsyncTaskPoll          = "async_task_poll"
-	SystemTaskTypeQuotaPoolMaintenance   = "quota_pool_maintenance"
-	SystemTaskTypeOperationsStatsRefresh = "operations_stats_refresh"
+	SystemTaskTypeLogCleanup           = "log_cleanup"
+	SystemTaskTypeChannelTest          = "channel_test"
+	SystemTaskTypeModelUpdate          = "model_update"
+	SystemTaskTypeMidjourneyPoll       = "midjourney_poll"
+	SystemTaskTypeAsyncTaskPoll        = "async_task_poll"
+	SystemTaskTypeQuotaPoolMaintenance = "quota_pool_maintenance"
 )
 
 var ErrSystemTaskLockLost = errors.New("system task lock lost")
@@ -195,22 +194,6 @@ func ListSystemTasks(limit int) ([]*SystemTask, error) {
 func GetLatestSystemTask(taskType string) (*SystemTask, error) {
 	var task SystemTask
 	err := DB.Where("type = ?", taskType).Order("id desc").First(&task).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &task, nil
-}
-
-// GetLatestSucceededSystemTask 返回指定类型最近一次成功任务。
-// 定时刷新失败时仍读取上一份成功结果，避免短暂故障清空页面快照。
-func GetLatestSucceededSystemTask(taskType string) (*SystemTask, error) {
-	var task SystemTask
-	err := DB.Where("type = ? AND status = ?", taskType, SystemTaskStatusSucceeded).
-		Order("id desc").
-		First(&task).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -429,11 +412,6 @@ func (task *SystemTask) DecodePayload(v any) error {
 
 func (task *SystemTask) DecodeState(v any) error {
 	return decodeSystemTaskJSONString(task.State, v)
-}
-
-// DecodeResult 将任务的持久化结果解码到调用方提供的结构中。
-func (task *SystemTask) DecodeResult(v any) error {
-	return decodeSystemTaskJSONString(task.Result, v)
 }
 
 func (task *SystemTask) ToResponse() SystemTaskResponse {

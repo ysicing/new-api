@@ -282,8 +282,9 @@ func GetQuotaPoolStats(c *gin.Context) {
 	if !ok || !requireQuotaPoolFeature(c) {
 		return
 	}
-	start, end := statsRange(c, time.Now())
-	stats, err := model.GetQuotaPoolStats(id, start, end)
+	now := time.Now()
+	start, end := statsRange(c, now.Truncate(5*time.Minute))
+	stats, _, err := service.GetCachedQuotaPoolStats(id, start, end, now)
 	if err != nil {
 		writeQuotaPoolError(c, err)
 		return
