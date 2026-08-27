@@ -45,7 +45,10 @@ func TestPoolAdministratorRemovesOrdinaryMemberToNewUserPool(t *testing.T) {
 	assert.Equal(t, target.Id, member.QuotaPoolId)
 	var audit model.Log
 	require.NoError(t, db.Where("type = ?", model.LogTypeManage).Order("id DESC").First(&audit).Error)
-	assert.Equal(t, "quota_pool.member_remove", audit.Content)
+	assert.Equal(t, fmt.Sprintf(
+		"Removed member self-remove-member (ID: %d) to %s and reclaimed 25",
+		member.Id, model.QuotaPoolNewUserName,
+	), audit.Content)
 	assert.Contains(t, audit.Other, `"quota_pool_id":`+strconv.Itoa(source.Id))
 	assert.Contains(t, audit.Other, `"target_pool_id":`+strconv.Itoa(target.Id))
 	assert.Contains(t, audit.Other, `"user_name":"self-remove-member"`)

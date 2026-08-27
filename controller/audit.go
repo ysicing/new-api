@@ -47,6 +47,21 @@ var auditContentTemplates = map[string]string{
 
 	"redemption.create": "Created ${count} redemption codes named ${name} (${quota} each)",
 
+	"quota_pool.create":          "Created quota pool ${quota_pool_name} with initial quota ${amount}",
+	"quota_pool.sync_system":     "Synchronized system quota pools",
+	"quota_pool.update":          "Updated ${fields} settings for quota pool ${quota_pool_name}",
+	"quota_pool.enabled":         "Updated enabled state for quota pool ${quota_pool_name}",
+	"quota_pool.delete":          "Deleted quota pool ${quota_pool_name}",
+	"quota_pool.refill":          "Added ${amount} temporary quota to ${quota_pool_name}",
+	"quota_pool.self_update":     "Updated ${fields} auto-recharge settings for ${quota_pool_name}",
+	"quota_pool.member_add":      "Added member ${user_name} (ID: ${user_id}) to ${quota_pool_name}",
+	"quota_pool.member_move":     "Moved member ${user_name} (ID: ${user_id}) into ${quota_pool_name}",
+	"quota_pool.member_remove":   "Removed member ${user_name} (ID: ${user_id}) to ${target_pool_name} and reclaimed ${amount}",
+	"quota_pool.member_recharge": "Recharged member ${user_name} (ID: ${user_id}) by ${amount}",
+	"quota_pool.member_reclaim":  "Reclaimed ${amount} from member ${user_name} (ID: ${user_id})",
+	"quota_pool.admin_grant":     "Set member ${user_name} (ID: ${user_id}) as a pool administrator",
+	"quota_pool.admin_revoke":    "Removed member ${user_name} (ID: ${user_id})'s pool administrator role",
+
 	"subscription.plan_reset":      "Reset active subscriptions for plan ${plan_id}",
 	"subscription.user_plan_reset": "Reset active plan ${plan_id} subscriptions for user ${target_user_id}",
 }

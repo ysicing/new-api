@@ -23,6 +23,7 @@ import {
   parseTiersFromExpr,
   type ParsedTier,
 } from '@/features/pricing/lib/billing-expr'
+import { renderQuotaPoolOperationDescriptor } from '@/features/quota-pools/lib/operation-format'
 
 import type { UsageLog } from '../data/schema'
 import type { LogOtherData } from '../types'
@@ -482,6 +483,11 @@ export function renderAuditContent(
 ): string | null {
   const op = other?.op
   if (!op?.action) return null
+  const quotaPoolText = renderQuotaPoolOperationDescriptor(
+    { action: op.action, params: op.params ?? {} },
+    t
+  )
+  if (quotaPoolText) return quotaPoolText
   const template = AUDIT_TEMPLATES[op.action]
   if (!template) return null
   return t(template, (op.params ?? {}) as Record<string, unknown>)

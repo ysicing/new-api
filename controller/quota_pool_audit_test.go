@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -82,6 +83,23 @@ func TestRecordQuotaPoolAuditUsesUsernameWhenDisplayNameEmpty(t *testing.T) {
 	recordQuotaPoolAudit(c, pool.Id, "quota_pool.member_add", map[string]any{"user_id": member.Id})
 
 	assert.Equal(t, "bob", lastQuotaPoolAudit(t, db).Op.Params["user_name"])
+}
+
+func TestRecordQuotaPoolAuditWritesReadableFallbackContent(t *testing.T) {
+	db, c := setupQuotaPoolAuditTest(t)
+	pool := model.QuotaPool{Name: "研发池", PoolType: model.QuotaPoolTypeNormal, Enabled: true}
+	member := model.User{
+		Username: "bob", Password: "password", AffCode: "audit-readable-bob",
+		Role: common.RoleCommonUser, Status: common.UserStatusEnabled,
+	}
+	require.NoError(t, db.Create(&pool).Error)
+	require.NoError(t, db.Create(&member).Error)
+
+	recordQuotaPoolAudit(c, pool.Id, "quota_pool.member_add", map[string]any{"user_id": member.Id})
+
+	var log model.Log
+	require.NoError(t, db.Order("id DESC").First(&log).Error)
+	assert.Equal(t, fmt.Sprintf("Added member bob (ID: %d) to 研发池", member.Id), log.Content)
 }
 
 func TestRecordQuotaPoolAuditReadsSoftDeletedPoolName(t *testing.T) {
