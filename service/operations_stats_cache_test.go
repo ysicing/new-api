@@ -132,3 +132,28 @@ func TestQuotaPoolStatsUsesFiveMinuteRedisCache(t *testing.T) {
 	assert.Equal(t, 200, third.TotalUsage)
 	assert.Greater(t, thirdGeneratedAt, secondGeneratedAt)
 }
+
+func TestModelStatisticsUsesUserScopedFiveMinuteCache(t *testing.T) {
+	truncate(t)
+	server := useOperationsStatsRedis(t)
+	now := time.Date(2026, time.August, 28, 12, 30, 0, 0, time.Local)
+	require.NoError(t, model.DB.Create(&model.QuotaData{
+		UserID: 1, ModelName: "gpt-5",
+		CreatedAt: now.Add(-24 * time.Hour).Truncate(time.Hour).Unix(), Count: 2, Quota: 100,
+	}).Error)
+
+	first, err := GetCachedModelStatistics("week", 1, now)
+	require.NoError(t, err)
+	require.Len(t, first.Items, 1)
+	assert.EqualValues(t, 100, first.Items[0].Quota)
+
+	require.NoError(t, model.DB.Model(&model.QuotaData{}).Where("user_id = ?", 1).Update("quota", 200).Error)
+	second, err := GetCachedModelStatistics("week", 1, now.Add(4*time.Minute+59*time.Second))
+	require.NoError(t, err)
+	assert.EqualValues(t, 100, second.Items[0].Quota)
+
+	server.FastForward(5*time.Minute + time.Second)
+	third, err := GetCachedModelStatistics("week", 1, now.Add(5*time.Minute+1*time.Second))
+	require.NoError(t, err)
+	assert.EqualValues(t, 200, third.Items[0].Quota)
+}

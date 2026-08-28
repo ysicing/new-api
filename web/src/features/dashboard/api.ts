@@ -136,3 +136,30 @@ export async function getRechargeLeaderboard(limit = 10) {
   }
   return response.data
 }
+
+export type ModelStatisticsPeriod = 'week' | 'month'
+export type ModelStatisticsScope = 'all' | 'self'
+
+export interface ModelStatisticItem {
+  model_name: string
+  count: number
+  quota: number
+  share: number
+}
+
+export async function getModelStatistics(
+  period: ModelStatisticsPeriod,
+  scope: ModelStatisticsScope
+) {
+  const response = await api.get<{
+    success: boolean
+    message: string
+    data: ModelStatisticItem[]
+    generated_at: number
+    refresh_schedule: OperationsStatsRefreshSchedule
+  }>('/api/data/model-statistics', { params: { period, scope } })
+  if (!response.data.success) {
+    throw new Error(response.data.message || 'Request failed')
+  }
+  return response.data
+}

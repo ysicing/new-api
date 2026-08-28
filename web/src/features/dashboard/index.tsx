@@ -89,6 +89,12 @@ const LazyModelCharts = lazy(() =>
   }))
 )
 
+const LazyModelStatistics = lazy(() =>
+  import('./components/models/model-statistics').then((module) => ({
+    default: module.ModelStatistics,
+  }))
+)
+
 const LazyConsumptionDistributionChart = lazy(() =>
   import('./components/models/consumption-distribution-chart').then((m) => ({
     default: m.ConsumptionDistributionChart,
@@ -188,6 +194,9 @@ const SECTION_META: Record<DashboardSectionId, { titleKey: string }> = {
   },
   models: {
     titleKey: 'Model Call Analytics',
+  },
+  'model-statistics': {
+    titleKey: 'Model statistics',
   },
   flow: {
     titleKey: 'Flow',
@@ -408,6 +417,13 @@ export function Dashboard() {
                   filters={userChartsFilters}
                   onFiltersChange={setUserChartsFilters}
                 />
+              </Suspense>
+            </FadeIn>
+          )}
+          {activeSection === 'model-statistics' && (
+            <FadeIn>
+              <Suspense fallback={<ModelChartsFallback />}>
+                <LazyModelStatistics />
               </Suspense>
             </FadeIn>
           )}

@@ -27,6 +27,11 @@ type OperationsStatsRechargeSection struct {
 	Items       []model.UserRechargeStat `json:"items"`
 }
 
+type ModelStatisticsSection struct {
+	GeneratedAt int64                  `json:"generated_at"`
+	Items       []model.ModelUsageStat `json:"items"`
+}
+
 type operationsStatsCacheEntry[T any] struct {
 	GeneratedAt int64 `json:"generated_at"`
 	Data        T     `json:"data"`
@@ -71,6 +76,27 @@ func GetCachedQuotaPoolStats(poolId int, startTimestamp, endTimestamp int64, now
 		return nil, 0, err
 	}
 	return entry.Data, entry.GeneratedAt, nil
+}
+
+func GetCachedModelStatistics(period string, userId int, now time.Time) (*ModelStatisticsSection, error) {
+	start := statsWeekStart(now)
+	periodKey := fmt.Sprintf("week:%d", start.Unix())
+	if period == "month" {
+		start = now.AddDate(0, 0, -30)
+		periodKey = "month"
+	}
+	scopeKey := "all"
+	if userId > 0 {
+		scopeKey = fmt.Sprintf("user:%d", userId)
+	}
+	cacheSuffix := fmt.Sprintf("model_statistics:%s:%s", periodKey, scopeKey)
+	entry, err := loadOperationsStatsCache(cacheSuffix, now, func() ([]model.ModelUsageStat, error) {
+		return model.GetModelStatistics(start.Unix(), now.Unix(), userId)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ModelStatisticsSection{GeneratedAt: entry.GeneratedAt, Items: entry.Data}, nil
 }
 
 func loadOperationsStatsCache[T any](suffix string, now time.Time, loader func() (T, error)) (operationsStatsCacheEntry[T], error) {
