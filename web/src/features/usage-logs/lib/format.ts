@@ -484,6 +484,25 @@ export function renderAuditContent(
 ): string | null {
   const op = other?.op
   if (!op?.action) return null
+  if (op.action === 'user.quota_pool_recharge') {
+    const params = op.params ?? {}
+    const username =
+      typeof params.username === 'string' ? params.username.trim() : ''
+    const targetUserId = Number(params.target_user_id)
+    const hasTargetUserId = Number.isInteger(targetUserId) && targetUserId > 0
+    let user = '—'
+    if (username && hasTargetUserId) {
+      user = `${username} (ID: ${targetUserId})`
+    } else if (username) {
+      user = username
+    } else if (hasTargetUserId) {
+      user = `#${targetUserId}`
+    }
+    return t('Replenished quota for user {{user}}: {{quota}}', {
+      user,
+      quota: params.quota ?? '—',
+    })
+  }
   const quotaPoolText = renderQuotaPoolOperationDescriptor(
     { action: op.action, params: op.params ?? {} },
     t
@@ -492,6 +511,15 @@ export function renderAuditContent(
   const template = AUDIT_TEMPLATES[op.action]
   if (!template) return null
   return t(template, (op.params ?? {}) as Record<string, unknown>)
+}
+
+export function renderStructuredOperationContent(
+  logType: number,
+  other: LogOtherData | null | undefined,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): string | null {
+  if (logType !== 1 && logType !== 3 && logType !== 7) return null
+  return renderAuditContent(other, t)
 }
 
 export function renderAutomaticRechargeContent(

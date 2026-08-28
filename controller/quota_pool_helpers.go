@@ -159,8 +159,12 @@ func recordQuotaPoolAudit(c *gin.Context, poolId int, action string, params map[
 	}
 	params["quota_pool_id"] = poolId
 	enrichQuotaPoolAuditParams(poolId, params)
-	model.RecordOperationAuditLog(
-		c.GetInt("id"), auditContentEN(action, params), c.ClientIP(), action, params,
+	logType := model.LogTypeManage
+	if action == "quota_pool.member_recharge" || action == "quota_pool.member_reclaim" {
+		logType = model.LogTypeTopup
+	}
+	model.RecordOperationAuditLogWithType(
+		logType, c.GetInt("id"), auditContentEN(action, params), c.ClientIP(), action, params,
 		map[string]any{"admin_id": c.GetInt("id"), "admin_username": c.GetString("username"), "quota_pool_id": poolId}, nil,
 	)
 }

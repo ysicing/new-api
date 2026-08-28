@@ -1270,8 +1270,9 @@ func ManageUser(c *gin.Context) {
 			common.ApiError(c, err)
 			return
 		}
-		recordManageAuditFor(c, user.Id, "user.quota_pool_recharge", map[string]interface{}{
-			"quota": logger.LogQuota(amount),
+		recordTopupAuditFor(c, user.Id, "user.quota_pool_recharge", map[string]interface{}{
+			"username": user.Username,
+			"quota":    logger.LogQuota(amount),
 		})
 		newQuota, err := model.GetUserQuota(user.Id, true)
 		if err != nil {

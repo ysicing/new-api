@@ -75,7 +75,7 @@ import {
   getFirstResponseTimeColor,
   getResponseTimeColor,
   getReasoningEffortVariant,
-  renderAuditContent,
+  renderStructuredOperationContent,
 } from '../../lib/format'
 import {
   getLogTypeConfig,
@@ -529,13 +529,27 @@ export function DetailsDialog(props: DetailsDialogProps) {
           },
         ].filter(Boolean) as Array<{ label: string; value: string }>)
       : []
+  const operationText = renderStructuredOperationContent(
+    props.log.type,
+    other,
+    t
+  )
+  const isStructuredTopupOperation = isTopup && operationText != null
   const showLegacyTopupWarning = isTopup && props.isAdmin && !adminInfo
   const showTopupAuditSection =
     isTopup &&
     props.isAdmin &&
-    (topupAuditFields.length > 0 || showLegacyTopupWarning)
+    (operationText != null ||
+      topupAuditFields.length > 0 ||
+      showLegacyTopupWarning)
   const manageOperator = (() => {
-    if (!isManage || !props.isAdmin || !adminInfo) return null
+    if (
+      (!isManage && !isStructuredTopupOperation) ||
+      !props.isAdmin ||
+      !adminInfo
+    ) {
+      return null
+    }
     const username = adminInfo.admin_username
     const id = adminInfo.admin_id
     const hasUsername = username != null && String(username).trim() !== ''
@@ -546,15 +560,18 @@ export function DetailsDialog(props: DetailsDialogProps) {
     return `ID: ${id}`
   })()
   const authMethodLabel = (() => {
-    if (!isManage || !props.isAdmin || !adminInfo?.auth_method) return ''
+    if (
+      (!isManage && !isStructuredTopupOperation) ||
+      !props.isAdmin ||
+      !adminInfo?.auth_method
+    ) {
+      return ''
+    }
     if (adminInfo.auth_method === 'access_token') return t('Access Token')
     if (adminInfo.auth_method === 'session') return t('Session')
     return String(adminInfo.auth_method)
   })()
 
-  // Localized operation text rendered from the language-independent op
-  // descriptor (shared by audit type=3 and login type=7).
-  const operationText = renderAuditContent(other, t)
   const auditRoute = isManage && props.isAdmin ? other?.audit_info : undefined
   // Channel update records which fields changed (stable field tokens); render
   // them with their localized labels for admins.
@@ -879,6 +896,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
             iconTone='success'
             label={t('Top-up Audit Info')}
           >
+            {operationText != null && (
+              <DetailRow label={t('Operation')} value={operationText} />
+            )}
             {topupAuditFields.map((field) => (
               <DetailRow
                 key={field.label}

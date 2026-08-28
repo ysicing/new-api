@@ -48,7 +48,7 @@ import {
   hasAnyCacheTokens,
   parseLogOther,
   isViolationFeeLog,
-  renderAuditContent,
+  renderStructuredOperationContent,
   renderAutomaticRechargeContent,
 } from '../../lib/format'
 import {
@@ -117,12 +117,10 @@ function buildTypeDetailSegments(
   other: LogOtherData | null,
   t: (key: string, opts?: Record<string, unknown>) => string
 ): DetailSegment[] {
-  // Audit (type=3) and login (type=7) logs: render localized content from the
-  // structured op descriptor instead of the raw (English-fallback) content.
-  if (log.type === 3 || log.type === 7) {
-    const text = renderAuditContent(other, t)
-    return text ? [{ text }] : []
-  }
+  // Structured operations may be categorized as top-up, management, or login.
+  // Render their localized descriptor instead of the raw English fallback.
+  const operationText = renderStructuredOperationContent(log.type, other, t)
+  if (operationText) return [{ text: operationText }]
 
   if (log.type === 4) {
     const text = renderAutomaticRechargeContent(other, t)

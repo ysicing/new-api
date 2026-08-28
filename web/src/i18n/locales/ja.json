@@ -3984,6 +3984,7 @@
     "Replace With": "置換後",
     "replaced": "置換済み",
     "Replacement Model": "代替モデル",
+    "Replenished quota for user {{user}}: {{quota}}": "ユーザー {{user}} のクォータを補充しました：{{quota}}",
     "Replica count": "レプリカ数",
     "Replicate": "Replicate",
     "Report an issue": "問題を報告",

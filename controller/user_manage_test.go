@@ -95,6 +95,9 @@ func TestManageUserAdminCanRechargeHigherRoleButCannotDirectlyAdjustQuota(t *tes
 	assert.Contains(t, recorder.Body.String(), `"success":true`)
 	require.NoError(t, db.First(&target, target.Id).Error)
 	assert.Equal(t, int(2*common.QuotaPerUnit), target.Quota)
+	var rechargeLog model.Log
+	require.NoError(t, db.Order("id DESC").First(&rechargeLog).Error)
+	assert.Equal(t, model.LogTypeTopup, rechargeLog.Type)
 
 	recorder = performManageUserRequestAs(t, fmt.Sprintf(`{"id":%d,"action":"add_quota","mode":"add","value":100}`, target.Id), common.RoleAdminUser)
 	assert.Contains(t, recorder.Body.String(), `"success":false`)

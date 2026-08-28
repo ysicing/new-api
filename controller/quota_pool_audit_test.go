@@ -102,6 +102,37 @@ func TestRecordQuotaPoolAuditWritesReadableFallbackContent(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("Added member bob (ID: %d) to 研发池", member.Id), log.Content)
 }
 
+func TestRecordQuotaPoolAuditClassifiesMemberBalanceChangesAsTopup(t *testing.T) {
+	tests := []struct {
+		action   string
+		wantType int
+	}{
+		{action: "quota_pool.member_recharge", wantType: model.LogTypeTopup},
+		{action: "quota_pool.member_reclaim", wantType: model.LogTypeTopup},
+		{action: "quota_pool.member_add", wantType: model.LogTypeManage},
+	}
+	for _, tt := range tests {
+		t.Run(tt.action, func(t *testing.T) {
+			db, c := setupQuotaPoolAuditTest(t)
+			pool := model.QuotaPool{Name: "研发池", PoolType: model.QuotaPoolTypeNormal, Enabled: true}
+			member := model.User{
+				Username: "balance-member", Password: "password", AffCode: "balance-member-" + tt.action,
+				Role: common.RoleCommonUser, Status: common.UserStatusEnabled,
+			}
+			require.NoError(t, db.Create(&pool).Error)
+			require.NoError(t, db.Create(&member).Error)
+
+			recordQuotaPoolAudit(c, pool.Id, tt.action, map[string]any{
+				"user_id": member.Id, "amount": 250,
+			})
+
+			var log model.Log
+			require.NoError(t, db.Order("id DESC").First(&log).Error)
+			assert.Equal(t, tt.wantType, log.Type)
+		})
+	}
+}
+
 func TestRecordQuotaPoolAuditReadsSoftDeletedPoolName(t *testing.T) {
 	db, c := setupQuotaPoolAuditTest(t)
 	pool := model.QuotaPool{Name: "待删除池", PoolType: model.QuotaPoolTypeNormal, Enabled: true}

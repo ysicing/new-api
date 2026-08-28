@@ -242,6 +242,11 @@ func TestListQuotaPoolOperationLogsMatchesExactPoolID(t *testing.T) {
 			}),
 		},
 		{
+			Type: LogTypeTopup, Content: "pool-1-recharge", Other: common.MapToJsonStr(map[string]any{
+				"admin_info": map[string]any{"admin_id": 7, "admin_username": "root", "quota_pool_id": 1},
+			}),
+		},
+		{
 			Type: LogTypeManage, Content: "pool-10", Other: common.MapToJsonStr(map[string]any{
 				"admin_info": map[string]any{"admin_id": 7, "admin_username": "root", "quota_pool_id": 10},
 			}),
@@ -252,7 +257,8 @@ func TestListQuotaPoolOperationLogsMatchesExactPoolID(t *testing.T) {
 	items, total, err := ListQuotaPoolOperationLogs(1, &common.PageInfo{Page: 1, PageSize: 10})
 
 	require.NoError(t, err)
-	assert.EqualValues(t, 1, total)
-	require.Len(t, items, 1)
-	assert.Equal(t, "pool-1", items[0].Content)
+	assert.EqualValues(t, 2, total)
+	require.Len(t, items, 2)
+	assert.Equal(t, "pool-1-recharge", items[0].Content)
+	assert.Equal(t, "pool-1", items[1].Content)
 }

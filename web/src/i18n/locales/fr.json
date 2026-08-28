@@ -3984,6 +3984,7 @@
     "Replace With": "Remplacer par",
     "replaced": "remplacé",
     "Replacement Model": "Modèle de remplacement",
+    "Replenished quota for user {{user}}: {{quota}}": "Quota réapprovisionné pour l’utilisateur {{user}} : {{quota}}",
     "Replica count": "Nombre de réplicas",
     "Replicate": "Replicate",
     "Report an issue": "Signaler un problème",

@@ -16,19 +16,20 @@ import (
 // action 的 params 填充。本地化展示文案在前端 i18n 模板中维护，本表是语言中立的
 // 英文基线——调用方因此无需在每个埋点处手写句子（避免与 params 重复书写同一份值）。
 var auditContentTemplates = map[string]string{
-	"user.create":           "Created user ${username} (role ${role})",
-	"user.update":           "Updated user ${username} (ID: ${id})",
-	"user.delete":           "Deleted user ${username} (ID: ${id})",
-	"user.manage":           "Performed ${action} on user ${username} (ID: ${id})",
-	"user.quota_add":        "Increased user quota by ${quota}",
-	"user.quota_subtract":   "Decreased user quota by ${quota}",
-	"user.quota_override":   "Overrode user quota from ${from} to ${to}",
-	"user.binding_clear":    "Cleared ${bindingType} binding for user ${username}",
-	"user.2fa_disable":      "Force-disabled two-factor authentication for the user",
-	"user.passkey_register": "Registered a passkey",
-	"user.passkey_delete":   "Deleted a passkey",
-	"user.reset_passkey":    "Reset the user passkey",
-	"option.update":         "Updated system setting ${key}",
+	"user.create":              "Created user ${username} (role ${role})",
+	"user.update":              "Updated user ${username} (ID: ${id})",
+	"user.delete":              "Deleted user ${username} (ID: ${id})",
+	"user.manage":              "Performed ${action} on user ${username} (ID: ${id})",
+	"user.quota_add":           "Increased user quota by ${quota}",
+	"user.quota_subtract":      "Decreased user quota by ${quota}",
+	"user.quota_override":      "Overrode user quota from ${from} to ${to}",
+	"user.quota_pool_recharge": "Replenished quota for user ${username} (ID: ${target_user_id}): ${quota}",
+	"user.binding_clear":       "Cleared ${bindingType} binding for user ${username}",
+	"user.2fa_disable":         "Force-disabled two-factor authentication for the user",
+	"user.passkey_register":    "Registered a passkey",
+	"user.passkey_delete":      "Deleted a passkey",
+	"user.reset_passkey":       "Reset the user passkey",
+	"option.update":            "Updated system setting ${key}",
 
 	"channel.create":             "Created channel ${name} (type ${type}, count ${count})",
 	"channel.update":             "Updated channel ${name} (ID: ${id})",
@@ -112,6 +113,14 @@ func recordManageAudit(c *gin.Context, action string, params map[string]interfac
 // recordManageAuditFor 记录一条管理审计日志，日志归属于操作者；targetUserId
 // 只表示被操作用户，用于在结构化参数中保留目标上下文。
 func recordManageAuditFor(c *gin.Context, targetUserId int, action string, params map[string]interface{}) {
+	recordOperationAuditFor(c, targetUserId, model.LogTypeManage, action, params)
+}
+
+func recordTopupAuditFor(c *gin.Context, targetUserId int, action string, params map[string]interface{}) {
+	recordOperationAuditFor(c, targetUserId, model.LogTypeTopup, action, params)
+}
+
+func recordOperationAuditFor(c *gin.Context, targetUserId int, logType int, action string, params map[string]interface{}) {
 	if params == nil {
 		params = map[string]interface{}{}
 	}
@@ -119,7 +128,7 @@ func recordManageAuditFor(c *gin.Context, targetUserId int, action string, param
 	if _, ok := params["target_user_id"]; !ok && targetUserId > 0 && targetUserId != operatorUserId {
 		params["target_user_id"] = targetUserId
 	}
-	model.RecordOperationAuditLog(operatorUserId, auditContentEN(action, params), c.ClientIP(), action, params, auditOperatorInfo(c), nil)
+	model.RecordOperationAuditLogWithType(logType, operatorUserId, auditContentEN(action, params), c.ClientIP(), action, params, auditOperatorInfo(c), nil)
 	markAuditLogged(c)
 }
 

@@ -55,6 +55,18 @@ test('renders quota pool member add with pool and member names', () => {
   expect(text).toBe('Added member 张三 (ID: 25) to 平台保障部')
 })
 
+test('renders historical user quota pool recharge as readable management text', () => {
+  const text = renderAuditContent(
+    auditOther('user.quota_pool_recharge', {
+      target_user_id: 25,
+      quota: '¥10.000000 额度',
+    }),
+    translate
+  )
+
+  expect(text).toBe('Replenished quota for user #25: ¥10.000000 额度')
+})
+
 test('renders existing automatic recharge logs with formatted quota', () => {
   const text = renderAutomaticRechargeContent(
     {

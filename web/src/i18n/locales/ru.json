@@ -3984,6 +3984,7 @@
     "Replace With": "Заменить на",
     "replaced": "заменено",
     "Replacement Model": "Модель замены",
+    "Replenished quota for user {{user}}: {{quota}}": "Квота пользователя {{user}} пополнена: {{quota}}",
     "Replica count": "Количество реплик",
     "Replicate": "Replicate",
     "Report an issue": "Сообщить о проблеме",

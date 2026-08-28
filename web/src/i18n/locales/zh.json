@@ -3984,6 +3984,7 @@
     "Replace With": "替换为",
     "replaced": "已替换",
     "Replacement Model": "替换模型",
+    "Replenished quota for user {{user}}: {{quota}}": "为用户 {{user}} 补齐额度：{{quota}}",
     "Replica count": "副本数",
     "Replicate": "Replicate",
     "Report an issue": "反馈问题",

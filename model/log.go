@@ -231,6 +231,12 @@ func RecordLoginLog(userId int, username string, content string, ip string, acti
 // adminInfo 存放操作者身份（写入 Other.admin_info，普通用户查询时剥离）；
 // auditInfo 存放路由/方法/结果等中间件兜底信息（写入 Other.audit_info，普通用户查询时剥离）。
 func RecordOperationAuditLog(logUserId int, content string, ip string, action string, params map[string]interface{}, adminInfo map[string]interface{}, auditInfo map[string]interface{}) {
+	RecordOperationAuditLogWithType(LogTypeManage, logUserId, content, ip, action, params, adminInfo, auditInfo)
+}
+
+// RecordOperationAuditLogWithType 记录带结构化操作描述的审计日志，并允许额度
+// 充值、回收等资金变更按充值类型归类，同时保留统一的 op/admin_info 数据结构。
+func RecordOperationAuditLogWithType(logType int, logUserId int, content string, ip string, action string, params map[string]interface{}, adminInfo map[string]interface{}, auditInfo map[string]interface{}) {
 	username, _ := GetUsernameById(logUserId, false)
 	other := map[string]interface{}{
 		"op": buildOpField(action, params),
@@ -245,7 +251,7 @@ func RecordOperationAuditLog(logUserId int, content string, ip string, action st
 		UserId:    logUserId,
 		Username:  username,
 		CreatedAt: common.GetTimestamp(),
-		Type:      LogTypeManage,
+		Type:      logType,
 		Content:   content,
 		Ip:        ip,
 		Other:     common.MapToJsonStr(other),
