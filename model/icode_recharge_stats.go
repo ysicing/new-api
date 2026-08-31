@@ -18,9 +18,13 @@ func GetRechargeLeaderboard(limit int) ([]UserRechargeStat, error) {
 // GetRechargeLeaderboardAt 使用统一的统计时点生成周榜，保证后台快照中
 // 各榜单边界一致，也便于在跨周边界时稳定复现结果。
 func GetRechargeLeaderboardAt(limit int, now time.Time) ([]UserRechargeStat, error) {
+	return GetRechargeLeaderboardInRange(limit, statsWeekStart(now).Unix(), now.Unix())
+}
+
+// GetRechargeLeaderboardInRange 从结构化额度池交易中统计指定时间范围的充值榜。
+func GetRechargeLeaderboardInRange(limit int, startTimestamp, endTimestamp int64) ([]UserRechargeStat, error) {
 	limit = normalizeStatsLimit(limit)
-	weekStart := statsWeekStart(now).Unix()
-	countRows, err := groupedRechargeCounts(weekStart, now.Unix())
+	countRows, err := groupedRechargeCounts(startTimestamp, endTimestamp)
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +39,7 @@ func GetRechargeLeaderboardAt(limit int, now time.Time) ([]UserRechargeStat, err
 		tempCounts[row.UserId] = row.TempCount
 		ids = append(ids, row.UserId)
 	}
-	usage, err := aggregateOperationsUsage(weekStart, now.Unix(), "", ids)
+	usage, err := aggregateOperationsUsage(startTimestamp, endTimestamp, "", ids)
 	if err != nil {
 		return nil, err
 	}

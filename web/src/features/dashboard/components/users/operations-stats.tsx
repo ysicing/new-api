@@ -1,14 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
-import { type ReactNode, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
 import {
   Card,
-  CardAction,
   CardContent,
-  CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
@@ -51,8 +49,8 @@ export function OperationsStats() {
     staleTime: OPERATIONS_STATS_STALE_TIME,
   })
   const recharge = useQuery({
-    queryKey: ['operations', 'recharge', limit],
-    queryFn: () => getRechargeLeaderboard(limit),
+    queryKey: ['operations', 'recharge', period, limit],
+    queryFn: () => getRechargeLeaderboard(limit, period),
     retry: false,
     staleTime: OPERATIONS_STATS_STALE_TIME,
   })
@@ -96,11 +94,13 @@ export function OperationsStats() {
   )
   return (
     <div className='space-y-3'>
-      <div className='flex justify-end'>{limitControls}</div>
+      <div className='flex flex-wrap justify-end gap-2'>
+        {periodControls}
+        {limitControls}
+      </div>
       <div className='grid gap-4 xl:grid-cols-2'>
         <StatTable
           title={t('Top users')}
-          action={periodControls}
           items={topItems}
           loading={topUsers.isLoading}
           error={topUsers.isError}
@@ -111,7 +111,6 @@ export function OperationsStats() {
         />
         <StatTable
           title={t('Recharge leaderboard')}
-          description={t('This week')}
           items={rechargeItems}
           loading={recharge.isLoading}
           error={recharge.isError}
@@ -127,8 +126,6 @@ export function OperationsStats() {
 
 function StatTable(props: {
   title: string
-  description?: string
-  action?: ReactNode
   items: OperationsStatsUserStat[]
   loading: boolean
   error: boolean
@@ -142,14 +139,6 @@ function StatTable(props: {
     <Card>
       <CardHeader>
         <CardTitle>{props.title}</CardTitle>
-        {props.description ? (
-          <CardDescription>{props.description}</CardDescription>
-        ) : null}
-        {props.action ? (
-          <CardAction className='col-span-2 row-start-2 mt-2 justify-self-start sm:col-span-1 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:mt-0 sm:justify-self-end'>
-            {props.action}
-          </CardAction>
-        ) : null}
       </CardHeader>
       <CardContent>
         <StatTableContent {...props} />

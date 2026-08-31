@@ -37,6 +37,18 @@ describe('operations statistics API', () => {
     )
   })
 
+  test('requests recharge leaderboard with period and limit', async () => {
+    apiMocks.get.mockResolvedValue({
+      data: { success: true, data: { list: [] } },
+    })
+
+    await getRechargeLeaderboard(20, 'month')
+
+    expect(apiMocks.get).toHaveBeenCalledWith('/api/log/recharge_leaderboard', {
+      params: { limit: 20, period: 'month' },
+    })
+  })
+
   test('requests model statistics with period and scope', async () => {
     apiMocks.get.mockResolvedValue({
       data: { success: true, data: [] },

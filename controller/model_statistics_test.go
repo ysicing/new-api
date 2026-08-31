@@ -24,8 +24,8 @@ func setupModelStatisticsControllerTest(t *testing.T) time.Time {
 	require.NoError(t, db.AutoMigrate(&model.QuotaData{}))
 	now := time.Now()
 	require.NoError(t, db.Create(&[]model.QuotaData{
-		{UserID: 1, ModelName: "gpt-5", CreatedAt: now.Add(-24 * time.Hour).Unix(), Count: 2, Quota: 40},
-		{UserID: 2, ModelName: "claude-4", CreatedAt: now.Add(-24 * time.Hour).Unix(), Count: 3, Quota: 60},
+		{UserID: 1, ModelName: "gpt-5", CreatedAt: now.Unix(), Count: 2, Quota: 40},
+		{UserID: 2, ModelName: "claude-4", CreatedAt: now.Unix(), Count: 3, Quota: 60},
 	}).Error)
 	return now
 }

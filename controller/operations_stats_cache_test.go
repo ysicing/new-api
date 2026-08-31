@@ -8,7 +8,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -76,6 +78,34 @@ func TestOperationsStatsEndpointsQueryAggregatedDataDirectly(t *testing.T) {
 	assert.Contains(t, rechargeRecorder.Body.String(), `"refresh_schedule":"every_5_minutes"`)
 }
 
+func TestRechargeLeaderboardSeparatesWeekAndMonthCaches(t *testing.T) {
+	setupOperationsStatsCacheTest(t)
+	server := miniredis.RunT(t)
+	common.RedisEnabled = true
+	common.RDB = redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = common.RDB.Close() })
+
+	now := time.Now()
+	user := model.User{Id: 1, Username: "month-recharge", Password: "password", AffCode: "stats-month-recharge"}
+	require.NoError(t, model.DB.Create(&user).Error)
+	require.NoError(t, model.DB.Create(&model.QuotaPoolTransaction{
+		PoolId: 1, UserId: user.Id, Type: model.QuotaPoolTransactionAllocateAuto,
+		Amount: -100, CreatedAt: now.AddDate(0, 0, -20).Unix(),
+	}).Error)
+
+	weekRecorder := httptest.NewRecorder()
+	weekContext, _ := gin.CreateTestContext(weekRecorder)
+	weekContext.Request = httptest.NewRequest(http.MethodGet, "/api/log/recharge_leaderboard?period=week&limit=10", nil)
+	GetRechargeLeaderboard(weekContext)
+	assert.NotContains(t, weekRecorder.Body.String(), "month-recharge")
+
+	monthRecorder := httptest.NewRecorder()
+	monthContext, _ := gin.CreateTestContext(monthRecorder)
+	monthContext.Request = httptest.NewRequest(http.MethodGet, "/api/log/recharge_leaderboard?period=month&limit=10", nil)
+	GetRechargeLeaderboard(monthContext)
+	assert.Contains(t, monthRecorder.Body.String(), "month-recharge")
+}
+
 func TestOperationsStatsEndpointsApplyRequestedLimitToDirectResult(t *testing.T) {
 	setupOperationsStatsCacheTest(t)
 	now := time.Now()
@@ -85,8 +115,8 @@ func TestOperationsStatsEndpointsApplyRequestedLimitToDirectResult(t *testing.T)
 	}
 	require.NoError(t, model.DB.Create(&users).Error)
 	require.NoError(t, model.DB.Create(&[]model.QuotaData{
-		{UserID: 1, Username: "first", ModelName: "gpt-5", CreatedAt: now.Add(-24 * time.Hour).Truncate(time.Hour).Unix(), Quota: 20},
-		{UserID: 2, Username: "second", ModelName: "gpt-5", CreatedAt: now.Add(-24 * time.Hour).Truncate(time.Hour).Unix(), Quota: 10},
+		{UserID: 1, Username: "first", ModelName: "gpt-5", CreatedAt: now.Unix(), Quota: 20},
+		{UserID: 2, Username: "second", ModelName: "gpt-5", CreatedAt: now.Unix(), Quota: 10},
 	}).Error)
 
 	recorder := httptest.NewRecorder()

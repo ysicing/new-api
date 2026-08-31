@@ -7,13 +7,7 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { OperationsStats } from '../operations-stats'
@@ -64,24 +58,18 @@ describe('operations statistics', () => {
     })
   })
 
-  test('loads top users for the selected bounded period', async () => {
+  test('uses one shared period for both leaderboards', async () => {
     renderOperationsStats()
 
     expect(await screen.findByText('alice')).toBeInTheDocument()
     expect(apiMocks.getTopUsers).toHaveBeenCalledWith(10, 'week')
+    expect(apiMocks.getRechargeLeaderboard).toHaveBeenCalledWith(10, 'week')
 
-    const topUsersCard = screen
-      .getByText('Top users')
-      .closest('[data-slot=card]')
-    expect(topUsersCard).not.toBeNull()
-    fireEvent.click(
-      within(topUsersCard as HTMLElement).getByRole('button', {
-        name: 'Past month',
-      })
-    )
+    fireEvent.click(screen.getByRole('button', { name: 'Past month' }))
 
     await waitFor(() => {
       expect(apiMocks.getTopUsers).toHaveBeenCalledWith(10, 'month')
+      expect(apiMocks.getRechargeLeaderboard).toHaveBeenCalledWith(10, 'month')
     })
   })
 
@@ -93,7 +81,7 @@ describe('operations statistics', () => {
 
     await waitFor(() => {
       expect(apiMocks.getTopUsers).toHaveBeenCalledWith(20, 'week')
-      expect(apiMocks.getRechargeLeaderboard).toHaveBeenCalledWith(20)
+      expect(apiMocks.getRechargeLeaderboard).toHaveBeenCalledWith(20, 'week')
     })
   })
 

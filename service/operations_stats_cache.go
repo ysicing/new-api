@@ -55,11 +55,15 @@ func GetOperationsTopUsers(period string, now time.Time) (*OperationsStatsUserSe
 	return &OperationsStatsUserSection{GeneratedAt: entry.GeneratedAt, Items: entry.Data}, nil
 }
 
-func GetOperationsRechargeLeaderboard(now time.Time) (*OperationsStatsRechargeSection, error) {
-	weekStart := statsWeekStart(now)
-	cacheSuffix := fmt.Sprintf("recharge:week:%d", weekStart.Unix())
+func GetOperationsRechargeLeaderboard(period string, now time.Time) (*OperationsStatsRechargeSection, error) {
+	start := statsWeekStart(now)
+	cacheSuffix := fmt.Sprintf("recharge:week:%d", start.Unix())
+	if period == "month" {
+		start = now.AddDate(0, -1, 0)
+		cacheSuffix = "recharge:month"
+	}
 	entry, err := loadOperationsStatsCache(cacheSuffix, now, func() ([]model.UserRechargeStat, error) {
-		return model.GetRechargeLeaderboardAt(operationsStatsLimit, now)
+		return model.GetRechargeLeaderboardInRange(operationsStatsLimit, start.Unix(), now.Unix())
 	})
 	if err != nil {
 		return nil, err

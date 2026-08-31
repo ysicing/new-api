@@ -124,13 +124,16 @@ export async function getTopUsers(
   return response.data
 }
 
-export async function getRechargeLeaderboard(limit = 10) {
+export async function getRechargeLeaderboard(
+  limit = 10,
+  period: OperationsStatsPeriod = 'week'
+) {
   const response = await api.get<
     OperationsStatsResponse<{
       list: OperationsStatsUserStat[]
       weekly_limit: number
     }>
-  >('/api/log/recharge_leaderboard', { params: { limit } })
+  >('/api/log/recharge_leaderboard', { params: { limit, period } })
   if (!response.data.success) {
     throw new Error(response.data.message || 'Request failed')
   }

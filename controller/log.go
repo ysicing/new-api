@@ -61,7 +61,7 @@ func GetTopUsers(c *gin.Context) {
 func GetRechargeLeaderboard(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	limit = normalizeOperationsStatsLimit(limit)
-	section, err := service.GetOperationsRechargeLeaderboard(time.Now())
+	section, err := service.GetOperationsRechargeLeaderboard(c.Query("period"), time.Now())
 	if err != nil {
 		common.ApiError(c, err)
 		return
