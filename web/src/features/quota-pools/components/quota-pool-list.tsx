@@ -20,6 +20,62 @@ import { cn } from '@/lib/utils'
 
 import type { QuotaPool } from '../types'
 
+type AutoRechargeSummary = {
+  statusKey: 'Enabled' | 'Disabled' | 'Not applicable'
+  sourceKey: string
+  reasonKey?: string
+  amount?: number
+}
+
+function summarizeAutoRecharge(pool: QuotaPool): AutoRechargeSummary {
+  const system = pool.system_auto_recharge
+  if (pool.pool_type === 'new_user') {
+    return { statusKey: 'Not applicable', sourceKey: 'New-user pool' }
+  }
+
+  if (pool.pool_type === 'default') {
+    const amount = system?.amount ?? 0
+    let reasonKey: string | undefined
+    if (!pool.enabled) reasonKey = 'Pool disabled'
+    else if (!system?.enabled) reasonKey = 'System disabled'
+    else if (amount <= 0) reasonKey = 'Amount not configured'
+    return {
+      statusKey: reasonKey ? 'Disabled' : 'Enabled',
+      sourceKey: 'System setting',
+      reasonKey,
+      amount: amount > 0 ? amount : undefined,
+    }
+  }
+
+  if (pool.auto_recharge_amount === 0) {
+    return { statusKey: 'Disabled', sourceKey: 'Pool-level disabled' }
+  }
+
+  const inheritedFields = [
+    pool.auto_recharge_amount,
+    pool.weekly_limit,
+    pool.monthly_limit,
+  ].filter((value) => value < 0).length
+  let sourceKey = 'Partially customized'
+  if (inheritedFields === 3) sourceKey = 'All inherited'
+  else if (inheritedFields === 0) sourceKey = 'Fully customized'
+
+  const amount =
+    pool.auto_recharge_amount < 0
+      ? (system?.amount ?? 0)
+      : pool.auto_recharge_amount
+  let reasonKey: string | undefined
+  if (!pool.enabled) reasonKey = 'Pool disabled'
+  else if (!system?.enabled) reasonKey = 'System disabled'
+  else if (amount <= 0) reasonKey = 'Amount not configured'
+  return {
+    statusKey: reasonKey ? 'Disabled' : 'Enabled',
+    sourceKey,
+    reasonKey,
+    amount: amount > 0 ? amount : undefined,
+  }
+}
+
 export function QuotaPoolList({
   pools,
   selectedId,
@@ -129,6 +185,7 @@ export function QuotaPoolList({
             <TableRow>
               <TableHead>{t('Quota pool')}</TableHead>
               <TableHead>{t('Status')}</TableHead>
+              <TableHead>{t('Automatic recharge')}</TableHead>
               <TableHead className='text-right'>
                 {t('Available quota')}
               </TableHead>
@@ -139,56 +196,97 @@ export function QuotaPoolList({
             {pools.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={4}
+                  colSpan={5}
                   className='text-muted-foreground h-24 text-center'
                 >
                   {t('No quota pools')}
                 </TableCell>
               </TableRow>
             ) : (
-              pools.map((pool) => (
-                <TableRow
-                  key={pool.id}
-                  data-quota-pool-id={pool.id}
-                  tabIndex={0}
-                  aria-selected={pool.id === selectedId}
-                  className={cn(
-                    'cursor-pointer transition-colors',
-                    pool.id === selectedId && 'bg-muted'
-                  )}
-                  onClick={() => onSelect(pool)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      onSelect(pool)
-                    }
-                  }}
-                >
-                  <TableCell>
-                    <div className='flex min-w-0 flex-col gap-1'>
-                      <span className='truncate font-medium'>{pool.name}</span>
-                      <span className='text-muted-foreground text-xs'>
-                        {t(
-                          pool.pool_type === 'normal'
-                            ? 'Managed pool'
-                            : 'System pool'
-                        )}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={pool.enabled ? 'default' : 'secondary'}>
-                      {t(pool.enabled ? 'Enabled' : 'Disabled')}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className='text-right tabular-nums'>
-                    {pool.quota < 0 ? t('Unlimited') : formatQuota(pool.quota)}
-                  </TableCell>
-                  <TableCell className='text-right tabular-nums'>
-                    {pool.member_count ?? 0}
-                  </TableCell>
-                </TableRow>
-              ))
+              pools.map((pool) => {
+                const autoRecharge = summarizeAutoRecharge(pool)
+                let autoRechargeBadgeVariant:
+                  | 'default'
+                  | 'secondary'
+                  | 'outline' = 'outline'
+                if (autoRecharge.statusKey === 'Enabled') {
+                  autoRechargeBadgeVariant = 'default'
+                } else if (autoRecharge.statusKey === 'Disabled') {
+                  autoRechargeBadgeVariant = 'secondary'
+                }
+                return (
+                  <TableRow
+                    key={pool.id}
+                    data-quota-pool-id={pool.id}
+                    tabIndex={0}
+                    aria-selected={pool.id === selectedId}
+                    className={cn(
+                      'cursor-pointer transition-colors',
+                      pool.id === selectedId && 'bg-muted'
+                    )}
+                    onClick={() => onSelect(pool)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        onSelect(pool)
+                      }
+                    }}
+                  >
+                    <TableCell>
+                      <div className='flex min-w-0 flex-col gap-1'>
+                        <span className='truncate font-medium'>
+                          {pool.name}
+                        </span>
+                        <span className='text-muted-foreground text-xs'>
+                          {t(
+                            pool.pool_type === 'normal'
+                              ? 'Managed pool'
+                              : 'System pool'
+                          )}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={pool.enabled ? 'default' : 'secondary'}>
+                        {t(pool.enabled ? 'Enabled' : 'Disabled')}
+                      </Badge>
+                    </TableCell>
+                    <TableCell
+                      aria-label={`${t('Automatic recharge')}: ${t(autoRecharge.statusKey)}`}
+                      className='min-w-44'
+                    >
+                      <div className='flex flex-col items-start gap-1'>
+                        <Badge variant={autoRechargeBadgeVariant}>
+                          {t(autoRecharge.statusKey)}
+                        </Badge>
+                        <div className='text-muted-foreground flex flex-wrap items-center gap-x-1 text-xs'>
+                          <span>{t(autoRecharge.sourceKey)}</span>
+                          {autoRecharge.reasonKey ? (
+                            <>
+                              <span aria-hidden='true'>·</span>
+                              <span>{t(autoRecharge.reasonKey)}</span>
+                            </>
+                          ) : null}
+                        </div>
+                        {autoRecharge.amount ? (
+                          <div className='text-muted-foreground flex items-center gap-1 text-xs tabular-nums'>
+                            <span>{formatQuota(autoRecharge.amount)}</span>
+                            <span>{t('per recharge')}</span>
+                          </div>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell className='text-right tabular-nums'>
+                      {pool.quota < 0
+                        ? t('Unlimited')
+                        : formatQuota(pool.quota)}
+                    </TableCell>
+                    <TableCell className='text-right tabular-nums'>
+                      {pool.member_count ?? 0}
+                    </TableCell>
+                  </TableRow>
+                )
+              })
             )}
           </TableBody>
         </Table>

@@ -67,6 +67,15 @@ export const STATIC_I18N_KEYS = [
   'The user account is disabled.',
   'No matching user was found.',
   'Multiple users matched. Use the user ID to query.',
+  'New-user pool',
+  'Pool disabled',
+  'System disabled',
+  'Amount not configured',
+  'System setting',
+  'Pool-level disabled',
+  'Partially customized',
+  'All inherited',
+  'Fully customized',
 
   // Pricing constants
   'Name',
