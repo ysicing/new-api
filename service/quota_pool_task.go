@@ -12,9 +12,11 @@ import (
 type quotaPoolMaintenanceHandler struct{}
 
 type quotaPoolMaintenanceResult struct {
-	MonthlyRefilled int `json:"monthly_refilled"`
-	UsersRecharged  int `json:"users_recharged"`
-	UsersSkipped    int `json:"users_skipped"`
+	MonthlyRefilled int            `json:"monthly_refilled"`
+	UsersChecked    int            `json:"users_checked"`
+	UsersRecharged  int            `json:"users_recharged"`
+	UsersSkipped    int            `json:"users_skipped"`
+	SkipReasons     map[string]int `json:"skip_reasons,omitempty"`
 }
 
 func (quotaPoolMaintenanceHandler) Type() string {
@@ -36,7 +38,7 @@ func (quotaPoolMaintenanceHandler) Interval() time.Duration {
 func (quotaPoolMaintenanceHandler) NewPayload() any { return struct{}{} }
 
 func (quotaPoolMaintenanceHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
-	result := quotaPoolMaintenanceResult{}
+	result := quotaPoolMaintenanceResult{SkipReasons: map[string]int{}}
 	monthly, err := RefillMonthlyQuotaPools(time.Now())
 	if err != nil {
 		failSystemTask(task, runnerID, err)
@@ -54,15 +56,30 @@ func (quotaPoolMaintenanceHandler) Run(ctx context.Context, task *model.SystemTa
 			return
 		default:
 		}
+		result.UsersChecked++
 		recharge := tryAutoRechargeUser(&users[i], time.Now())
 		if recharge.Recharged {
 			result.UsersRecharged++
 		} else {
 			result.UsersSkipped++
+			result.SkipReasons[autoRechargeSkipReason(recharge.Reason)]++
 		}
 	}
 	if err := model.FinishSystemTask(task.TaskID, runnerID, model.SystemTaskStatusSucceeded, result, ""); err != nil {
 		logSystemTaskLockError(ctx, task, err)
+	}
+}
+
+func autoRechargeSkipReason(reason string) string {
+	switch reason {
+	case "disabled", "quota_above_threshold", "quota_pool_not_found",
+		"new_user_pool_disabled", "quota_pool_disabled", "amount_not_configured",
+		"weekly_count_failed", "weekly_limited", "monthly_count_failed", "monthly_limited":
+		return reason
+	case model.ErrQuotaPoolInsufficientQuota.Error():
+		return "quota_pool_insufficient"
+	default:
+		return "recharge_failed"
 	}
 }
 

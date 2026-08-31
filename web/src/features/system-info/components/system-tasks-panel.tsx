@@ -91,6 +91,41 @@ const TYPE_DISPLAY_ID: Record<string, string> = {
   midjourney_poll: 'drawing_task_poll',
 }
 
+const AUTO_RECHARGE_SKIP_GROUPS = [
+  {
+    keys: ['quota_above_threshold'],
+    label: 'Balance above threshold: {{count}}',
+  },
+  {
+    keys: ['weekly_limited'],
+    label: 'Weekly limit reached: {{count}}',
+  },
+  {
+    keys: ['monthly_limited'],
+    label: 'Monthly limit reached: {{count}}',
+  },
+  {
+    keys: [
+      'quota_pool_not_found',
+      'new_user_pool_disabled',
+      'quota_pool_disabled',
+    ],
+    label: 'Quota pool unavailable: {{count}}',
+  },
+  {
+    keys: ['quota_pool_insufficient'],
+    label: 'Quota pool insufficient: {{count}}',
+  },
+  {
+    keys: ['disabled', 'amount_not_configured'],
+    label: 'Recharge configuration disabled: {{count}}',
+  },
+  {
+    keys: ['weekly_count_failed', 'monthly_count_failed', 'recharge_failed'],
+    label: 'Recharge check failed: {{count}}',
+  },
+] as const
+
 function isActiveStatus(status: SystemTaskStatus) {
   return status === 'pending' || status === 'running'
 }
@@ -115,13 +150,39 @@ function useTaskDetail() {
         t('Pools refilled: {{count}}', { count: result.monthly_refilled })
       )
     }
-    if (typeof result.users_recharged === 'number') {
-      parts.push(
-        t('Users recharged: {{count}}', { count: result.users_recharged })
-      )
+    const usersRecharged =
+      typeof result.users_recharged === 'number' ? result.users_recharged : null
+    const usersSkipped =
+      typeof result.users_skipped === 'number' ? result.users_skipped : null
+    let usersChecked: number | null = null
+    if (typeof result.users_checked === 'number') {
+      usersChecked = result.users_checked
+    } else if (usersRecharged != null && usersSkipped != null) {
+      usersChecked = usersRecharged + usersSkipped
     }
-    if (typeof result.users_skipped === 'number') {
-      parts.push(t('Users skipped: {{count}}', { count: result.users_skipped }))
+    if (usersChecked != null) {
+      parts.push(t('Users checked: {{count}}', { count: usersChecked }))
+    }
+    if (usersRecharged != null) {
+      parts.push(t('Users recharged: {{count}}', { count: usersRecharged }))
+    }
+    if (usersSkipped != null) {
+      parts.push(t('Users not eligible: {{count}}', { count: usersSkipped }))
+    }
+    const skipReasons = result.skip_reasons
+    if (
+      skipReasons &&
+      typeof skipReasons === 'object' &&
+      !Array.isArray(skipReasons)
+    ) {
+      const reasonCounts = skipReasons as Record<string, unknown>
+      for (const group of AUTO_RECHARGE_SKIP_GROUPS) {
+        const count = group.keys.reduce((total, key) => {
+          const value = reasonCounts[key]
+          return total + (typeof value === 'number' ? value : 0)
+        }, 0)
+        if (count > 0) parts.push(t(group.label, { count }))
+      }
     }
     if (typeof result.deleted_count === 'number') {
       parts.push(t('Rows deleted: {{count}}', { count: result.deleted_count }))
@@ -158,7 +219,7 @@ function SystemTasksTable(props: SystemTasksTableProps) {
             <TableHead className='h-9 w-[190px] text-xs'>
               {t('Updated')}
             </TableHead>
-            <TableHead className='h-9 w-[220px] pr-4 text-xs'>
+            <TableHead className='h-9 w-[360px] pr-4 text-xs'>
               {t('Detail')}
             </TableHead>
           </TableRow>
@@ -224,7 +285,7 @@ function SystemTasksTable(props: SystemTasksTableProps) {
                 </TableCell>
                 <TableCell
                   className={cn(
-                    'max-w-[220px] truncate py-3 pr-4 align-middle text-xs',
+                    'max-w-[360px] whitespace-normal py-3 pr-4 align-middle text-xs leading-relaxed',
                     isError ? 'text-destructive' : 'text-muted-foreground'
                   )}
                   title={detail || undefined}

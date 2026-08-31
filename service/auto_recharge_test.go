@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -98,4 +99,52 @@ func TestQuotaPoolMaintenanceHandlerUsesConfiguredInterval(t *testing.T) {
 	assert.Equal(t, model.SystemTaskTypeQuotaPoolMaintenance, handler.Type())
 	assert.True(t, handler.Enabled())
 	assert.Equal(t, 30*time.Minute, handler.Interval())
+}
+
+func TestQuotaPoolMaintenanceResultIncludesSkipReasons(t *testing.T) {
+	db := setupAutoRechargeTest(t)
+	require.NoError(t, db.AutoMigrate(&model.SystemTask{}, &model.SystemTaskLock{}))
+	amount := int(common.QuotaPerUnit)
+	normalPool := model.QuotaPool{
+		Name: "维护任务池", PoolType: model.QuotaPoolTypeNormal, Enabled: true,
+		BaseQuota: amount * 2, Quota: amount * 2,
+		AutoRechargeAmount: model.QuotaPoolAutoRechargeInherit,
+		WeeklyLimit:        model.QuotaPoolAutoRechargeInherit, MonthlyLimit: model.QuotaPoolAutoRechargeInherit,
+	}
+	newUserPool := model.QuotaPool{
+		Name: "新用户池", PoolType: model.QuotaPoolTypeNewUser, Enabled: true,
+		AutoRechargeAmount: model.QuotaPoolAutoRechargeOff,
+	}
+	require.NoError(t, db.Create(&normalPool).Error)
+	require.NoError(t, db.Create(&newUserPool).Error)
+	require.NoError(t, db.Create(&[]model.User{
+		{Id: 1, Username: "eligible", Password: "password", AffCode: "maintenance-eligible", Status: common.UserStatusEnabled, QuotaPoolId: normalPool.Id},
+		{Id: 2, Username: "above-threshold", Password: "password", AffCode: "maintenance-above", Status: common.UserStatusEnabled, Quota: 3 * amount},
+		{Id: 3, Username: "new-user", Password: "password", AffCode: "maintenance-new", Status: common.UserStatusEnabled, QuotaPoolId: newUserPool.Id},
+	}).Error)
+	task, err := model.CreateSystemTask(model.SystemTaskTypeQuotaPoolMaintenance, struct{}{}, nil)
+	require.NoError(t, err)
+	claimed, ok, err := model.ClaimSystemTask(task.ID, task.Type, "runner-test", common.GetTimestamp()+60)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	quotaPoolMaintenanceHandler{}.Run(context.Background(), claimed, "runner-test")
+
+	completed, err := model.GetSystemTaskByTaskID(task.TaskID)
+	require.NoError(t, err)
+	require.NotNil(t, completed)
+	var result struct {
+		UsersChecked   int            `json:"users_checked"`
+		UsersRecharged int            `json:"users_recharged"`
+		UsersSkipped   int            `json:"users_skipped"`
+		SkipReasons    map[string]int `json:"skip_reasons"`
+	}
+	require.NoError(t, common.UnmarshalJsonStr(completed.Result, &result))
+	assert.Equal(t, 3, result.UsersChecked)
+	assert.Equal(t, 1, result.UsersRecharged)
+	assert.Equal(t, 2, result.UsersSkipped)
+	assert.Equal(t, map[string]int{
+		"quota_above_threshold":  1,
+		"new_user_pool_disabled": 1,
+	}, result.SkipReasons)
 }

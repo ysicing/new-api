@@ -28,8 +28,14 @@ function maintenanceTask(overrides: Partial<SystemTask> = {}): SystemTask {
     status: 'succeeded',
     result: {
       monthly_refilled: 0,
+      users_checked: 545,
       users_recharged: 2,
       users_skipped: 543,
+      skip_reasons: {
+        quota_above_threshold: 520,
+        weekly_limited: 20,
+        quota_pool_insufficient: 3,
+      },
     },
     locked_by: 'node-a',
     created_at: 1_780_000_000,
@@ -67,9 +73,11 @@ test('summarizes a succeeded maintenance result including zero-valued counts', a
 
   expect(
     table.getByText(
-      'Pools refilled: 0 · Users recharged: 2 · Users skipped: 543'
+      'Pools refilled: 0 · Users checked: 545 · Users recharged: 2 · Users not eligible: 543 · Balance above threshold: 520 · Weekly limit reached: 20 · Quota pool insufficient: 3'
     )
   ).toBeInTheDocument()
+  expect(table.getByText(/Users checked/)).toHaveClass('whitespace-normal')
+  expect(table.getByText(/Users checked/)).not.toHaveClass('truncate')
 })
 
 test('prefers the error text over the result summary when a task failed', async () => {
