@@ -61,23 +61,34 @@ async function renderPanel(tasks: SystemTask[]) {
   return within(await screen.findByRole('table'))
 }
 
-test('labels the quota pool maintenance task instead of showing its raw type alone', async () => {
+test('labels the quota pool recharge maintenance task instead of showing its raw type alone', async () => {
   const table = await renderPanel([maintenanceTask()])
 
-  expect(table.getByText('Quota pool maintenance')).toBeInTheDocument()
+  expect(table.getByText('Quota pool recharge maintenance')).toBeInTheDocument()
   expect(table.getByText('quota_pool_maintenance')).toBeInTheDocument()
 })
 
 test('summarizes a succeeded maintenance result including zero-valued counts', async () => {
   const table = await renderPanel([maintenanceTask()])
 
+  const summary = table.getByText(
+    'Pools refilled: 0 · Users checked: 545 · Users recharged: 2 · Users not eligible: 543'
+  )
+  expect(summary).toBeInTheDocument()
   expect(
     table.getByText(
-      'Pools refilled: 0 · Users checked: 545 · Users recharged: 2 · Users not eligible: 543 · Balance above threshold: 520 · Weekly limit reached: 20 · Quota pool insufficient: 3'
+      'Balance above threshold: 520 · Weekly limit reached: 20 · Quota pool insufficient: 3'
     )
   ).toBeInTheDocument()
-  expect(table.getByText(/Users checked/)).toHaveClass('whitespace-normal')
-  expect(table.getByText(/Users checked/)).not.toHaveClass('truncate')
+  expect(summary.closest('td')).toHaveClass('min-w-[480px]')
+  expect(summary.closest('td')).not.toHaveClass('truncate')
+
+  expect(table.getByRole('columnheader', { name: 'Executor' })).toHaveClass(
+    'w-[220px]'
+  )
+  expect(table.getByRole('columnheader', { name: 'Detail' })).toHaveClass(
+    'min-w-[480px]'
+  )
 })
 
 test('prefers the error text over the result summary when a task failed', async () => {

@@ -84,7 +84,7 @@ const TYPE_LABEL: Record<string, string> = {
   model_update: 'Batch upstream model update',
   midjourney_poll: 'Drawing task polling',
   async_task_poll: 'Async task polling',
-  quota_pool_maintenance: 'Quota pool maintenance',
+  quota_pool_maintenance: 'Quota pool recharge maintenance',
 }
 
 const TYPE_DISPLAY_ID: Record<string, string> = {
@@ -136,17 +136,23 @@ function getProgress(task: SystemTask): number | null {
   return Math.min(100, Math.max(0, progress))
 }
 
-// Renders a succeeded task's result summary so the detail column is not empty
-// for scheduled maintenance runs. Falls back to the error text on failure.
+type TaskDetail = {
+  summary: string
+  reasons?: string
+}
+
+// Renders a succeeded task's main counters separately from skip reasons so
+// scheduled maintenance details stay readable in a table row.
 function useTaskDetail() {
   const { t } = useTranslation()
-  return (task: SystemTask): string | null => {
-    if (task.error) return task.error
+  return (task: SystemTask): TaskDetail | null => {
+    if (task.error) return { summary: task.error }
     const result = task.result as Record<string, unknown> | undefined
     if (task.status !== 'succeeded' || !result) return null
-    const parts: string[] = []
+    const summaryParts: string[] = []
+    const reasonParts: string[] = []
     if (typeof result.monthly_refilled === 'number') {
-      parts.push(
+      summaryParts.push(
         t('Pools refilled: {{count}}', { count: result.monthly_refilled })
       )
     }
@@ -161,13 +167,17 @@ function useTaskDetail() {
       usersChecked = usersRecharged + usersSkipped
     }
     if (usersChecked != null) {
-      parts.push(t('Users checked: {{count}}', { count: usersChecked }))
+      summaryParts.push(t('Users checked: {{count}}', { count: usersChecked }))
     }
     if (usersRecharged != null) {
-      parts.push(t('Users recharged: {{count}}', { count: usersRecharged }))
+      summaryParts.push(
+        t('Users recharged: {{count}}', { count: usersRecharged })
+      )
     }
     if (usersSkipped != null) {
-      parts.push(t('Users not eligible: {{count}}', { count: usersSkipped }))
+      summaryParts.push(
+        t('Users not eligible: {{count}}', { count: usersSkipped })
+      )
     }
     const skipReasons = result.skip_reasons
     if (
@@ -181,14 +191,32 @@ function useTaskDetail() {
           const value = reasonCounts[key]
           return total + (typeof value === 'number' ? value : 0)
         }, 0)
-        if (count > 0) parts.push(t(group.label, { count }))
+        if (count > 0) reasonParts.push(t(group.label, { count }))
       }
     }
     if (typeof result.deleted_count === 'number') {
-      parts.push(t('Rows deleted: {{count}}', { count: result.deleted_count }))
+      summaryParts.push(
+        t('Rows deleted: {{count}}', { count: result.deleted_count })
+      )
     }
-    return parts.length > 0 ? parts.join(' · ') : null
+    if (summaryParts.length === 0) return null
+    return {
+      summary: summaryParts.join(' · '),
+      reasons: reasonParts.length > 0 ? reasonParts.join(' · ') : undefined,
+    }
   }
+}
+
+function TaskDetailContent({ detail }: { detail: TaskDetail | null }) {
+  if (!detail) return '-'
+  return (
+    <div className='space-y-0.5'>
+      <div>{detail.summary}</div>
+      {detail.reasons ? (
+        <div className='text-muted-foreground/80'>{detail.reasons}</div>
+      ) : null}
+    </div>
+  )
 }
 
 type SystemTasksTableProps = {
@@ -201,7 +229,7 @@ function SystemTasksTable(props: SystemTasksTableProps) {
 
   return (
     <div className='overflow-x-auto rounded-md border'>
-      <Table className='min-w-[900px]'>
+      <Table className='min-w-[1200px] table-fixed'>
         <TableHeader>
           <TableRow className='bg-muted/40 hover:bg-muted/40'>
             <TableHead className='h-9 w-[260px] px-4 text-xs'>
@@ -213,13 +241,13 @@ function SystemTasksTable(props: SystemTasksTableProps) {
             <TableHead className='h-9 w-[180px] text-xs'>
               {t('Progress')}
             </TableHead>
-            <TableHead className='h-9 min-w-[260px] text-xs'>
+            <TableHead className='h-9 w-[220px] text-xs'>
               {t('Executor')}
             </TableHead>
             <TableHead className='h-9 w-[190px] text-xs'>
               {t('Updated')}
             </TableHead>
-            <TableHead className='h-9 w-[360px] pr-4 text-xs'>
+            <TableHead className='h-9 min-w-[480px] pr-4 text-xs'>
               {t('Detail')}
             </TableHead>
           </TableRow>
@@ -229,6 +257,9 @@ function SystemTasksTable(props: SystemTasksTableProps) {
             const progress = getProgress(task)
             const detail = taskDetail(task)
             const isError = task.status === 'failed'
+            const detailTitle = detail
+              ? [detail.summary, detail.reasons].filter(Boolean).join(' · ')
+              : undefined
             return (
               <TableRow key={task.task_id} className='hover:bg-muted/30'>
                 <TableCell className='px-4 py-3 align-middle'>
@@ -270,7 +301,7 @@ function SystemTasksTable(props: SystemTasksTableProps) {
                     </span>
                   </div>
                 </TableCell>
-                <TableCell className='text-muted-foreground max-w-[280px] truncate py-3 align-middle font-mono text-xs'>
+                <TableCell className='text-muted-foreground w-[220px] max-w-[220px] truncate py-3 align-middle font-mono text-xs'>
                   {task.locked_by || '-'}
                 </TableCell>
                 <TableCell
@@ -285,12 +316,12 @@ function SystemTasksTable(props: SystemTasksTableProps) {
                 </TableCell>
                 <TableCell
                   className={cn(
-                    'max-w-[360px] whitespace-normal py-3 pr-4 align-middle text-xs leading-relaxed',
+                    'min-w-[480px] whitespace-normal py-3 pr-4 align-middle text-xs leading-relaxed',
                     isError ? 'text-destructive' : 'text-muted-foreground'
                   )}
-                  title={detail || undefined}
+                  title={detailTitle}
                 >
-                  {detail || '-'}
+                  <TaskDetailContent detail={detail} />
                 </TableCell>
               </TableRow>
             )
