@@ -84,6 +84,7 @@ const TYPE_LABEL: Record<string, string> = {
   model_update: 'Batch upstream model update',
   midjourney_poll: 'Drawing task polling',
   async_task_poll: 'Async task polling',
+  quota_pool_maintenance: 'Quota pool maintenance',
 }
 
 const TYPE_DISPLAY_ID: Record<string, string> = {
@@ -100,12 +101,42 @@ function getProgress(task: SystemTask): number | null {
   return Math.min(100, Math.max(0, progress))
 }
 
+// Renders a succeeded task's result summary so the detail column is not empty
+// for scheduled maintenance runs. Falls back to the error text on failure.
+function useTaskDetail() {
+  const { t } = useTranslation()
+  return (task: SystemTask): string | null => {
+    if (task.error) return task.error
+    const result = task.result as Record<string, unknown> | undefined
+    if (task.status !== 'succeeded' || !result) return null
+    const parts: string[] = []
+    if (typeof result.monthly_refilled === 'number') {
+      parts.push(
+        t('Pools refilled: {{count}}', { count: result.monthly_refilled })
+      )
+    }
+    if (typeof result.users_recharged === 'number') {
+      parts.push(
+        t('Users recharged: {{count}}', { count: result.users_recharged })
+      )
+    }
+    if (typeof result.users_skipped === 'number') {
+      parts.push(t('Users skipped: {{count}}', { count: result.users_skipped }))
+    }
+    if (typeof result.deleted_count === 'number') {
+      parts.push(t('Rows deleted: {{count}}', { count: result.deleted_count }))
+    }
+    return parts.length > 0 ? parts.join(' · ') : null
+  }
+}
+
 type SystemTasksTableProps = {
   tasks: SystemTask[]
 }
 
 function SystemTasksTable(props: SystemTasksTableProps) {
   const { t, i18n } = useTranslation()
+  const taskDetail = useTaskDetail()
 
   return (
     <div className='overflow-x-auto rounded-md border'>
@@ -135,6 +166,8 @@ function SystemTasksTable(props: SystemTasksTableProps) {
         <TableBody>
           {props.tasks.map((task) => {
             const progress = getProgress(task)
+            const detail = taskDetail(task)
+            const isError = task.status === 'failed'
             return (
               <TableRow key={task.task_id} className='hover:bg-muted/30'>
                 <TableCell className='px-4 py-3 align-middle'>
@@ -190,10 +223,13 @@ function SystemTasksTable(props: SystemTasksTableProps) {
                   )}
                 </TableCell>
                 <TableCell
-                  className='text-destructive max-w-[220px] truncate py-3 pr-4 align-middle text-xs'
-                  title={task.error || undefined}
+                  className={cn(
+                    'max-w-[220px] truncate py-3 pr-4 align-middle text-xs',
+                    isError ? 'text-destructive' : 'text-muted-foreground'
+                  )}
+                  title={detail || undefined}
                 >
-                  {task.error || '-'}
+                  {detail || '-'}
                 </TableCell>
               </TableRow>
             )
