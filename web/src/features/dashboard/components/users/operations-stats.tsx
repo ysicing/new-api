@@ -106,8 +106,12 @@ export function OperationsStats() {
           error={topUsers.isError}
           generatedAt={topUsers.data?.generated_at ?? 0}
           refreshSchedule={refreshSchedule}
-          value={(item) => formatQuota(item.used_quota)}
-          valueTitle={t('Usage')}
+          columns={[
+            {
+              title: t('Usage'),
+              value: (item) => formatQuota(item.used_quota),
+            },
+          ]}
         />
         <StatTable
           title={t('Recharge leaderboard')}
@@ -116,8 +120,20 @@ export function OperationsStats() {
           error={recharge.isError}
           generatedAt={recharge.data?.generated_at ?? 0}
           refreshSchedule={refreshSchedule}
-          value={(item) => String(item.total_count ?? 0)}
-          valueTitle={t('Recharges')}
+          columns={[
+            {
+              title: t('Automatic recharge'),
+              value: (item) => String(item.auto_recharge_count ?? 0),
+            },
+            {
+              title: t('Manual recharge'),
+              value: (item) => String(item.temp_quota_count ?? 0),
+            },
+            {
+              title: t('Total recharges'),
+              value: (item) => String(item.total_count ?? 0),
+            },
+          ]}
         />
       </div>
     </div>
@@ -131,8 +147,10 @@ function StatTable(props: {
   error: boolean
   generatedAt: number
   refreshSchedule: string
-  valueTitle: string
-  value: (item: OperationsStatsUserStat) => string
+  columns: Array<{
+    title: string
+    value: (item: OperationsStatsUserStat) => string
+  }>
 }) {
   const { t } = useTranslation()
   return (
@@ -159,8 +177,10 @@ function StatTableContent(props: {
   items: OperationsStatsUserStat[]
   loading: boolean
   error: boolean
-  valueTitle: string
-  value: (item: OperationsStatsUserStat) => string
+  columns: Array<{
+    title: string
+    value: (item: OperationsStatsUserStat) => string
+  }>
 }) {
   const { t } = useTranslation()
   if (props.loading) return <Skeleton className='h-60 w-full' />
@@ -188,16 +208,22 @@ function StatTableContent(props: {
       <TableHeader>
         <TableRow>
           <TableHead>{t('User')}</TableHead>
-          <TableHead className='text-right'>{props.valueTitle}</TableHead>
+          {props.columns.map((column) => (
+            <TableHead key={column.title} className='text-right'>
+              {column.title}
+            </TableHead>
+          ))}
         </TableRow>
       </TableHeader>
       <TableBody>
         {props.items.map((item) => (
           <TableRow key={item.user_id}>
             <TableCell>{item.username}</TableCell>
-            <TableCell className='text-right tabular-nums'>
-              {props.value(item)}
-            </TableCell>
+            {props.columns.map((column) => (
+              <TableCell key={column.title} className='text-right tabular-nums'>
+                {column.value(item)}
+              </TableCell>
+            ))}
           </TableRow>
         ))}
       </TableBody>

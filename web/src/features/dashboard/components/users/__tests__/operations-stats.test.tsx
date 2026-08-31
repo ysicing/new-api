@@ -7,7 +7,13 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { OperationsStats } from '../operations-stats'
@@ -48,6 +54,8 @@ describe('operations statistics', () => {
             user_id: 2,
             username: 'bob',
             used_quota: 20,
+            auto_recharge_count: 1,
+            temp_quota_count: 2,
             total_count: 3,
           },
         ],
@@ -56,6 +64,29 @@ describe('operations statistics', () => {
       generated_at: 1_700_000_100,
       refresh_schedule: 'every_5_minutes',
     })
+  })
+
+  test('shows automatic, manual, and total recharge counts', async () => {
+    renderOperationsStats()
+
+    expect(await screen.findByText('bob')).toBeInTheDocument()
+    const rechargeCard = screen
+      .getByText('Recharge leaderboard')
+      .closest('[data-slot=card]')
+    expect(rechargeCard).not.toBeNull()
+    const card = within(rechargeCard as HTMLElement)
+    expect(
+      card.getByRole('columnheader', { name: 'Automatic recharge' })
+    ).toBeInTheDocument()
+    expect(
+      card.getByRole('columnheader', { name: 'Manual recharge' })
+    ).toBeInTheDocument()
+    expect(
+      card.getByRole('columnheader', { name: 'Total recharges' })
+    ).toBeInTheDocument()
+    expect(card.getByRole('cell', { name: '1' })).toBeInTheDocument()
+    expect(card.getByRole('cell', { name: '2' })).toBeInTheDocument()
+    expect(card.getByRole('cell', { name: '3' })).toBeInTheDocument()
   })
 
   test('uses one shared period for both leaderboards', async () => {

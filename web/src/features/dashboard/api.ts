@@ -99,6 +99,8 @@ export interface OperationsStatsUserStat {
   user_id: number
   username: string
   used_quota: number
+  auto_recharge_count?: number
+  temp_quota_count?: number
   total_count?: number
 }
 
