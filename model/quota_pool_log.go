@@ -10,7 +10,7 @@ import (
 func CountAutoRechargeLogs(userId int, sinceTimestamp int64) (int64, error) {
 	var count int64
 	err := LOG_DB.Model(&Log{}).
-		Where("user_id = ? AND type = ? AND created_at >= ?", userId, LogTypeSystem, sinceTimestamp).
+		Where("user_id = ? AND type IN ? AND created_at >= ?", userId, []int{LogTypeSystem, LogTypeTopup}, sinceTimestamp).
 		Where("content LIKE ? OR content LIKE ? OR other LIKE ?", "系统自动赠送%", "额度池%自动赠送%", `%"recharge_source":"auto"%`).
 		Count(&count).Error
 	return count, err
@@ -31,7 +31,7 @@ func RecordAutoRechargeLog(userId, poolId, amount, operatorId int, poolName stri
 	}
 	return createLog(&Log{
 		UserId: userId, Username: username, CreatedAt: common.GetTimestamp(),
-		Type: LogTypeSystem, Content: content, Quota: amount,
+		Type: LogTypeTopup, Content: content, Quota: amount,
 		Other: common.MapToJsonStr(other),
 	})
 }

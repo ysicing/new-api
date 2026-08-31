@@ -75,6 +75,7 @@ import {
   getFirstResponseTimeColor,
   getResponseTimeColor,
   getReasoningEffortVariant,
+  renderAutomaticRechargeContent,
   renderStructuredOperationContent,
 } from '../../lib/format'
 import {
@@ -480,8 +481,9 @@ interface DetailsDialogProps {
 export function DetailsDialog(props: DetailsDialogProps) {
   const { t } = useTranslation()
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
-  const details = props.log.content ?? ''
   const other = parseLogOther(props.log.other)
+  const details =
+    renderAutomaticRechargeContent(other, t) || props.log.content || ''
   const typeConfig = getLogTypeConfig(props.log.type)
 
   const isViolation = isViolationFeeLog(other)
@@ -535,7 +537,8 @@ export function DetailsDialog(props: DetailsDialogProps) {
     t
   )
   const isStructuredTopupOperation = isTopup && operationText != null
-  const showLegacyTopupWarning = isTopup && props.isAdmin && !adminInfo
+  const showLegacyTopupWarning =
+    isTopup && props.isAdmin && !adminInfo && other?.recharge_source !== 'auto'
   const showTopupAuditSection =
     isTopup &&
     props.isAdmin &&

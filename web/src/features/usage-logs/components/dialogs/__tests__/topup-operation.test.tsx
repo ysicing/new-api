@@ -42,6 +42,21 @@ const topupOperationLog: UsageLog = {
   upstream_request_id: '',
 }
 
+const automaticRechargeLog: UsageLog = {
+  ...topupOperationLog,
+  id: 2,
+  user_id: 25,
+  username: 'alice',
+  content: 'raw automatic recharge',
+  other: JSON.stringify({
+    recharge_source: 'auto',
+    quota_pool_id: 7,
+    quota_pool_name: '平台保障部',
+    amount: 5_000_000,
+  }),
+  request_id: 'req-auto-recharge',
+}
+
 test('shows structured top-up operation with its operator', () => {
   render(
     <DetailsDialog
@@ -56,4 +71,22 @@ test('shows structured top-up operation with its operator', () => {
     screen.getByText('Replenished quota for user #25: ¥10.000000 额度')
   ).toBeInTheDocument()
   expect(screen.getByText('root-operator (ID: 7)')).toBeInTheDocument()
+})
+
+test('shows automatic recharge as top-up without a legacy audit warning', () => {
+  render(
+    <DetailsDialog
+      log={automaticRechargeLog}
+      isAdmin
+      open
+      onOpenChange={() => undefined}
+    />
+  )
+
+  expect(
+    screen.getByText(/Quota pool 平台保障部 automatically granted/)
+  ).toBeInTheDocument()
+  expect(
+    screen.queryByText(/historical record predates audit-info tracking/)
+  ).not.toBeInTheDocument()
 })

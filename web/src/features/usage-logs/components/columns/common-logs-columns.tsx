@@ -122,7 +122,7 @@ function buildTypeDetailSegments(
   const operationText = renderStructuredOperationContent(log.type, other, t)
   if (operationText) return [{ text: operationText }]
 
-  if (log.type === 4) {
+  if (log.type === 1 || log.type === 4) {
     const text = renderAutomaticRechargeContent(other, t)
     return text ? [{ text }] : []
   }

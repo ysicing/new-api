@@ -19,7 +19,25 @@ func TestRecordAutoRechargeLogFormatsQuotaAndSnapshotsPoolName(t *testing.T) {
 
 	var log Log
 	require.NoError(t, logDB.Order("id DESC").First(&log).Error)
+	assert.Equal(t, LogTypeTopup, log.Type)
 	assert.Equal(t, fmt.Sprintf("额度池“平台保障部”自动赠送 %s", logger.LogQuota(amount)), log.Content)
 	assert.Contains(t, log.Other, `"amount":5000000`)
 	assert.Contains(t, log.Other, `"quota_pool_name":"平台保障部"`)
+}
+
+func TestCountAutoRechargeLogsSupportsLegacyAndTopupTypes(t *testing.T) {
+	_, logDB := setupICodeStatsTest(t)
+	const userId = 7
+	const since = 100
+	require.NoError(t, logDB.Create(&[]Log{
+		{UserId: userId, Type: LogTypeSystem, CreatedAt: 110, Content: "系统自动赠送 100"},
+		{UserId: userId, Type: LogTypeTopup, CreatedAt: 120, Other: `{"recharge_source":"auto"}`},
+		{UserId: userId, Type: LogTypeTopup, CreatedAt: 130, Other: `{"op":{"action":"quota_pool.member_recharge"}}`},
+		{UserId: 8, Type: LogTypeTopup, CreatedAt: 140, Other: `{"recharge_source":"auto"}`},
+	}).Error)
+
+	count, err := CountAutoRechargeLogs(userId, since)
+
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, count)
 }
