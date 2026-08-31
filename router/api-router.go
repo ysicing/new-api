@@ -378,6 +378,8 @@ func SetApiRouter(router *gin.Engine) {
 		quotaPoolRootRoute := apiRouter.Group("/quota_pool")
 		quotaPoolRootRoute.Use(middleware.RootAuth())
 		{
+			quotaPoolRootRoute.GET("/recharge_query/records", controller.GetQuotaPoolRechargeRecords)
+			quotaPoolRootRoute.POST("/recharge_query/eligibility", controller.GetQuotaPoolRechargeEligibility)
 			quotaPoolRootRoute.POST("/", controller.CreateQuotaPool)
 			quotaPoolRootRoute.POST("/sync_default", controller.SyncDefaultQuotaPool)
 			quotaPoolRootRoute.POST("/:id/enable", controller.EnableQuotaPool)

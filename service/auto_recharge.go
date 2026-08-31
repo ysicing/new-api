@@ -22,6 +22,27 @@ type WeeklyAutoRechargeUsage struct {
 	Remaining int64 `json:"remaining"`
 }
 
+type AutoRechargeLimitUsage struct {
+	Used  int64 `json:"used"`
+	Limit int   `json:"limit"`
+}
+
+type AutoRechargeEligibility struct {
+	Eligible  bool                   `json:"eligible"`
+	Reason    string                 `json:"reason,omitempty"`
+	UserId    int                    `json:"user_id"`
+	Username  string                 `json:"username"`
+	Email     string                 `json:"email"`
+	UserQuota int                    `json:"user_quota"`
+	Threshold int                    `json:"threshold"`
+	PoolId    int                    `json:"pool_id"`
+	PoolName  string                 `json:"pool_name"`
+	PoolQuota *int                   `json:"pool_quota"`
+	Amount    int                    `json:"amount"`
+	Weekly    AutoRechargeLimitUsage `json:"weekly"`
+	Monthly   AutoRechargeLimitUsage `json:"monthly"`
+}
+
 type effectiveAutoRechargePolicy struct {
 	AmountQuota  int
 	WeeklyLimit  int
@@ -30,7 +51,7 @@ type effectiveAutoRechargePolicy struct {
 
 func resolveAutoRechargePolicy(config *operation_setting.AutoRechargeSetting, pool *model.QuotaPool) effectiveAutoRechargePolicy {
 	policy := effectiveAutoRechargePolicy{
-		AmountQuota:  int(float64(config.Amount) * common.QuotaPerUnit),
+		AmountQuota:  common.QuotaFromFloat(float64(config.Amount) * common.QuotaPerUnit),
 		WeeklyLimit:  config.WeeklyLimit,
 		MonthlyLimit: config.MonthlyLimit,
 	}
@@ -57,6 +78,22 @@ func TryAutoRechargeUserById(userId int) QuotaPoolAutoRechargeResult {
 	return tryAutoRechargeUser(&user, time.Now())
 }
 
+// GetAutoRechargeEligibility 返回当前时点的只读诊断快照，不会执行充值。
+func GetAutoRechargeEligibility(identifier string, now time.Time) (*AutoRechargeEligibility, error) {
+	user, err := model.FindUserByRechargeIdentifier(identifier)
+	if err != nil {
+		return nil, err
+	}
+	result, _ := evaluateAutoRechargeUser(user, now, true)
+	// 维护任务只扫描启用用户；诊断需包含这层外部约束，避免把任务永远
+	// 不会处理的禁用用户误报为可自动充值。
+	if user.Status != common.UserStatusEnabled {
+		result.Eligible = false
+		result.Reason = "user_disabled"
+	}
+	return &result, nil
+}
+
 func GetWeeklyAutoRechargeUsage(user *model.User, pool *model.QuotaPool, now time.Time) (WeeklyAutoRechargeUsage, error) {
 	usage := WeeklyAutoRechargeUsage{}
 	config := operation_setting.GetAutoRechargeSetting()
@@ -81,36 +118,94 @@ func GetWeeklyAutoRechargeUsage(user *model.User, pool *model.QuotaPool, now tim
 }
 
 func tryAutoRechargeUser(user *model.User, now time.Time) QuotaPoolAutoRechargeResult {
-	config := operation_setting.GetAutoRechargeSetting()
-	if !config.Enabled {
-		return QuotaPoolAutoRechargeResult{Reason: "disabled"}
+	eligibility, pool := evaluateAutoRechargeUser(user, now, false)
+	if !eligibility.Eligible {
+		return QuotaPoolAutoRechargeResult{Reason: eligibility.Reason}
 	}
-	threshold := int(float64(config.Threshold) * common.QuotaPerUnit)
-	if user == nil || user.Quota > threshold {
-		return QuotaPoolAutoRechargeResult{Reason: "quota_above_threshold"}
-	}
-	pool, reason := autoRechargePool(user)
-	if reason != "" {
-		return QuotaPoolAutoRechargeResult{Reason: reason}
-	}
-	policy := resolveAutoRechargePolicy(config, pool)
-	if policy.AmountQuota <= 0 {
-		return QuotaPoolAutoRechargeResult{Reason: "amount_not_configured"}
-	}
-	if reason := autoRechargeLimitReason(user.Id, policy, now); reason != "" {
-		return QuotaPoolAutoRechargeResult{Reason: reason}
-	}
-	if err := creditAutoRecharge(user, pool, policy.AmountQuota); err != nil {
+	if err := creditAutoRecharge(user, pool, eligibility.Amount); err != nil {
 		return QuotaPoolAutoRechargeResult{Reason: err.Error()}
 	}
 	poolId, poolName := 0, ""
 	if pool != nil {
 		poolId, poolName = pool.Id, pool.Name
 	}
-	if err := model.RecordAutoRechargeLog(user.Id, poolId, policy.AmountQuota, 0, poolName); err != nil {
+	if err := model.RecordAutoRechargeLog(user.Id, poolId, eligibility.Amount, 0, poolName); err != nil {
 		common.SysLog(fmt.Sprintf("failed to record auto recharge for user %d: %v", user.Id, err))
 	}
-	return QuotaPoolAutoRechargeResult{Recharged: true, Amount: policy.AmountQuota}
+	return QuotaPoolAutoRechargeResult{Recharged: true, Amount: eligibility.Amount}
+}
+
+func evaluateAutoRechargeUser(user *model.User, now time.Time, collectDetails bool) (AutoRechargeEligibility, *model.QuotaPool) {
+	config := operation_setting.GetAutoRechargeSetting()
+	result := AutoRechargeEligibility{
+		Threshold: common.QuotaFromFloat(float64(config.Threshold) * common.QuotaPerUnit),
+		Weekly:    AutoRechargeLimitUsage{Limit: config.WeeklyLimit},
+		Monthly:   AutoRechargeLimitUsage{Limit: config.MonthlyLimit},
+	}
+	if user == nil {
+		result.Reason = "user_not_found"
+		return result, nil
+	}
+	result.UserId, result.Username, result.Email = user.Id, user.Username, user.Email
+	result.UserQuota, result.PoolId = user.Quota, user.QuotaPoolId
+	if !common.QuotaPoolEnabled {
+		result.PoolId = model.QuotaPoolDefaultUserPoolId
+	} else if user.QuotaPoolId == model.QuotaPoolDefaultUserPoolId {
+		result.PoolName = model.QuotaPoolDefaultName
+	}
+	if !config.Enabled {
+		result.Reason = "disabled"
+		if !collectDetails {
+			return result, nil
+		}
+	}
+	if user.Quota > result.Threshold && result.Reason == "" {
+		result.Reason = "quota_above_threshold"
+		if !collectDetails {
+			return result, nil
+		}
+	}
+	pool, poolReason := autoRechargePool(user)
+	if pool != nil {
+		poolQuota := pool.Quota
+		result.PoolId, result.PoolName, result.PoolQuota = pool.Id, pool.Name, &poolQuota
+	}
+	if poolReason != "" {
+		if result.Reason == "" {
+			result.Reason = poolReason
+		}
+		if !collectDetails {
+			return result, pool
+		}
+	}
+	policy := resolveAutoRechargePolicy(config, pool)
+	result.Amount = policy.AmountQuota
+	result.Weekly.Limit, result.Monthly.Limit = policy.WeeklyLimit, policy.MonthlyLimit
+	if policy.AmountQuota <= 0 {
+		if result.Reason == "" {
+			result.Reason = "amount_not_configured"
+		}
+		if !collectDetails {
+			return result, pool
+		}
+	}
+	var limitReason string
+	result.Weekly, result.Monthly, limitReason = evaluateAutoRechargeLimits(user.Id, policy, now, collectDetails)
+	if limitReason != "" {
+		if result.Reason == "" {
+			result.Reason = limitReason
+		}
+		if !collectDetails {
+			return result, pool
+		}
+	}
+	// 只读诊断可以依据当前池余额给出快照结论；实际充值必须继续进入
+	// AllocateQuotaFromPool 的事务条件更新，避免并发补充额度后仍按旧快照拒绝。
+	if collectDetails && pool != nil && pool.Quota < policy.AmountQuota && result.Reason == "" {
+		result.Reason = "quota_pool_insufficient"
+	}
+	result.Eligible = result.Reason == ""
+	return result, pool
 }
 
 func autoRechargePool(user *model.User) (*model.QuotaPool, string) {
@@ -122,36 +217,56 @@ func autoRechargePool(user *model.User) (*model.QuotaPool, string) {
 		return nil, "quota_pool_not_found"
 	}
 	if pool.IsNewUserPool() {
-		return nil, "new_user_pool_disabled"
+		return pool, "new_user_pool_disabled"
 	}
 	if !pool.Enabled {
-		return nil, "quota_pool_disabled"
+		return pool, "quota_pool_disabled"
 	}
 	return pool, ""
 }
 
-func autoRechargeLimitReason(userId int, policy effectiveAutoRechargePolicy, now time.Time) string {
+func evaluateAutoRechargeLimits(userId int, policy effectiveAutoRechargePolicy, now time.Time, collectAll bool) (AutoRechargeLimitUsage, AutoRechargeLimitUsage, string) {
 	weekStart := startOfWeek(now).Unix()
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).Unix()
-	if policy.WeeklyLimit > 0 {
+	weekly := AutoRechargeLimitUsage{Limit: policy.WeeklyLimit}
+	monthly := AutoRechargeLimitUsage{Limit: policy.MonthlyLimit}
+	weeklyReason := ""
+	if policy.WeeklyLimit > 0 || collectAll {
 		count, err := model.CountAutoRechargeLogs(userId, weekStart)
 		if err != nil {
-			return "weekly_count_failed"
+			if policy.WeeklyLimit > 0 {
+				return weekly, monthly, "weekly_count_failed"
+			}
+		} else {
+			weekly.Used = count
 		}
-		if count >= int64(policy.WeeklyLimit) {
-			return "weekly_limited"
+		if policy.WeeklyLimit > 0 && count >= int64(policy.WeeklyLimit) {
+			weeklyReason = "weekly_limited"
+			if !collectAll {
+				return weekly, monthly, weeklyReason
+			}
 		}
 	}
-	if policy.MonthlyLimit > 0 {
+	if policy.MonthlyLimit > 0 || collectAll {
 		count, err := model.CountAutoRechargeLogs(userId, monthStart)
 		if err != nil {
-			return "monthly_count_failed"
+			if policy.MonthlyLimit > 0 {
+				if weeklyReason != "" {
+					return weekly, monthly, weeklyReason
+				}
+				return weekly, monthly, "monthly_count_failed"
+			}
+		} else {
+			monthly.Used = count
 		}
-		if count >= int64(policy.MonthlyLimit) {
-			return "monthly_limited"
+		if policy.MonthlyLimit > 0 && count >= int64(policy.MonthlyLimit) {
+			if weeklyReason != "" {
+				return weekly, monthly, weeklyReason
+			}
+			return weekly, monthly, "monthly_limited"
 		}
 	}
-	return ""
+	return weekly, monthly, weeklyReason
 }
 
 func startOfWeek(now time.Time) time.Time {

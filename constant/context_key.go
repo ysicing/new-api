@@ -73,4 +73,8 @@ const (
 	// fallback in authHelper (finishAdminAudit) skips its record to avoid
 	// duplicate entries.
 	ContextKeyAuditLogged ContextKey = "audit_logged"
+
+	// ContextKeyAuditSkip marks a POST/PUT/PATCH/DELETE endpoint as logically
+	// read-only so the admin audit fallback does not emit a misleading write log.
+	ContextKeyAuditSkip ContextKey = "audit_skip"
 )

@@ -52,6 +52,22 @@ export const STATIC_I18N_KEYS = [
   'Worker instances do not run master-only background tasks.',
   'Drawing task polling',
 
+  // Automatic recharge eligibility reasons
+  'Automatic recharge is disabled globally.',
+  'The user balance is above the recharge threshold.',
+  'The user quota pool no longer exists.',
+  'The new-user quota pool does not support automatic recharge.',
+  'The user quota pool is disabled.',
+  'No valid recharge amount is configured.',
+  'The weekly recharge count could not be read.',
+  'The weekly recharge limit has been reached.',
+  'The monthly recharge count could not be read.',
+  'The monthly recharge limit has been reached.',
+  'The quota pool balance is insufficient.',
+  'The user account is disabled.',
+  'No matching user was found.',
+  'Multiple users matched. Use the user ID to query.',
+
   // Pricing constants
   'Name',
   'Price: Low to High',

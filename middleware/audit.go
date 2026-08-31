@@ -126,7 +126,8 @@ func finishAdminAudit(c *gin.Context, writer *auditResponseWriter) {
 	method := c.Request.Method
 
 	// handler 已手动记录更精细的审计日志，跳过兜底。
-	if common.GetContextKeyBool(c, constant.ContextKeyAuditLogged) {
+	if common.GetContextKeyBool(c, constant.ContextKeyAuditLogged) ||
+		common.GetContextKeyBool(c, constant.ContextKeyAuditSkip) {
 		return
 	}
 
