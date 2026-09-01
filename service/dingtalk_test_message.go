@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	ErrDingTalkNotConfigured = errors.New("DingTalk robot is not configured")
-	ErrDingTalkSendFailed    = errors.New("DingTalk robot message send failed")
+	ErrDingTalkNotConfigured      = errors.New("DingTalk robot is not configured")
+	ErrDingTalkGroupNotConfigured = errors.New("DingTalk announcement group is not configured")
+	ErrDingTalkSendFailed         = errors.New("DingTalk robot message send failed")
 )
 
 type DingTalkTestMessageResult struct {

@@ -19,6 +19,7 @@ func TestDingTalkBotTestRoutesAreRegistered(t *testing.T) {
 	}
 	assert.True(t, routes["GET /api/dingtalk/test-users"])
 	assert.True(t, routes["POST /api/dingtalk/test-message"])
+	assert.True(t, routes["POST /api/dingtalk/test-group-message"])
 }
 
 func TestDingTalkBotTestRoutesRequireRootAuthentication(t *testing.T) {
@@ -31,6 +32,7 @@ func TestDingTalkBotTestRoutesRequireRootAuthentication(t *testing.T) {
 	}{
 		{method: http.MethodGet, path: "/api/dingtalk/test-users"},
 		{method: http.MethodPost, path: "/api/dingtalk/test-message"},
+		{method: http.MethodPost, path: "/api/dingtalk/test-group-message"},
 	} {
 		recorder := httptest.NewRecorder()
 		request := httptest.NewRequest(endpoint.method, endpoint.path, nil)

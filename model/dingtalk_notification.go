@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -14,9 +15,11 @@ const (
 	DingTalkNotificationEventUserRegistered        = "user_registered"
 	DingTalkNotificationEventQuotaPoolJoined       = "quota_pool_joined"
 	DingTalkNotificationEventSensitiveWordDetected = "sensitive_word_detected"
+	DingTalkNotificationEventAnnouncementGroup     = "announcement_group"
 	DingTalkNotificationEventTest                  = "test"
 
 	DingTalkNotificationStatusPending   = "pending"
+	DingTalkNotificationStatusRunning   = "running"
 	DingTalkNotificationStatusSucceeded = "succeeded"
 	DingTalkNotificationStatusFailed    = "failed"
 	DingTalkNotificationStatusSkipped   = "skipped"
@@ -28,20 +31,113 @@ var dingTalkNotificationRateLimitMutex sync.Mutex
 
 // DingTalkNotification 记录钉钉消息的投递结果，并通过 DedupeKey 防止同一业务事件重复发送。
 type DingTalkNotification struct {
-	Id        int64  `json:"id"`
-	EventType string `json:"event_type" gorm:"type:varchar(64);index"`
-	DedupeKey string `json:"dedupe_key" gorm:"type:varchar(191);uniqueIndex"`
-	UserId    int    `json:"user_id" gorm:"index"`
-	Username  string `json:"username" gorm:"type:varchar(64);index"`
-	Recipient string `json:"recipient" gorm:"type:varchar(128);index"`
-	Title     string `json:"title" gorm:"type:varchar(255)"`
-	Content   string `json:"content" gorm:"type:text"`
-	Status    string `json:"status" gorm:"type:varchar(32);index"`
-	Error     string `json:"error" gorm:"type:text"`
-	Metadata  string `json:"metadata" gorm:"type:text"`
-	SentAt    int64  `json:"sent_at" gorm:"bigint"`
-	CreatedAt int64  `json:"created_at" gorm:"bigint;autoCreateTime;index"`
-	UpdatedAt int64  `json:"updated_at" gorm:"bigint;autoUpdateTime"`
+	Id          int64  `json:"id"`
+	EventType   string `json:"event_type" gorm:"type:varchar(64);index"`
+	DedupeKey   string `json:"dedupe_key" gorm:"type:varchar(191);uniqueIndex"`
+	UserId      int    `json:"user_id" gorm:"index"`
+	Username    string `json:"username" gorm:"type:varchar(64);index"`
+	Recipient   string `json:"recipient" gorm:"type:varchar(128);index"`
+	Title       string `json:"title" gorm:"type:varchar(255)"`
+	Content     string `json:"content" gorm:"type:text"`
+	Status      string `json:"status" gorm:"type:varchar(32);index"`
+	Error       string `json:"error" gorm:"type:text"`
+	Metadata    string `json:"metadata" gorm:"type:text"`
+	SentAt      int64  `json:"sent_at" gorm:"bigint"`
+	ScheduledAt int64  `json:"scheduled_at" gorm:"bigint;index"`
+	CreatedAt   int64  `json:"created_at" gorm:"bigint;autoCreateTime;index"`
+	UpdatedAt   int64  `json:"updated_at" gorm:"bigint;autoUpdateTime"`
+}
+
+func UpsertPendingAnnouncementGroupNotification(notification *DingTalkNotification) (bool, error) {
+	if notification == nil || notification.EventType != DingTalkNotificationEventAnnouncementGroup || strings.TrimSpace(notification.DedupeKey) == "" || notification.ScheduledAt <= 0 {
+		return false, fmt.Errorf("invalid announcement group notification")
+	}
+	var existing DingTalkNotification
+	err := DB.Where("dedupe_key = ?", notification.DedupeKey).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		notification.Status = DingTalkNotificationStatusPending
+		return CreateDingTalkNotification(notification)
+	}
+	if err != nil {
+		return false, err
+	}
+	if existing.Status != DingTalkNotificationStatusPending {
+		return false, nil
+	}
+	_, err = UpdatePendingAnnouncementGroupNotification(notification)
+	return false, err
+}
+
+func UpdatePendingAnnouncementGroupNotification(notification *DingTalkNotification) (bool, error) {
+	if notification == nil || strings.TrimSpace(notification.DedupeKey) == "" {
+		return false, fmt.Errorf("invalid announcement group notification")
+	}
+	result := DB.Model(&DingTalkNotification{}).Where("dedupe_key = ? AND event_type = ? AND status = ?", notification.DedupeKey, DingTalkNotificationEventAnnouncementGroup, DingTalkNotificationStatusPending).Updates(map[string]any{
+		"recipient": notification.Recipient, "title": notification.Title,
+		"content": notification.Content, "metadata": notification.Metadata,
+		"scheduled_at": notification.ScheduledAt, "error": "",
+	})
+	return result.RowsAffected == 1, result.Error
+}
+
+func CancelPendingAnnouncementGroupNotification(dedupeKey, reason string) error {
+	return DB.Model(&DingTalkNotification{}).
+		Where("dedupe_key = ? AND event_type = ? AND status = ?", dedupeKey, DingTalkNotificationEventAnnouncementGroup, DingTalkNotificationStatusPending).
+		Updates(map[string]any{"status": DingTalkNotificationStatusSkipped, "error": reason}).Error
+}
+
+func ListDueAnnouncementGroupNotifications(now int64, limit int) ([]DingTalkNotification, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	var records []DingTalkNotification
+	err := DB.Where("event_type = ? AND status = ? AND scheduled_at <= ?", DingTalkNotificationEventAnnouncementGroup, DingTalkNotificationStatusPending, now).
+		Order("scheduled_at ASC, id ASC").Limit(limit).Find(&records).Error
+	return records, err
+}
+
+func HasDueAnnouncementGroupNotifications(now int64) (bool, error) {
+	var count int64
+	err := DB.Model(&DingTalkNotification{}).
+		Where("event_type = ? AND status = ? AND scheduled_at <= ?", DingTalkNotificationEventAnnouncementGroup, DingTalkNotificationStatusPending, now).
+		Limit(1).Count(&count).Error
+	return count > 0, err
+}
+
+func ClaimDueAnnouncementGroupNotifications(now int64, limit int) ([]DingTalkNotification, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	var claimed []DingTalkNotification
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var candidates []DingTalkNotification
+		if err := lockForUpdate(tx).
+			Where("event_type = ? AND status = ? AND scheduled_at <= ?", DingTalkNotificationEventAnnouncementGroup, DingTalkNotificationStatusPending, now).
+			Order("scheduled_at ASC, id ASC").Limit(limit).Find(&candidates).Error; err != nil {
+			return err
+		}
+		if len(candidates) == 0 {
+			return nil
+		}
+		ids := make([]int64, 0, len(candidates))
+		for _, candidate := range candidates {
+			ids = append(ids, candidate.Id)
+		}
+		if err := tx.Model(&DingTalkNotification{}).
+			Where("id IN ? AND status = ?", ids, DingTalkNotificationStatusPending).
+			Update("status", DingTalkNotificationStatusRunning).Error; err != nil {
+			return err
+		}
+		return tx.Where("id IN ? AND status = ?", ids, DingTalkNotificationStatusRunning).
+			Order("scheduled_at ASC, id ASC").Find(&claimed).Error
+	})
+	return claimed, err
+}
+
+func FailStaleRunningAnnouncementGroupNotifications(cutoff int64) error {
+	return DB.Model(&DingTalkNotification{}).
+		Where("event_type = ? AND status = ? AND updated_at < ?", DingTalkNotificationEventAnnouncementGroup, DingTalkNotificationStatusRunning, cutoff).
+		Updates(map[string]any{"status": DingTalkNotificationStatusFailed, "error": "announcement group delivery interrupted"}).Error
 }
 
 type DingTalkNotificationQuery struct {

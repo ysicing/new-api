@@ -257,7 +257,10 @@ export function AnnouncementsSection({
       )
       toast.success(t('Announcement updated. Click "Save Settings" to apply.'))
     } else {
-      const newId = Math.max(...announcements.map((item) => item.id), 0) + 1
+      const newId = Math.max(
+        Date.now(),
+        Math.max(...announcements.map((item) => item.id), 0) + 1
+      )
       setAnnouncements((prev) => [...prev, { id: newId, ...values }])
       toast.success(t('Announcement added. Click "Save Settings" to apply.'))
     }

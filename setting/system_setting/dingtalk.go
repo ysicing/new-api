@@ -8,10 +8,11 @@ import (
 
 // DingTalkSettings 保存企业内部应用的扫码登录与机器人通知配置。
 type DingTalkSettings struct {
-	Enabled      bool   `json:"enabled"`
-	CorpId       string `json:"corp_id"`
-	ClientId     string `json:"client_id"`
-	ClientSecret string `json:"client_secret"`
+	Enabled                             bool   `json:"enabled"`
+	CorpId                              string `json:"corp_id"`
+	ClientId                            string `json:"client_id"`
+	ClientSecret                        string `json:"client_secret"`
+	AnnouncementGroupOpenConversationId string `json:"announcement_group_open_conversation_id"`
 }
 
 var defaultDingTalkSettings = DingTalkSettings{}

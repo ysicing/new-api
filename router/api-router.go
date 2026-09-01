@@ -307,6 +307,7 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			dingTalkRoute.GET("/test-users", controller.ListDingTalkTestUsers)
 			dingTalkRoute.POST("/test-message", controller.SendDingTalkTestMessage)
+			dingTalkRoute.POST("/test-group-message", controller.SendDingTalkAnnouncementGroupTestMessage)
 		}
 		dataRoute := apiRouter.Group("/data")
 		dataRoute.GET("/", middleware.AdminAuth(), controller.GetAllQuotaDates)

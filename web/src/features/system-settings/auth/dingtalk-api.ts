@@ -47,3 +47,10 @@ export async function sendDingTalkTestMessage(userId: number) {
   )
   return response.data
 }
+
+export async function sendDingTalkAnnouncementGroupTestMessage() {
+  const response = await api.post<ApiResponse<null>>(
+    '/api/dingtalk/test-group-message'
+  )
+  return response.data
+}

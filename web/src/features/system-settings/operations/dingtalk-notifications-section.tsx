@@ -79,6 +79,7 @@ const STATUS_BADGE: Record<
   }
 > = {
   pending: { label: 'Pending', variant: 'warning' },
+  running: { label: 'Running', variant: 'secondary' },
   succeeded: {
     label: 'Succeeded',
     variant: 'secondary',
@@ -97,6 +98,9 @@ function toTimestamp(value: string): number | undefined {
 function eventTypeLabel(eventType: string) {
   if (eventType === 'new_user_quota_exhausted') {
     return 'New-user quota exhausted'
+  }
+  if (eventType === 'announcement_group') {
+    return 'Announcement group delivery'
   }
   return eventType
 }

@@ -106,6 +106,42 @@ func TestDingTalkNotifierSendsMarkdownAndReusesAccessToken(t *testing.T) {
 	assert.Equal(t, int32(2), messageRequests.Load())
 }
 
+func TestDingTalkNotifierSendsGroupMarkdown(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1.0/oauth2/accessToken":
+			_, _ = fmt.Fprint(w, `{"accessToken":"access-token","expireIn":7200}`)
+		case "/v1.0/robot/groupMessages/send":
+			assert.Equal(t, "access-token", r.Header.Get("x-acs-dingtalk-access-token"))
+			var payload struct {
+				RobotCode          string `json:"robotCode"`
+				OpenConversationId string `json:"openConversationId"`
+				MsgKey             string `json:"msgKey"`
+				MsgParam           string `json:"msgParam"`
+			}
+			require.NoError(t, common.DecodeJson(r.Body, &payload))
+			assert.Equal(t, "app-key", payload.RobotCode)
+			assert.Equal(t, "cid-group", payload.OpenConversationId)
+			assert.Equal(t, "sampleMarkdown", payload.MsgKey)
+			var markdown struct {
+				Title string `json:"title"`
+				Text  string `json:"text"`
+			}
+			require.NoError(t, common.UnmarshalJsonStr(payload.MsgParam, &markdown))
+			assert.Equal(t, "系统公告", markdown.Title)
+			assert.Equal(t, "### 系统公告\n\n公告正文", markdown.Text)
+			_, _ = fmt.Fprint(w, `{"processQueryKey":"group-query"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	notifier := newDingTalkNotifier(server.Client(), server.URL)
+	settings := system_setting.DingTalkSettings{ClientId: "app-key", ClientSecret: "app-secret"}
+
+	require.NoError(t, notifier.SendGroup(context.Background(), settings, "cid-group", "系统公告", "公告正文"))
+}
+
 func TestDispatchDingTalkNotificationRecordsSkippedAndDeduplicates(t *testing.T) {
 	setupDingTalkNotificationServiceDB(t)
 	settings := system_setting.GetDingTalkSettings()

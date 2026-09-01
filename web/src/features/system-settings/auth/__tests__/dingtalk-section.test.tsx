@@ -30,6 +30,7 @@ const updateMock = vi.hoisted(() => ({
 const apiMocks = vi.hoisted(() => ({
   searchDingTalkTestUsers: vi.fn(),
   sendDingTalkTestMessage: vi.fn(),
+  sendDingTalkAnnouncementGroupTestMessage: vi.fn(),
 }))
 
 const toastMocks = vi.hoisted(() => ({
@@ -57,6 +58,7 @@ beforeEach(() => {
     data: { items: [], total: 0, page: 1, page_size: 20 },
   })
   apiMocks.sendDingTalkTestMessage.mockReset()
+  apiMocks.sendDingTalkAnnouncementGroupTestMessage.mockReset()
   toastMocks.success.mockReset()
   toastMocks.error.mockReset()
 })
@@ -67,6 +69,7 @@ function renderSection(
     'dingtalk.corp_id': '',
     'dingtalk.client_id': '',
     'dingtalk.client_secret': '',
+    'dingtalk.announcement_group_open_conversation_id': '',
   }
 ) {
   const queryClient = new QueryClient({
@@ -136,6 +139,7 @@ test('saves settings before sending a Bot test to the selected user', async () =
     'dingtalk.corp_id': 'corp-1',
     'dingtalk.client_id': 'old-key',
     'dingtalk.client_secret': '',
+    'dingtalk.announcement_group_open_conversation_id': '',
   })
 
   const clientId = screen.getByLabelText('Client ID / AppKey')
@@ -166,6 +170,36 @@ test('saves settings before sending a Bot test to the selected user', async () =
   expect(toastMocks.success).toHaveBeenCalledWith(
     'DingTalk account automatically bound by email'
   )
+})
+
+test('saves the announcement group before sending a group test message', async () => {
+  apiMocks.sendDingTalkAnnouncementGroupTestMessage.mockResolvedValue({
+    success: true,
+  })
+  const user = userEvent.setup()
+  renderSection({
+    'dingtalk.enabled': true,
+    'dingtalk.corp_id': 'corp-1',
+    'dingtalk.client_id': 'app-key',
+    'dingtalk.client_secret': '',
+    'dingtalk.announcement_group_open_conversation_id': '',
+  })
+
+  await user.type(
+    screen.getByLabelText('Announcement group openConversationId'),
+    'cid-announcement'
+  )
+  await user.click(
+    screen.getByRole('button', { name: 'Save and send group test message' })
+  )
+
+  await waitFor(() => {
+    expect(updateMock.mutateAsync).toHaveBeenCalledWith({
+      key: 'dingtalk.announcement_group_open_conversation_id',
+      value: 'cid-announcement',
+    })
+  })
+  expect(apiMocks.sendDingTalkAnnouncementGroupTestMessage).toHaveBeenCalled()
 })
 
 test('shows binding state and debounces DingTalk user search', async () => {

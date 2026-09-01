@@ -12,6 +12,7 @@ import (
 )
 
 var sendDingTalkTestMessage = service.SendDingTalkTestMessage
+var sendDingTalkAnnouncementGroupTestMessage = service.SendDingTalkAnnouncementGroupTestMessage
 
 // ListDingTalkNotifications 返回后台运维使用的钉钉消息投递记录。
 func ListDingTalkNotifications(c *gin.Context) {
@@ -64,11 +65,21 @@ func SendDingTalkTestMessage(c *gin.Context) {
 	common.ApiSuccess(c, result)
 }
 
+func SendDingTalkAnnouncementGroupTestMessage(c *gin.Context) {
+	if err := sendDingTalkAnnouncementGroupTestMessage(c.Request.Context()); err != nil {
+		writeDingTalkTestError(c, err)
+		return
+	}
+	common.ApiSuccess(c, nil)
+}
+
 func writeDingTalkTestError(c *gin.Context, err error) {
 	status, code, message := http.StatusBadGateway, "DINGTALK_SEND_FAILED", "钉钉测试消息发送失败"
 	switch {
 	case errors.Is(err, service.ErrDingTalkNotConfigured):
 		status, code, message = http.StatusConflict, "DINGTALK_NOT_CONFIGURED", "请先保存完整的钉钉应用凭证"
+	case errors.Is(err, service.ErrDingTalkGroupNotConfigured):
+		status, code, message = http.StatusConflict, "DINGTALK_GROUP_NOT_CONFIGURED", "请先配置公告通知群 openConversationId"
 	case errors.Is(err, service.ErrDingTalkInvalidEmail):
 		status, code, message = http.StatusBadRequest, "DINGTALK_INVALID_EMAIL", "用户邮箱无效"
 	case errors.Is(err, service.ErrDingTalkIdentityMismatch):

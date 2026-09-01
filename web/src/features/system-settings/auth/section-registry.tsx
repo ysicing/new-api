@@ -92,6 +92,8 @@ const AUTH_SECTIONS = [
           'dingtalk.corp_id': settings['dingtalk.corp_id'],
           'dingtalk.client_id': settings['dingtalk.client_id'],
           'dingtalk.client_secret': settings['dingtalk.client_secret'],
+          'dingtalk.announcement_group_open_conversation_id':
+            settings['dingtalk.announcement_group_open_conversation_id'],
         }}
       />
     ),

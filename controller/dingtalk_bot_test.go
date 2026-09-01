@@ -76,3 +76,22 @@ func TestSendDingTalkTestMessageRejectsInvalidUserId(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), `"code":"DINGTALK_INVALID_USER"`)
 }
+
+func TestSendDingTalkAnnouncementGroupTestMessage(t *testing.T) {
+	previous := sendDingTalkAnnouncementGroupTestMessage
+	called := false
+	sendDingTalkAnnouncementGroupTestMessage = func(context.Context) error {
+		called = true
+		return nil
+	}
+	t.Cleanup(func() { sendDingTalkAnnouncementGroupTestMessage = previous })
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/dingtalk/test-group-message", nil)
+
+	SendDingTalkAnnouncementGroupTestMessage(c)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.True(t, called)
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+}

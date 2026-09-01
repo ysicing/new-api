@@ -129,3 +129,67 @@ func TestUpdateDingTalkNotificationResultStoresOutcome(t *testing.T) {
 	assert.Equal(t, "invalid recipient", stored.Error)
 	assert.Equal(t, int64(123), stored.SentAt)
 }
+
+func TestAnnouncementGroupNotificationPendingLifecycle(t *testing.T) {
+	setupDingTalkNotificationTestDB(t)
+	record := &DingTalkNotification{
+		EventType: DingTalkNotificationEventAnnouncementGroup,
+		DedupeKey: "announcement_group:7", Recipient: "cid-group",
+		Title: "系统公告", Content: "初始内容", Status: DingTalkNotificationStatusPending,
+		ScheduledAt: 200,
+	}
+
+	created, err := UpsertPendingAnnouncementGroupNotification(record)
+	require.NoError(t, err)
+	assert.True(t, created)
+	due, err := ListDueAnnouncementGroupNotifications(199, 10)
+	require.NoError(t, err)
+	assert.Empty(t, due)
+
+	updated := *record
+	updated.Content = "修改后内容"
+	updated.ScheduledAt = 300
+	created, err = UpsertPendingAnnouncementGroupNotification(&updated)
+	require.NoError(t, err)
+	assert.False(t, created)
+	due, err = ListDueAnnouncementGroupNotifications(300, 10)
+	require.NoError(t, err)
+	require.Len(t, due, 1)
+	assert.Equal(t, "修改后内容", due[0].Content)
+
+	require.NoError(t, CancelPendingAnnouncementGroupNotification(record.DedupeKey, "announcement deleted before group delivery"))
+	due, err = ListDueAnnouncementGroupNotifications(400, 10)
+	require.NoError(t, err)
+	assert.Empty(t, due)
+	var stored DingTalkNotification
+	require.NoError(t, DB.Where("dedupe_key = ?", record.DedupeKey).First(&stored).Error)
+	assert.Equal(t, DingTalkNotificationStatusSkipped, stored.Status)
+	assert.Equal(t, "announcement deleted before group delivery", stored.Error)
+
+	updated.Content = "不能重新打开"
+	created, err = UpsertPendingAnnouncementGroupNotification(&updated)
+	require.NoError(t, err)
+	assert.False(t, created)
+	require.NoError(t, DB.Where("dedupe_key = ?", record.DedupeKey).First(&stored).Error)
+	assert.Equal(t, DingTalkNotificationStatusSkipped, stored.Status)
+}
+
+func TestClaimDueAnnouncementGroupNotificationsMarksRunning(t *testing.T) {
+	setupDingTalkNotificationTestDB(t)
+	record := &DingTalkNotification{
+		EventType: DingTalkNotificationEventAnnouncementGroup,
+		DedupeKey: "announcement_group:claim", Recipient: "cid-group",
+		Title: "系统公告", Content: "内容", ScheduledAt: 100,
+	}
+	_, err := UpsertPendingAnnouncementGroupNotification(record)
+	require.NoError(t, err)
+
+	claimed, err := ClaimDueAnnouncementGroupNotifications(100, 10)
+
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	assert.Equal(t, DingTalkNotificationStatusRunning, claimed[0].Status)
+	due, err := ListDueAnnouncementGroupNotifications(100, 10)
+	require.NoError(t, err)
+	assert.Empty(t, due)
+}

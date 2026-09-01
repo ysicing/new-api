@@ -43,6 +43,7 @@ const defaultAuthSettings: AuthSettings = {
   'dingtalk.corp_id': '',
   'dingtalk.client_id': '',
   'dingtalk.client_secret': '',
+  'dingtalk.announcement_group_open_conversation_id': '',
   'oidc.enabled': false,
   'oidc.display_name': '',
   'oidc.client_id': '',

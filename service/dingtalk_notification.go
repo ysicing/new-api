@@ -227,6 +227,59 @@ func (notifier *dingTalkNotifier) Send(ctx context.Context, settings system_sett
 	return nil
 }
 
+func (notifier *dingTalkNotifier) SendGroup(ctx context.Context, settings system_setting.DingTalkSettings, openConversationID, title, content string) error {
+	openConversationID = strings.TrimSpace(openConversationID)
+	if openConversationID == "" {
+		return fmt.Errorf("DingTalk announcement group is not configured")
+	}
+	accessToken, err := notifier.getAccessToken(ctx, settings)
+	if err != nil {
+		return err
+	}
+	msgParam, err := common.Marshal(struct {
+		Title string `json:"title"`
+		Text  string `json:"text"`
+	}{Title: title, Text: "### " + title + "\n\n" + content})
+	if err != nil {
+		return fmt.Errorf("marshal DingTalk group message params: %w", err)
+	}
+	payload, err := common.Marshal(struct {
+		RobotCode          string `json:"robotCode"`
+		OpenConversationID string `json:"openConversationId"`
+		MsgKey             string `json:"msgKey"`
+		MsgParam           string `json:"msgParam"`
+	}{
+		RobotCode: strings.TrimSpace(settings.ClientId), OpenConversationID: openConversationID,
+		MsgKey: "sampleMarkdown", MsgParam: string(msgParam),
+	})
+	if err != nil {
+		return fmt.Errorf("marshal DingTalk group message: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, notifier.baseURL+"/v1.0/robot/groupMessages/send", bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("create DingTalk group message request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-acs-dingtalk-access-token", accessToken)
+	resp, err := notifier.client().Do(req)
+	if err != nil {
+		return fmt.Errorf("send DingTalk group message: %w", err)
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Code            string `json:"code"`
+		Message         string `json:"message"`
+		ProcessQueryKey string `json:"processQueryKey"`
+	}
+	if err := common.DecodeJson(resp.Body, &result); err != nil {
+		return fmt.Errorf("decode DingTalk group message response: %w", err)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices || result.Code != "" || strings.TrimSpace(result.ProcessQueryKey) == "" {
+		return fmt.Errorf("DingTalk group message request failed: status=%d code=%s message=%s", resp.StatusCode, result.Code, result.Message)
+	}
+	return nil
+}
+
 func (notifier *dingTalkNotifier) getAccessToken(ctx context.Context, settings system_setting.DingTalkSettings) (string, error) {
 	notifier.tokenMutex.Lock()
 	defer notifier.tokenMutex.Unlock()

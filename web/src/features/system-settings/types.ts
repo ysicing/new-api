@@ -108,6 +108,7 @@ export type SystemTaskListResponse = {
 
 export type DingTalkNotificationStatus =
   | 'pending'
+  | 'running'
   | 'succeeded'
   | 'failed'
   | 'skipped'
@@ -183,6 +184,7 @@ export type AuthSettings = {
   'dingtalk.corp_id': string
   'dingtalk.client_id': string
   'dingtalk.client_secret': string
+  'dingtalk.announcement_group_open_conversation_id': string
   'oidc.enabled': boolean
   'oidc.display_name': string
   'oidc.client_id': string

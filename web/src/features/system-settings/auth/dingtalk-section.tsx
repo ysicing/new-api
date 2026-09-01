@@ -34,7 +34,11 @@ import { Switch } from '@/components/ui/switch'
 
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
-import { sendDingTalkTestMessage, type DingTalkTestUser } from './dingtalk-api'
+import {
+  sendDingTalkAnnouncementGroupTestMessage,
+  sendDingTalkTestMessage,
+  type DingTalkTestUser,
+} from './dingtalk-api'
 import { DingTalkTestRecipientPicker } from './dingtalk-test-recipient-picker'
 import { buildOAuthCallbackUrl } from './oauth-callback-url'
 
@@ -44,6 +48,7 @@ export interface DingTalkSettingsValues {
   'dingtalk.corp_id': string
   'dingtalk.client_id': string
   'dingtalk.client_secret': string
+  'dingtalk.announcement_group_open_conversation_id': string
 }
 
 type DingTalkSectionProps = {
@@ -60,6 +65,7 @@ export function DingTalkSection(props: DingTalkSectionProps) {
     null
   )
   const [isTesting, setIsTesting] = useState(false)
+  const [isGroupTesting, setIsGroupTesting] = useState(false)
   const callbackUrl = buildOAuthCallbackUrl(
     props.serverAddress,
     'dingtalk',
@@ -113,6 +119,28 @@ export function DingTalkSection(props: DingTalkSectionProps) {
       toast.error(message)
     } finally {
       setIsTesting(false)
+    }
+  }
+
+  const saveAndTestGroup = async () => {
+    setIsGroupTesting(true)
+    try {
+      if (!(await save())) return
+      const response = await sendDingTalkAnnouncementGroupTestMessage()
+      if (!response.success) {
+        throw new Error(
+          response.message || t('Failed to send DingTalk group test message')
+        )
+      }
+      toast.success(t('DingTalk group test message sent successfully'))
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message
+          ? error.message
+          : t('Failed to send DingTalk group test message')
+      )
+    } finally {
+      setIsGroupTesting(false)
     }
   }
 
@@ -170,6 +198,26 @@ export function DingTalkSection(props: DingTalkSectionProps) {
           </FieldDescription>
         </Field>
         <Field>
+          <FieldLabel htmlFor='dingtalk-announcement-group'>
+            {t('Announcement group openConversationId')}
+          </FieldLabel>
+          <Input
+            id='dingtalk-announcement-group'
+            value={values['dingtalk.announcement_group_open_conversation_id']}
+            onChange={(event) =>
+              set(
+                'dingtalk.announcement_group_open_conversation_id',
+                event.target.value
+              )
+            }
+          />
+          <FieldDescription>
+            {t(
+              'The internal DingTalk group that receives system announcements.'
+            )}
+          </FieldDescription>
+        </Field>
+        <Field>
           <FieldLabel>{t('OAuth callback URL')}</FieldLabel>
           <div className='flex items-center gap-2'>
             <code className='bg-muted min-w-0 flex-1 rounded px-2 py-1 text-xs break-all'>
@@ -206,6 +254,21 @@ export function DingTalkSection(props: DingTalkSectionProps) {
           >
             {update.isPending && <Spinner data-icon='inline-start' />}
             {t('Save')}
+          </Button>
+          <Button
+            className='w-fit'
+            variant='outline'
+            disabled={
+              values[
+                'dingtalk.announcement_group_open_conversation_id'
+              ].trim() === '' ||
+              update.isPending ||
+              isGroupTesting
+            }
+            onClick={() => void saveAndTestGroup()}
+          >
+            {isGroupTesting && <Spinner data-icon='inline-start' />}
+            {t('Save and send group test message')}
           </Button>
           <Button
             className='w-fit'

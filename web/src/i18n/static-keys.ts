@@ -76,6 +76,7 @@ export const STATIC_I18N_KEYS = [
   'Partially customized',
   'All inherited',
   'Fully customized',
+  'Announcement group delivery',
 
   // Pricing constants
   'Name',

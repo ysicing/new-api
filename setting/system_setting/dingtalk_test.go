@@ -11,6 +11,7 @@ import (
 func TestDingTalkSettingsPersistenceRoundTrip(t *testing.T) {
 	settings := &DingTalkSettings{
 		Enabled: true, CorpId: "corp-1", ClientId: "app-key", ClientSecret: "app-secret",
+		AnnouncementGroupOpenConversationId: "cid-announcement",
 	}
 	manager := config.NewConfigManager()
 	manager.Register("dingtalk", settings)
@@ -25,6 +26,7 @@ func TestDingTalkSettingsPersistenceRoundTrip(t *testing.T) {
 
 	assert.Equal(t, "app-secret", settings.ClientSecret)
 	assert.Equal(t, "corp-1", settings.CorpId)
+	assert.Equal(t, "cid-announcement", settings.AnnouncementGroupOpenConversationId)
 	assert.True(t, settings.Enabled)
 }
 
