@@ -1,6 +1,8 @@
 package service
 
 import (
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -24,13 +26,42 @@ func setupSensitiveWordNotificationTest(t *testing.T) (*model.User, time.Time) {
 	settings := system_setting.GetDingTalkSettings()
 	previousSettings := *settings
 	previousContactMessage := setting.SensitiveWordContactMessage
+	previousServerAddress := system_setting.ServerAddress
 	*settings = system_setting.DingTalkSettings{}
 	setting.SensitiveWordContactMessage = ""
+	system_setting.ServerAddress = ""
 	t.Cleanup(func() {
 		*settings = previousSettings
 		setting.SensitiveWordContactMessage = previousContactMessage
+		system_setting.ServerAddress = previousServerAddress
 	})
 	return &user, time.Date(2026, time.August, 25, 10, 15, 0, 0, time.Local)
+}
+
+func TestSensitiveWordNotificationIncludesFilteredUsageLogLink(t *testing.T) {
+	user, detectedAt := setupSensitiveWordNotificationTest(t)
+	system_setting.ServerAddress = "https://icode.51talk.biz/"
+
+	require.NoError(t, notifySensitiveWordsDetectedAt(user.Id, []string{"link-word"}, detectedAt))
+
+	var record model.DingTalkNotification
+	require.NoError(t, model.DB.Where("user_id = ?", user.Id).First(&record).Error)
+	const linkPrefix = "[查看使用日志]("
+	linkStart := strings.Index(record.Content, linkPrefix)
+	require.GreaterOrEqual(t, linkStart, 0)
+	linkValue := record.Content[linkStart+len(linkPrefix):]
+	linkEnd := strings.Index(linkValue, ")")
+	require.Greater(t, linkEnd, 0)
+	parsed, err := url.Parse(linkValue[:linkEnd])
+	require.NoError(t, err)
+	assert.Equal(t, "https", parsed.Scheme)
+	assert.Equal(t, "icode.51talk.biz", parsed.Host)
+	assert.Equal(t, "/usage-logs/common", parsed.Path)
+	dayStart := time.Date(detectedAt.Year(), detectedAt.Month(), detectedAt.Day(), 0, 0, 0, 0, detectedAt.Location())
+	assert.Equal(t, strconv.FormatInt(dayStart.UnixMilli(), 10), parsed.Query().Get("startTime"))
+	assert.Equal(t, strconv.FormatInt(detectedAt.UnixMilli(), 10), parsed.Query().Get("endTime"))
+	assert.Equal(t, `["5"]`, parsed.Query().Get("type"))
+	assert.Equal(t, "1", parsed.Query().Get("page"))
 }
 
 func TestSensitiveWordNotificationDeduplicatesSameWordWithinHourWithoutPersistingPlaintext(t *testing.T) {
