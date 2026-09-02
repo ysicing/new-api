@@ -110,6 +110,47 @@ func GetModelStatistics(c *gin.Context) {
 	})
 }
 
+func GetActiveUserStats(c *gin.Context) {
+	startTimestamp, startErr := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, endErr := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	if startErr != nil || endErr != nil || !validActiveUserStatsRange(startTimestamp, endTimestamp, time.Local) {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"success": false, "code": "ACTIVE_USERS_INVALID_RANGE", "message": "活跃用户统计时间范围无效",
+		})
+		return
+	}
+	stats, err := model.GetActiveUserStats(startTimestamp, endTimestamp, time.Local)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true, "message": "", "data": stats,
+		"generated_at": time.Now().Unix(),
+	})
+}
+
+func validActiveUserStatsRange(startTimestamp, endTimestamp int64, location *time.Location) bool {
+	if startTimestamp <= 0 || endTimestamp < startTimestamp {
+		return false
+	}
+	if location == nil {
+		location = time.Local
+	}
+	start := time.Unix(startTimestamp, 0).In(location)
+	start = time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, location)
+	end := time.Unix(endTimestamp, 0).In(location)
+	end = time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, location)
+	days := 1
+	for date := start; date.Before(end); date = date.AddDate(0, 0, 1) {
+		days++
+		if days > 30 {
+			return false
+		}
+	}
+	return true
+}
+
 func GetAllFlowQuotaDates(c *gin.Context) {
 	startTimestamp, endTimestamp, ok := parseFlowQuotaTimeRange(c)
 	if !ok {

@@ -66,6 +66,32 @@ export async function getUserQuotaDataByUsers(params: {
   return res.data
 }
 
+export interface DailyActiveUserStat {
+  date: string
+  active_users: number
+}
+
+export interface ActiveUserStatsData {
+  total_active_users: number
+  daily: DailyActiveUserStat[]
+}
+
+export async function getActiveUserStats(params: {
+  start_timestamp: number
+  end_timestamp: number
+}) {
+  const response = await api.get<{
+    success: boolean
+    message: string
+    data: ActiveUserStatsData
+    generated_at: number
+  }>('/api/data/active-users', { params })
+  if (!response.data.success) {
+    throw new Error(response.data.message || 'Request failed')
+  }
+  return response.data
+}
+
 export async function getFlowQuotaDates(
   params: {
     start_timestamp: number

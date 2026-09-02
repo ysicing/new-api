@@ -8,7 +8,12 @@ the Free Software Foundation, either version 3 of the License, or
 */
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
-import { getModelStatistics, getRechargeLeaderboard, getTopUsers } from '../api'
+import {
+  getActiveUserStats,
+  getModelStatistics,
+  getRechargeLeaderboard,
+  getTopUsers,
+} from '../api'
 
 const apiMocks = vi.hoisted(() => ({ get: vi.fn() }))
 
@@ -58,6 +63,21 @@ describe('operations statistics API', () => {
 
     expect(apiMocks.get).toHaveBeenCalledWith('/api/data/model-statistics', {
       params: { period: 'month', scope: 'self' },
+    })
+  })
+
+  test('requests active users through the independent endpoint', async () => {
+    apiMocks.get.mockResolvedValue({
+      data: {
+        success: true,
+        data: { total_active_users: 0, daily: [] },
+      },
+    })
+
+    await getActiveUserStats({ start_timestamp: 100, end_timestamp: 200 })
+
+    expect(apiMocks.get).toHaveBeenCalledWith('/api/data/active-users', {
+      params: { start_timestamp: 100, end_timestamp: 200 },
     })
   })
 })

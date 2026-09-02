@@ -43,6 +43,8 @@ import type {
 import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
 import { VCHART_OPTION } from '@/lib/vchart'
 
+import { ActiveUserStats } from './active-user-stats'
+
 let themeManagerPromise: Promise<
   (typeof import('@visactor/vchart'))['ThemeManager']
 > | null = null
@@ -220,6 +222,12 @@ export function UserCharts(props: UserChartsProps) {
           <Loader2 className='text-muted-foreground size-4 animate-spin' />
         )}
       </div>
+
+      <ActiveUserStats
+        startTimestamp={timeRange.start_timestamp}
+        endTimestamp={timeRange.end_timestamp}
+        rangeKey={selectedRange}
+      />
 
       <div className='grid gap-3'>
         {USER_CHARTS.map((chart) => {
