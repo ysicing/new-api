@@ -169,13 +169,15 @@ func SyncAnnouncementGroupNotifications(previousRaw, currentRaw string, operator
 		if err != nil || id <= 0 {
 			continue
 		}
+		// 前端以 UTC 保存 RFC3339 时间；正文展示使用服务本地时区，调度仍使用原始 Unix 时间戳。
+		displayPublishAt := publishAt.In(now.Location())
 		_, existed := previousById[id]
 		if !existed && conversationID == "" {
 			metadata, _ := common.Marshal(map[string]any{"announcement_id": id, "announcement_type": announcement.Type})
 			_, err = model.CreateDingTalkNotification(&model.DingTalkNotification{
 				EventType: model.DingTalkNotificationEventAnnouncementGroup,
 				DedupeKey: announcementGroupDedupeKey(id), UserId: operatorId, Username: operatorName,
-				Title: "系统公告", Content: announcementMarkdownContent(announcement, publishAt),
+				Title: "系统公告", Content: announcementMarkdownContent(announcement, displayPublishAt),
 				Status: model.DingTalkNotificationStatusSkipped, Error: "DingTalk announcement group is not configured",
 				ScheduledAt: publishAt.Unix(), Metadata: string(metadata),
 			})
@@ -194,7 +196,7 @@ func SyncAnnouncementGroupNotifications(previousRaw, currentRaw string, operator
 		notification := &model.DingTalkNotification{
 			EventType: model.DingTalkNotificationEventAnnouncementGroup,
 			DedupeKey: announcementGroupDedupeKey(id), UserId: operatorId, Username: operatorName,
-			Recipient: conversationID, Title: "系统公告", Content: announcementMarkdownContent(announcement, publishAt),
+			Recipient: conversationID, Title: "系统公告", Content: announcementMarkdownContent(announcement, displayPublishAt),
 			ScheduledAt: publishAt.Unix(), Metadata: string(metadata),
 		}
 		if existed {

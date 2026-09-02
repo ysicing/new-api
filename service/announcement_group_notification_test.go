@@ -56,6 +56,18 @@ func TestSyncAnnouncementGroupNotificationsCreatesUpdatesAndCancelsPending(t *te
 	assert.Equal(t, model.DingTalkNotificationStatusSkipped, record.Status)
 }
 
+func TestSyncAnnouncementGroupNotificationsFormatsPublishTimeInServiceLocation(t *testing.T) {
+	setupAnnouncementGroupNotificationTest(t)
+	location := time.FixedZone("UTC+8", 8*60*60)
+	now := time.Date(2026, time.September, 1, 14, 0, 0, 0, location)
+	current := `[{"id":1,"content":"UTC 时间公告","publishDate":"2026-09-01T05:00:00Z","type":"default"}]`
+
+	require.NoError(t, SyncAnnouncementGroupNotifications("", current, 9, "root", now))
+	var record model.DingTalkNotification
+	require.NoError(t, model.DB.Where("dedupe_key = ?", "announcement_group:1").First(&record).Error)
+	assert.Equal(t, "UTC 时间公告\n\n发布时间：2026-09-01 13:00", record.Content)
+}
+
 func TestDeliverDueAnnouncementGroupNotificationsFailsWithoutRetry(t *testing.T) {
 	setupAnnouncementGroupNotificationTest(t)
 	record := &model.DingTalkNotification{
