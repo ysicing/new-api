@@ -77,7 +77,7 @@ func GetCachedQuotaPoolStats(poolId int, startTimestamp, endTimestamp int64, gra
 
 func GetCachedQuotaPoolStatsInLocation(poolId int, startTimestamp, endTimestamp int64, granularity model.QuotaPoolStatsGranularity, now time.Time, location *time.Location) (*model.QuotaPoolStats, int64, error) {
 	cacheEndTimestamp := endTimestamp - endTimestamp%int64(operationsStatsCacheTTL/time.Second)
-	cacheSuffix := fmt.Sprintf("quota_pool:v3:%d:%d:%d:%s", poolId, startTimestamp, cacheEndTimestamp, granularity)
+	cacheSuffix := fmt.Sprintf("quota_pool:v4:%d:%d:%d:%s", poolId, startTimestamp, cacheEndTimestamp, granularity)
 	entry, err := loadOperationsStatsCache(cacheSuffix, now, func() (*model.QuotaPoolStats, error) {
 		stats, err := model.GetQuotaPoolStatsInLocation(poolId, startTimestamp, endTimestamp, granularity, location)
 		if err != nil {

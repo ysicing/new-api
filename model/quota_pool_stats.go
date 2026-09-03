@@ -18,6 +18,7 @@ type quotaPoolHourlyUsageRow struct {
 	UserId        int
 	CreatedAt     int64
 	RequestCount  int
+	TokenUsed     int64
 	UsedQuota     int
 	GptQuota      int
 	ClaudeQuota   int
@@ -87,9 +88,11 @@ func GetQuotaPoolStatsInLocation(poolId int, startTimestamp, endTimestamp int64,
 			return
 		}
 		stats.Trend[trendIndex].RequestCount += row.RequestCount
+		stats.Trend[trendIndex].TokenUsed += row.TokenUsed
 		stats.Trend[trendIndex].UsedQuota += row.UsedQuota
 		bucket := usage[row.UserId]
 		bucket.RequestCount += row.RequestCount
+		bucket.TokenUsed += row.TokenUsed
 		bucket.UsedQuota += row.UsedQuota
 		bucket.GptQuota += row.GptQuota
 		bucket.ClaudeQuota += row.ClaudeQuota
@@ -126,7 +129,7 @@ func GetQuotaPoolStatsInLocation(poolId int, startTimestamp, endTimestamp int64,
 		activity := activities[member.Id]
 		memberStat := QuotaPoolMemberStat{
 			QuotaPoolUsageStat: QuotaPoolUsageStat{
-				UserId: member.Id, Username: member.Username, RequestCount: bucket.RequestCount, UsedQuota: bucket.UsedQuota,
+				UserId: member.Id, Username: member.Username, RequestCount: bucket.RequestCount, TokenUsed: bucket.TokenUsed, UsedQuota: bucket.UsedQuota,
 				GptQuota: bucket.GptQuota, ClaudeQuota: bucket.ClaudeQuota, DeepSeekQuota: bucket.DeepSeekQuota,
 				GeminiQuota: bucket.GeminiQuota, QwenQuota: bucket.QwenQuota, OtherQuota: bucket.OtherQuota,
 			},
@@ -136,15 +139,18 @@ func GetQuotaPoolStatsInLocation(poolId int, startTimestamp, endTimestamp int64,
 			memberStat.LastActiveTime = time.Unix(memberStat.LastActiveAt, 0).In(location).Format("2006-01-02 15:04:05 -07:00 MST")
 		}
 		if memberStat.ActiveDays > 0 {
+			memberStat.AverageDailyTokens = float64(memberStat.TokenUsed) / float64(memberStat.ActiveDays)
 			memberStat.AverageDailyUsage = float64(memberStat.UsedQuota) / float64(memberStat.ActiveDays)
 			stats.Summary.ActiveMembers++
 		}
 		stats.Summary.RequestCount += memberStat.RequestCount
+		stats.Summary.TotalTokens += memberStat.TokenUsed
 		stats.Summary.TotalUsage += memberStat.UsedQuota
 		stats.Members = append(stats.Members, memberStat)
 	}
 	stats.Summary.ActiveRate = quotaPoolPercentage(stats.Summary.ActiveMembers, stats.Summary.MemberCount)
 	if stats.Summary.ActiveMembers > 0 {
+		stats.Summary.AverageTokensPerActiveMember = float64(stats.Summary.TotalTokens) / float64(stats.Summary.ActiveMembers)
 		stats.Summary.AverageUsagePerActiveMember = float64(stats.Summary.TotalUsage) / float64(stats.Summary.ActiveMembers)
 	}
 	stats.TotalUsage = stats.Summary.TotalUsage
@@ -269,7 +275,7 @@ func walkQuotaPoolHourlyUsage(userIds []int, startTimestamp, endTimestampExclusi
 		for rows.Next() {
 			var row quotaPoolHourlyUsageRow
 			if err := rows.Scan(
-				&row.UserId, &row.CreatedAt, &row.RequestCount, &row.UsedQuota,
+				&row.UserId, &row.CreatedAt, &row.RequestCount, &row.TokenUsed, &row.UsedQuota,
 				&row.GptQuota, &row.ClaudeQuota, &row.DeepSeekQuota, &row.GeminiQuota, &row.QwenQuota, &row.OtherQuota,
 			); err != nil {
 				_ = rows.Close()

@@ -176,10 +176,10 @@ func TestGetQuotaPoolStatsInLocationIncludesActivityTrendAndInactiveMembers(t *t
 	}
 	require.NoError(t, mainDB.Create(&members).Error)
 	require.NoError(t, mainDB.Create(&[]QuotaData{
-		{UserID: 1, Username: "alice", CreatedAt: time.Date(2026, time.August, 17, 9, 0, 0, 0, location).Unix(), ModelName: "gpt-5", Count: 2, Quota: 30},
-		{UserID: 1, Username: "alice", CreatedAt: time.Date(2026, time.August, 17, 10, 0, 0, 0, location).Unix(), ModelName: "claude-4", Count: 1, Quota: 20},
-		{UserID: 1, Username: "alice", CreatedAt: time.Date(2026, time.August, 18, 11, 0, 0, 0, location).Unix(), ModelName: "gpt-5", Count: 3, Quota: 50},
-		{UserID: 3, Username: "outsider", CreatedAt: time.Date(2026, time.August, 17, 9, 0, 0, 0, location).Unix(), ModelName: "gpt-5", Count: 10, Quota: 1000},
+		{UserID: 1, Username: "alice", CreatedAt: time.Date(2026, time.August, 17, 9, 0, 0, 0, location).Unix(), ModelName: "gpt-5", Count: 2, Quota: 30, TokenUsed: 300},
+		{UserID: 1, Username: "alice", CreatedAt: time.Date(2026, time.August, 17, 10, 0, 0, 0, location).Unix(), ModelName: "claude-4", Count: 1, Quota: 20, TokenUsed: 200},
+		{UserID: 1, Username: "alice", CreatedAt: time.Date(2026, time.August, 18, 11, 0, 0, 0, location).Unix(), ModelName: "gpt-5", Count: 3, Quota: 50, TokenUsed: 500},
+		{UserID: 3, Username: "outsider", CreatedAt: time.Date(2026, time.August, 17, 9, 0, 0, 0, location).Unix(), ModelName: "gpt-5", Count: 10, Quota: 1000, TokenUsed: 10_000},
 	}).Error)
 	start := time.Date(2026, time.August, 17, 0, 0, 0, 0, location)
 	end := time.Date(2026, time.August, 19, 15, 30, 0, 0, location)
@@ -193,12 +193,15 @@ func TestGetQuotaPoolStatsInLocationIncludesActivityTrendAndInactiveMembers(t *t
 	assert.Equal(t, 6, stats.Summary.RequestCount)
 	assert.Equal(t, 100, stats.Summary.TotalUsage)
 	assert.Equal(t, 100.0, stats.Summary.AverageUsagePerActiveMember)
+	assert.Equal(t, int64(1000), stats.Summary.TotalTokens)
+	assert.Equal(t, 1000.0, stats.Summary.AverageTokensPerActiveMember)
 	assert.Equal(t, "UTC+8", stats.TimeZone)
 	require.Len(t, stats.Trend, 3)
 	assert.Equal(t, "2026-08-17", stats.Trend[0].Label)
 	assert.Equal(t, 1, stats.Trend[0].ActiveMembers)
 	assert.Equal(t, 3, stats.Trend[0].RequestCount)
 	assert.Equal(t, 50, stats.Trend[0].UsedQuota)
+	assert.Equal(t, int64(500), stats.Trend[0].TokenUsed)
 	assert.Equal(t, "2026-08-19", stats.Trend[2].Label)
 	assert.Zero(t, stats.Trend[2].UsedQuota)
 	require.Len(t, stats.Members, 2)
@@ -207,7 +210,9 @@ func TestGetQuotaPoolStatsInLocationIncludesActivityTrendAndInactiveMembers(t *t
 	assert.Equal(t, 2, stats.Members[0].ActiveDays)
 	assert.Equal(t, 6, stats.Members[0].RequestCount)
 	assert.Equal(t, 100, stats.Members[0].UsedQuota)
+	assert.Equal(t, int64(1000), stats.Members[0].TokenUsed)
 	assert.Equal(t, 50.0, stats.Members[0].AverageDailyUsage)
+	assert.Equal(t, 500.0, stats.Members[0].AverageDailyTokens)
 	assert.Equal(t, 100.0, stats.Members[0].UsageShare)
 	assert.Equal(t, time.Date(2026, time.August, 18, 11, 0, 0, 0, location).Unix(), stats.Members[0].LastActiveAt)
 	assert.Equal(t, "2026-08-18 11:00:00 +08:00 UTC+8", stats.Members[0].LastActiveTime)

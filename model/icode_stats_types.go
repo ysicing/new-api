@@ -25,6 +25,7 @@ type QuotaPoolUsageStat struct {
 	UserId        int    `json:"user_id"`
 	Username      string `json:"username"`
 	RequestCount  int    `json:"request_count"`
+	TokenUsed     int64  `json:"token_used"`
 	UsedQuota     int    `json:"used_quota"`
 	GptQuota      int    `json:"gpt_quota"`
 	ClaudeQuota   int    `json:"claude_quota"`
@@ -36,12 +37,13 @@ type QuotaPoolUsageStat struct {
 
 type QuotaPoolMemberStat struct {
 	QuotaPoolUsageStat
-	Active            bool    `json:"active"`
-	ActiveDays        int     `json:"active_days"`
-	LastActiveAt      int64   `json:"last_active_at"`
-	LastActiveTime    string  `json:"last_active_time"`
-	UsageShare        float64 `json:"usage_share"`
-	AverageDailyUsage float64 `json:"average_daily_usage"`
+	Active             bool    `json:"active"`
+	ActiveDays         int     `json:"active_days"`
+	LastActiveAt       int64   `json:"last_active_at"`
+	LastActiveTime     string  `json:"last_active_time"`
+	UsageShare         float64 `json:"usage_share"`
+	AverageDailyTokens float64 `json:"average_daily_tokens"`
+	AverageDailyUsage  float64 `json:"average_daily_usage"`
 }
 
 type QuotaPoolStatsGranularity string
@@ -59,16 +61,19 @@ type QuotaPoolTrendStat struct {
 	ActiveMembers int     `json:"active_members"`
 	ActiveRate    float64 `json:"active_rate"`
 	RequestCount  int     `json:"request_count"`
+	TokenUsed     int64   `json:"token_used"`
 	UsedQuota     int     `json:"used_quota"`
 }
 
 type QuotaPoolStatsSummary struct {
-	MemberCount                 int     `json:"member_count"`
-	ActiveMembers               int     `json:"active_members"`
-	ActiveRate                  float64 `json:"active_rate"`
-	RequestCount                int     `json:"request_count"`
-	TotalUsage                  int     `json:"total_usage"`
-	AverageUsagePerActiveMember float64 `json:"average_usage_per_active_member"`
+	MemberCount                  int     `json:"member_count"`
+	ActiveMembers                int     `json:"active_members"`
+	ActiveRate                   float64 `json:"active_rate"`
+	RequestCount                 int     `json:"request_count"`
+	TotalTokens                  int64   `json:"total_tokens"`
+	AverageTokensPerActiveMember float64 `json:"average_tokens_per_active_member"`
+	TotalUsage                   int     `json:"total_usage"`
+	AverageUsagePerActiveMember  float64 `json:"average_usage_per_active_member"`
 }
 
 type QuotaPoolRechargeStat struct {
@@ -100,6 +105,7 @@ type QuotaPoolStats struct {
 
 type usageBucket struct {
 	RequestCount  int
+	TokenUsed     int64
 	UsedQuota     int
 	GptQuota      int
 	ClaudeQuota   int

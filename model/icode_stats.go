@@ -3,18 +3,20 @@ package model
 import "sort"
 
 type usageAggregateRow struct {
-	UserId        int `gorm:"column:user_id"`
-	RequestCount  int `gorm:"column:request_count"`
-	UsedQuota     int `gorm:"column:used_quota"`
-	GptQuota      int `gorm:"column:gpt_quota"`
-	ClaudeQuota   int `gorm:"column:claude_quota"`
-	DeepSeekQuota int `gorm:"column:deepseek_quota"`
-	GeminiQuota   int `gorm:"column:gemini_quota"`
-	QwenQuota     int `gorm:"column:qwen_quota"`
-	OtherQuota    int `gorm:"column:other_quota"`
+	UserId        int   `gorm:"column:user_id"`
+	RequestCount  int   `gorm:"column:request_count"`
+	TokenUsed     int64 `gorm:"column:token_used"`
+	UsedQuota     int   `gorm:"column:used_quota"`
+	GptQuota      int   `gorm:"column:gpt_quota"`
+	ClaudeQuota   int   `gorm:"column:claude_quota"`
+	DeepSeekQuota int   `gorm:"column:deepseek_quota"`
+	GeminiQuota   int   `gorm:"column:gemini_quota"`
+	QwenQuota     int   `gorm:"column:qwen_quota"`
+	OtherQuota    int   `gorm:"column:other_quota"`
 }
 
 const usageAggregateMetricsSelect = `COALESCE(SUM(count), 0) AS request_count,
+COALESCE(SUM(token_used), 0) AS token_used,
 COALESCE(SUM(quota), 0) AS used_quota,
 COALESCE(SUM(CASE WHEN COALESCE(LOWER(model_name), '') LIKE '%gpt%'
   OR COALESCE(LOWER(model_name), '') LIKE 'o1%'
@@ -108,7 +110,7 @@ func aggregateOperationsUsage(startTimestamp, endTimestamp int64, modelName stri
 
 func (row usageAggregateRow) bucket() usageBucket {
 	return usageBucket{
-		RequestCount: row.RequestCount, UsedQuota: row.UsedQuota, GptQuota: row.GptQuota, ClaudeQuota: row.ClaudeQuota,
+		RequestCount: row.RequestCount, TokenUsed: row.TokenUsed, UsedQuota: row.UsedQuota, GptQuota: row.GptQuota, ClaudeQuota: row.ClaudeQuota,
 		DeepSeekQuota: row.DeepSeekQuota, GeminiQuota: row.GeminiQuota,
 		QwenQuota: row.QwenQuota, OtherQuota: row.OtherQuota,
 	}

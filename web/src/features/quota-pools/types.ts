@@ -92,6 +92,7 @@ export interface QuotaPoolUsageStat {
   user_id: number
   username: string
   request_count: number
+  token_used: number
   used_quota: number
   gpt_quota: number
   claude_quota: number
@@ -107,6 +108,7 @@ export interface QuotaPoolMemberStat extends QuotaPoolUsageStat {
   last_active_at: number
   last_active_time?: string
   usage_share: number
+  average_daily_tokens: number
   average_daily_usage: number
 }
 
@@ -119,6 +121,7 @@ export interface QuotaPoolTrendStat {
   active_members: number
   active_rate: number
   request_count: number
+  token_used: number
   used_quota: number
 }
 
@@ -127,6 +130,8 @@ export interface QuotaPoolStatsSummary {
   active_members: number
   active_rate: number
   request_count: number
+  total_tokens: number
+  average_tokens_per_active_member: number
   total_usage: number
   average_usage_per_active_member: number
 }
