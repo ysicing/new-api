@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
@@ -44,7 +45,7 @@ func writeQuotaPoolStatsExport(c *gin.Context, pool *model.QuotaPool) {
 		})
 		return
 	}
-	stats, ok := loadQuotaPoolStats(c, pool.Id, time.Now())
+	stats, ok := loadQuotaPoolStats(c, pool.Id, time.Now().In(common.BeijingTimeLocation))
 	if !ok {
 		return
 	}

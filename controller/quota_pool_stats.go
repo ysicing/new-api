@@ -18,12 +18,13 @@ func loadQuotaPoolStats(c *gin.Context, poolId int, now time.Time) (*model.Quota
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 			"success": false, "code": "QUOTA_POOL_STATS_RANGE_INVALID",
-			"message": "统计时间范围无效，最多支持 366 个自然日",
+			"message": "统计时间范围或颗粒度无效，最长支持 366 天",
 		})
 		return nil, false
 	}
 	stats, _, err := service.GetCachedQuotaPoolStatsInLocation(
-		poolId, statsRange.StartTimestamp, statsRange.EndTimestamp, now, rangeNow.Location(),
+		poolId, statsRange.StartTimestamp, statsRange.EndTimestamp,
+		model.QuotaPoolStatsGranularity(statsRange.Granularity), now, rangeNow.Location(),
 	)
 	if err != nil {
 		if errors.Is(err, model.ErrQuotaPoolStatsTimezoneUnsupported) {
@@ -32,14 +33,12 @@ func loadQuotaPoolStats(c *gin.Context, poolId int, now time.Time) (*model.Quota
 		writeQuotaPoolError(c, err)
 		return nil, false
 	}
-	stats.RangeType = statsRange.RangeType
-	stats.StartDate = statsRange.StartDate
-	stats.EndDate = statsRange.EndDate
+	stats.Preset = statsRange.Preset
 	return stats, true
 }
 
 func writeQuotaPoolStats(c *gin.Context, poolId int) {
-	stats, ok := loadQuotaPoolStats(c, poolId, time.Now())
+	stats, ok := loadQuotaPoolStats(c, poolId, time.Now().In(common.BeijingTimeLocation))
 	if !ok {
 		return
 	}

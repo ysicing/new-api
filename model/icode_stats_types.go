@@ -44,8 +44,18 @@ type QuotaPoolMemberStat struct {
 	AverageDailyUsage float64 `json:"average_daily_usage"`
 }
 
-type QuotaPoolDailyStat struct {
-	Date          string  `json:"date"`
+type QuotaPoolStatsGranularity string
+
+const (
+	QuotaPoolStatsGranularityHour QuotaPoolStatsGranularity = "hour"
+	QuotaPoolStatsGranularityDay  QuotaPoolStatsGranularity = "day"
+	QuotaPoolStatsGranularityWeek QuotaPoolStatsGranularity = "week"
+)
+
+type QuotaPoolTrendStat struct {
+	BucketStart   int64   `json:"bucket_start"`
+	BucketEnd     int64   `json:"bucket_end"`
+	Label         string  `json:"label"`
 	ActiveMembers int     `json:"active_members"`
 	ActiveRate    float64 `json:"active_rate"`
 	RequestCount  int     `json:"request_count"`
@@ -68,23 +78,24 @@ type QuotaPoolRechargeStat struct {
 }
 
 type QuotaPoolStats struct {
-	RangeType      string                  `json:"range_type"`
-	StartDate      string                  `json:"start_date"`
-	EndDate        string                  `json:"end_date"`
-	StartTimestamp int64                   `json:"start_timestamp"`
-	EndTimestamp   int64                   `json:"end_timestamp"`
-	GeneratedAt    int64                   `json:"generated_at"`
-	GeneratedTime  string                  `json:"generated_time"`
-	TimeZone       string                  `json:"time_zone"`
-	Usage          []QuotaPoolUsageStat    `json:"usage"`
-	Members        []QuotaPoolMemberStat   `json:"members"`
-	Daily          []QuotaPoolDailyStat    `json:"daily"`
-	Summary        QuotaPoolStatsSummary   `json:"summary"`
-	Recharge       []QuotaPoolRechargeStat `json:"recharge"`
-	TotalUsage     int                     `json:"total_usage"`
-	TotalRefill    int                     `json:"total_refill"`
-	TotalAllocate  int                     `json:"total_allocate"`
-	TotalReclaim   int                     `json:"total_reclaim"`
+	Preset         string                    `json:"preset"`
+	Granularity    QuotaPoolStatsGranularity `json:"granularity"`
+	StartTimestamp int64                     `json:"start_timestamp"`
+	EndTimestamp   int64                     `json:"end_timestamp"`
+	StartTime      string                    `json:"start_time"`
+	EndTime        string                    `json:"end_time"`
+	GeneratedAt    int64                     `json:"generated_at"`
+	GeneratedTime  string                    `json:"generated_time"`
+	TimeZone       string                    `json:"time_zone"`
+	Usage          []QuotaPoolUsageStat      `json:"usage"`
+	Members        []QuotaPoolMemberStat     `json:"members"`
+	Trend          []QuotaPoolTrendStat      `json:"trend"`
+	Summary        QuotaPoolStatsSummary     `json:"summary"`
+	Recharge       []QuotaPoolRechargeStat   `json:"recharge"`
+	TotalUsage     int                       `json:"total_usage"`
+	TotalRefill    int                       `json:"total_refill"`
+	TotalAllocate  int                       `json:"total_allocate"`
+	TotalReclaim   int                       `json:"total_reclaim"`
 }
 
 type usageBucket struct {

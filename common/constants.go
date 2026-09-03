@@ -11,7 +11,9 @@ import (
 )
 
 var StartTime = time.Now().Unix() // unit: second
-var Version = "v0.0.0"            // this hard coding will be replaced automatically when building, no need to manually change
+// BeijingTimeLocation 是公告与额度池统计统一使用的固定北京时间，不受容器 TZ 影响。
+var BeijingTimeLocation = time.FixedZone("Asia/Shanghai", 8*60*60)
+var Version = "v0.0.0" // this hard coding will be replaced automatically when building, no need to manually change
 var SystemName = "New API"
 var Footer = ""
 var Logo = ""

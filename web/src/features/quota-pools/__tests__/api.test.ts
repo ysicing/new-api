@@ -161,9 +161,10 @@ describe('quota pool members API', () => {
 
   test('passes custom statistics range and export format to matching endpoints', async () => {
     const range = {
-      range_type: 'custom' as const,
-      start_date: '2026-08-01',
-      end_date: '2026-08-31',
+      preset: 'custom' as const,
+      start_timestamp: 1785513600,
+      end_timestamp: 1788192000,
+      granularity: 'day' as const,
     }
     await getQuotaPoolStats(7, false, range)
     apiMocks.get.mockResolvedValueOnce({

@@ -71,15 +71,15 @@ func GetOperationsRechargeLeaderboard(period string, now time.Time) (*Operations
 	return &OperationsStatsRechargeSection{GeneratedAt: entry.GeneratedAt, Items: entry.Data}, nil
 }
 
-func GetCachedQuotaPoolStats(poolId int, startTimestamp, endTimestamp int64, now time.Time) (*model.QuotaPoolStats, int64, error) {
-	return GetCachedQuotaPoolStatsInLocation(poolId, startTimestamp, endTimestamp, now, time.Local)
+func GetCachedQuotaPoolStats(poolId int, startTimestamp, endTimestamp int64, granularity model.QuotaPoolStatsGranularity, now time.Time) (*model.QuotaPoolStats, int64, error) {
+	return GetCachedQuotaPoolStatsInLocation(poolId, startTimestamp, endTimestamp, granularity, now, common.BeijingTimeLocation)
 }
 
-func GetCachedQuotaPoolStatsInLocation(poolId int, startTimestamp, endTimestamp int64, now time.Time, location *time.Location) (*model.QuotaPoolStats, int64, error) {
+func GetCachedQuotaPoolStatsInLocation(poolId int, startTimestamp, endTimestamp int64, granularity model.QuotaPoolStatsGranularity, now time.Time, location *time.Location) (*model.QuotaPoolStats, int64, error) {
 	cacheEndTimestamp := endTimestamp - endTimestamp%int64(operationsStatsCacheTTL/time.Second)
-	cacheSuffix := fmt.Sprintf("quota_pool:v2:%d:%d:%d", poolId, startTimestamp, cacheEndTimestamp)
+	cacheSuffix := fmt.Sprintf("quota_pool:v3:%d:%d:%d:%s", poolId, startTimestamp, cacheEndTimestamp, granularity)
 	entry, err := loadOperationsStatsCache(cacheSuffix, now, func() (*model.QuotaPoolStats, error) {
-		stats, err := model.GetQuotaPoolStatsInLocation(poolId, startTimestamp, endTimestamp, location)
+		stats, err := model.GetQuotaPoolStatsInLocation(poolId, startTimestamp, endTimestamp, granularity, location)
 		if err != nil {
 			return nil, err
 		}

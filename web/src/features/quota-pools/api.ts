@@ -10,7 +10,6 @@ import type {
   QuotaPoolMember,
   QuotaPoolOperationLog,
   QuotaPoolStats,
-  QuotaPoolStatsPeriod,
   QuotaPoolStatsRange,
   QuotaPoolTransaction,
 } from './types'
@@ -115,13 +114,13 @@ export async function getQuotaPoolTransactions(poolId: number, self = false) {
 export async function getQuotaPoolStats(
   poolId: number,
   self = false,
-  range: QuotaPoolStatsRange | QuotaPoolStatsPeriod = 'week'
+  range: QuotaPoolStatsRange = { preset: 'rolling_7d' }
 ) {
   const endpoint = self
     ? '/api/quota_pool/self/stats'
     : `/api/quota_pool/${poolId}/stats`
   const response = await api.get<ApiResponse<QuotaPoolStats>>(endpoint, {
-    params: typeof range === 'string' ? { period: range } : range,
+    params: range,
   })
   return response.data
 }

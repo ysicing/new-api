@@ -91,7 +91,7 @@ func TestGetQuotaPoolStatsAggregatesMembersAndTransactions(t *testing.T) {
 		{PoolId: pool.Id, Type: QuotaPoolTransactionReclaimUser, Amount: 50, CreatedAt: 110},
 	}).Error)
 
-	stats, err := GetQuotaPoolStats(pool.Id, 90, 120)
+	stats, err := GetQuotaPoolStats(pool.Id, 90, 120, "day")
 
 	require.NoError(t, err)
 	assert.Equal(t, 45, stats.TotalUsage)
@@ -118,7 +118,7 @@ func TestGetQuotaPoolStatsUsesQuotaDataWithoutLogTail(t *testing.T) {
 		{UserId: user.Id, Type: LogTypeConsume, CreatedAt: now.Add(-30 * time.Minute).Unix(), ModelName: "claude-4", Quota: 50},
 	}).Error)
 
-	stats, err := GetQuotaPoolStats(pool.Id, start.Unix(), now.Unix())
+	stats, err := GetQuotaPoolStats(pool.Id, start.Unix(), now.Unix(), "day")
 
 	require.NoError(t, err)
 	assert.Equal(t, 100, stats.TotalUsage)
@@ -138,7 +138,7 @@ func TestGetQuotaPoolStatsDoesNotAggregateUnrelatedLogsForEmptyPool(t *testing.T
 		PoolId: pool.Id, Type: QuotaPoolTransactionManualRefill, Amount: 300, CreatedAt: 100,
 	}).Error)
 
-	stats, err := GetQuotaPoolStats(pool.Id, 90, 120)
+	stats, err := GetQuotaPoolStats(pool.Id, 90, 120, "day")
 
 	require.NoError(t, err)
 	assert.Empty(t, stats.Usage)
@@ -156,7 +156,7 @@ func TestGetQuotaPoolStatsMapsDefaultPoolMembersToVirtualPoolID(t *testing.T) {
 		UserID: user.Id, Username: user.Username, CreatedAt: 100, ModelName: "claude-4", Quota: 45,
 	}).Error)
 
-	stats, err := GetQuotaPoolStats(pool.Id, 90, 120)
+	stats, err := GetQuotaPoolStats(pool.Id, 90, 120, "day")
 
 	require.NoError(t, err)
 	assert.Equal(t, 45, stats.TotalUsage)
@@ -184,7 +184,7 @@ func TestGetQuotaPoolStatsInLocationIncludesActivityTrendAndInactiveMembers(t *t
 	start := time.Date(2026, time.August, 17, 0, 0, 0, 0, location)
 	end := time.Date(2026, time.August, 19, 15, 30, 0, 0, location)
 
-	stats, err := GetQuotaPoolStatsInLocation(pool.Id, start.Unix(), end.Unix(), location)
+	stats, err := GetQuotaPoolStatsInLocation(pool.Id, start.Unix(), end.Unix(), "day", location)
 
 	require.NoError(t, err)
 	assert.Equal(t, 2, stats.Summary.MemberCount)
@@ -194,9 +194,13 @@ func TestGetQuotaPoolStatsInLocationIncludesActivityTrendAndInactiveMembers(t *t
 	assert.Equal(t, 100, stats.Summary.TotalUsage)
 	assert.Equal(t, 100.0, stats.Summary.AverageUsagePerActiveMember)
 	assert.Equal(t, "UTC+8", stats.TimeZone)
-	require.Len(t, stats.Daily, 3)
-	assert.Equal(t, QuotaPoolDailyStat{Date: "2026-08-17", ActiveMembers: 1, ActiveRate: 50, RequestCount: 3, UsedQuota: 50}, stats.Daily[0])
-	assert.Equal(t, QuotaPoolDailyStat{Date: "2026-08-19"}, stats.Daily[2])
+	require.Len(t, stats.Trend, 3)
+	assert.Equal(t, "2026-08-17", stats.Trend[0].Label)
+	assert.Equal(t, 1, stats.Trend[0].ActiveMembers)
+	assert.Equal(t, 3, stats.Trend[0].RequestCount)
+	assert.Equal(t, 50, stats.Trend[0].UsedQuota)
+	assert.Equal(t, "2026-08-19", stats.Trend[2].Label)
+	assert.Zero(t, stats.Trend[2].UsedQuota)
 	require.Len(t, stats.Members, 2)
 	assert.Equal(t, "alice", stats.Members[0].Username)
 	assert.True(t, stats.Members[0].Active)
@@ -212,12 +216,44 @@ func TestGetQuotaPoolStatsInLocationIncludesActivityTrendAndInactiveMembers(t *t
 	assert.Zero(t, stats.Members[1].UsedQuota)
 }
 
+func TestGetQuotaPoolStatsInLocationBuildsHourAndWeekTrends(t *testing.T) {
+	mainDB, _ := setupICodeStatsTest(t)
+	location := time.FixedZone("UTC+8", 8*60*60)
+	pool := QuotaPool{Name: "颗粒度统计池", PoolType: QuotaPoolTypeNormal, Enabled: true}
+	require.NoError(t, mainDB.Create(&pool).Error)
+	user := User{Id: 1, Username: "alice", Password: "password", AffCode: "trend-granularity", QuotaPoolId: pool.Id}
+	require.NoError(t, mainDB.Create(&user).Error)
+	require.NoError(t, mainDB.Create(&[]QuotaData{
+		{UserID: 1, CreatedAt: time.Date(2026, time.August, 17, 10, 0, 0, 0, location).Unix(), ModelName: "gpt-5", Count: 1, Quota: 10},
+		{UserID: 1, CreatedAt: time.Date(2026, time.August, 17, 10, 0, 0, 0, location).Unix(), ModelName: "claude-4", Count: 2, Quota: 20},
+		{UserID: 1, CreatedAt: time.Date(2026, time.August, 18, 10, 0, 0, 0, location).Unix(), ModelName: "gpt-5", Count: 1, Quota: 30},
+		{UserID: 1, CreatedAt: time.Date(2026, time.August, 24, 10, 0, 0, 0, location).Unix(), ModelName: "gpt-5", Count: 1, Quota: 40},
+	}).Error)
+
+	hourStart := time.Date(2026, time.August, 17, 10, 0, 0, 0, location)
+	hourStats, err := GetQuotaPoolStatsInLocation(pool.Id, hourStart.Unix(), hourStart.Add(time.Hour).Unix(), QuotaPoolStatsGranularityHour, location)
+	require.NoError(t, err)
+	require.Len(t, hourStats.Trend, 2)
+	assert.Equal(t, 3, hourStats.Trend[0].RequestCount)
+	assert.Equal(t, 1, hourStats.Trend[0].ActiveMembers)
+
+	weekEnd := time.Date(2026, time.August, 25, 11, 0, 0, 0, location)
+	weekStats, err := GetQuotaPoolStatsInLocation(pool.Id, hourStart.Unix(), weekEnd.Unix(), QuotaPoolStatsGranularityWeek, location)
+	require.NoError(t, err)
+	require.Len(t, weekStats.Trend, 2)
+	assert.Equal(t, "2026-08-17 — 2026-08-23", weekStats.Trend[0].Label)
+	assert.Equal(t, 4, weekStats.Trend[0].RequestCount)
+	assert.Equal(t, "2026-08-24 — 2026-08-30", weekStats.Trend[1].Label)
+	assert.Equal(t, 1, weekStats.Trend[1].RequestCount)
+	assert.Equal(t, 3, weekStats.Members[0].ActiveDays)
+}
+
 func TestGetQuotaPoolStatsInLocationRejectsHalfHourTimezone(t *testing.T) {
 	location := time.FixedZone("UTC+5:30", 5*60*60+30*60)
 	start := time.Date(2026, time.August, 17, 0, 0, 0, 0, location)
 	end := time.Date(2026, time.August, 17, 23, 59, 59, 0, location)
 
-	_, err := GetQuotaPoolStatsInLocation(1, start.Unix(), end.Unix(), location)
+	_, err := GetQuotaPoolStatsInLocation(1, start.Unix(), end.Unix(), "day", location)
 
 	assert.ErrorIs(t, err, ErrQuotaPoolStatsTimezoneUnsupported)
 }
@@ -228,7 +264,7 @@ func TestGetQuotaPoolStatsInLocationRejectsHalfHourDSTTransition(t *testing.T) {
 	start := time.Date(2026, time.April, 5, 0, 0, 0, 0, location)
 	end := time.Date(2026, time.April, 5, 23, 59, 59, 0, location)
 
-	_, err = GetQuotaPoolStatsInLocation(1, start.Unix(), end.Unix(), location)
+	_, err = GetQuotaPoolStatsInLocation(1, start.Unix(), end.Unix(), "day", location)
 
 	assert.ErrorIs(t, err, ErrQuotaPoolStatsTimezoneUnsupported)
 }

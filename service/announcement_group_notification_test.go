@@ -56,10 +56,9 @@ func TestSyncAnnouncementGroupNotificationsCreatesUpdatesAndCancelsPending(t *te
 	assert.Equal(t, model.DingTalkNotificationStatusSkipped, record.Status)
 }
 
-func TestSyncAnnouncementGroupNotificationsFormatsPublishTimeInServiceLocation(t *testing.T) {
+func TestSyncAnnouncementGroupNotificationsFormatsPublishTimeInBeijing(t *testing.T) {
 	setupAnnouncementGroupNotificationTest(t)
-	location := time.FixedZone("UTC+8", 8*60*60)
-	now := time.Date(2026, time.September, 1, 14, 0, 0, 0, location)
+	now := time.Date(2026, time.September, 1, 6, 0, 0, 0, time.UTC)
 	current := `[{"id":1,"content":"UTC 时间公告","publishDate":"2026-09-01T05:00:00Z","type":"default"}]`
 
 	require.NoError(t, SyncAnnouncementGroupNotifications("", current, 9, "root", now))
@@ -108,9 +107,12 @@ func TestSendDingTalkAnnouncementGroupTestMessageUsesConfiguredGroup(t *testing.
 		assert.Equal(t, "cid-announcement", conversationID)
 		assert.Equal(t, "系统公告测试", title)
 		assert.Contains(t, content, "公告群通知配置成功")
+		assert.Contains(t, content, "+08:00")
 		return nil
 	}
-	t.Cleanup(func() { sendAnnouncementGroupMessage = previousSend })
+	t.Cleanup(func() {
+		sendAnnouncementGroupMessage = previousSend
+	})
 
 	err := SendDingTalkAnnouncementGroupTestMessage(context.Background())
 

@@ -15,15 +15,15 @@ import { useTheme } from '@/context/theme-provider'
 import { formatQuota } from '@/lib/format'
 import { VCHART_OPTION } from '@/lib/vchart'
 
-import type { QuotaPoolDailyStat } from '../types'
+import type { QuotaPoolTrendStat } from '../types'
 
 export const QuotaPoolStatsCharts = memo(function QuotaPoolStatsCharts(props: {
-  daily: QuotaPoolDailyStat[]
+  trend: QuotaPoolTrendStat[]
 }) {
   const { t } = useTranslation()
   const { resolvedTheme } = useTheme()
-  const values = props.daily.map((item) => ({
-    date: item.date,
+  const values = props.trend.map((item) => ({
+    date: item.label,
     activeMembers: item.active_members,
     activeRate: item.active_rate,
     requestCount: item.request_count,
@@ -128,7 +128,7 @@ export const QuotaPoolStatsCharts = memo(function QuotaPoolStatsCharts(props: {
           <VChart spec={activeSpec} option={VCHART_OPTION} />
         </CardContent>
         <table className='sr-only'>
-          <caption>{t('Daily member activity data')}</caption>
+          <caption>{t('Trend member activity data')}</caption>
           <thead>
             <tr>
               <th>{t('Date')}</th>
@@ -155,7 +155,7 @@ export const QuotaPoolStatsCharts = memo(function QuotaPoolStatsCharts(props: {
           <VChart spec={usageSpec} option={VCHART_OPTION} />
         </CardContent>
         <table className='sr-only'>
-          <caption>{t('Daily request and usage data')}</caption>
+          <caption>{t('Trend request and usage data')}</caption>
           <thead>
             <tr>
               <th>{t('Date')}</th>

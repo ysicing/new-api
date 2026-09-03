@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -46,44 +47,25 @@ func TestStatsRangeSupportsMonthAndExplicitTimestamps(t *testing.T) {
 	}
 }
 
-func TestParseQuotaPoolStatsRangeSupportsCalendarWeekMonthAndCustom(t *testing.T) {
+func TestParseQuotaPoolStatsRangeSupportsPresetsAndAutomaticGranularity(t *testing.T) {
 	location := time.FixedZone("UTC+8", 8*60*60)
 	now := time.Date(2026, time.August, 19, 15, 30, 0, 0, location)
 	tests := []struct {
-		name      string
-		query     string
-		wantType  string
-		wantStart time.Time
-		wantEnd   time.Time
+		name            string
+		query           string
+		wantPreset      string
+		wantGranularity string
+		wantStart       time.Time
+		wantEnd         time.Time
 	}{
-		{
-			name: "historical week", query: "range_type=week&anchor=2026-08-12", wantType: "week",
-			wantStart: time.Date(2026, time.August, 10, 0, 0, 0, 0, location),
-			wantEnd:   time.Date(2026, time.August, 16, 23, 59, 59, 0, location),
-		},
-		{
-			name: "historical month", query: "range_type=month&anchor=2026-02", wantType: "month",
-			wantStart: time.Date(2026, time.February, 1, 0, 0, 0, 0, location),
-			wantEnd:   time.Date(2026, time.March, 1, 0, 0, 0, 0, location).Add(-time.Second),
-		},
-		{
-			name: "leap year month", query: "range_type=month&anchor=2024-02", wantType: "month",
-			wantStart: time.Date(2024, time.February, 1, 0, 0, 0, 0, location),
-			wantEnd:   time.Date(2024, time.March, 1, 0, 0, 0, 0, location).Add(-time.Second),
-		},
-		{
-			name: "current week", query: "range_type=week&anchor=2026-08-19", wantType: "week",
-			wantStart: time.Date(2026, time.August, 17, 0, 0, 0, 0, location), wantEnd: now,
-		},
-		{
-			name: "custom inclusive", query: "range_type=custom&start_date=2026-08-01&end_date=2026-08-03", wantType: "custom",
-			wantStart: time.Date(2026, time.August, 1, 0, 0, 0, 0, location),
-			wantEnd:   time.Date(2026, time.August, 4, 0, 0, 0, 0, location).Add(-time.Second),
-		},
-		{
-			name: "custom 366 days", query: "range_type=custom&start_date=2025-08-19&end_date=2026-08-19", wantType: "custom",
-			wantStart: time.Date(2025, time.August, 19, 0, 0, 0, 0, location), wantEnd: now,
-		},
+		{name: "rolling 1 day", query: "preset=rolling_1d", wantPreset: "rolling_1d", wantGranularity: "hour", wantStart: time.Date(2026, time.August, 18, 16, 0, 0, 0, location), wantEnd: now},
+		{name: "rolling 7 days", query: "preset=rolling_7d", wantPreset: "rolling_7d", wantGranularity: "day", wantStart: time.Date(2026, time.August, 12, 16, 0, 0, 0, location), wantEnd: now},
+		{name: "rolling 14 days", query: "preset=rolling_14d", wantPreset: "rolling_14d", wantGranularity: "day", wantStart: time.Date(2026, time.August, 5, 16, 0, 0, 0, location), wantEnd: now},
+		{name: "rolling 29 days", query: "preset=rolling_29d", wantPreset: "rolling_29d", wantGranularity: "day", wantStart: time.Date(2026, time.July, 21, 16, 0, 0, 0, location), wantEnd: now},
+		{name: "today", query: "preset=today", wantPreset: "today", wantGranularity: "hour", wantStart: time.Date(2026, time.August, 19, 0, 0, 0, 0, location), wantEnd: now},
+		{name: "this week", query: "preset=this_week", wantPreset: "this_week", wantGranularity: "day", wantStart: time.Date(2026, time.August, 17, 0, 0, 0, 0, location), wantEnd: now},
+		{name: "this month", query: "preset=this_month", wantPreset: "this_month", wantGranularity: "day", wantStart: time.Date(2026, time.August, 1, 0, 0, 0, 0, location), wantEnd: now},
+		{name: "custom hours", query: "preset=custom&start_timestamp=1786982400&end_timestamp=1787068800", wantPreset: "custom", wantGranularity: "hour", wantStart: time.Unix(1786982400, 0).In(location), wantEnd: time.Unix(1787068800, 0).In(location).Add(time.Hour - time.Second)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -93,11 +75,10 @@ func TestParseQuotaPoolStatsRangeSupportsCalendarWeekMonthAndCustom(t *testing.T
 			got, err := parseQuotaPoolStatsRange(c, now)
 
 			assert.NoError(t, err)
-			assert.Equal(t, tt.wantType, got.RangeType)
+			assert.Equal(t, tt.wantPreset, got.Preset)
+			assert.Equal(t, tt.wantGranularity, got.Granularity)
 			assert.Equal(t, tt.wantStart.Unix(), got.StartTimestamp)
 			assert.Equal(t, tt.wantEnd.Unix(), got.EndTimestamp)
-			assert.Equal(t, tt.wantStart.Format(time.DateOnly), got.StartDate)
-			assert.Equal(t, tt.wantEnd.Format(time.DateOnly), got.EndDate)
 		})
 	}
 }
@@ -106,13 +87,11 @@ func TestParseQuotaPoolStatsRangeRejectsInvalidRanges(t *testing.T) {
 	location := time.FixedZone("UTC+8", 8*60*60)
 	now := time.Date(2026, time.August, 19, 15, 30, 0, 0, location)
 	queries := []string{
-		"range_type=custom&start_date=2026-08-03&end_date=2026-08-01",
-		"range_type=custom&start_date=2025-08-18&end_date=2026-08-19",
-		"range_type=custom&start_date=bad&end_date=2026-08-01",
-		"range_type=custom&start_date=2026-08-19&end_date=2026-08-20",
-		"range_type=month&anchor=2026-13",
-		"range_type=week&anchor=2026-08-21",
-		"range_type=week&anchor=2026-09-01",
+		"preset=week",
+		"preset=custom",
+		"preset=custom&start_timestamp=200&end_timestamp=100",
+		"preset=custom&start_timestamp=1&end_timestamp=9999999999",
+		"preset=rolling_1d&granularity=month",
 	}
 	for _, query := range queries {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -124,12 +103,43 @@ func TestParseQuotaPoolStatsRangeRejectsInvalidRanges(t *testing.T) {
 	}
 }
 
+func TestParseQuotaPoolStatsRangeAllowsAtMost366Days(t *testing.T) {
+	location := time.FixedZone("UTC+8", 8*60*60)
+	now := time.Date(2026, time.August, 19, 15, 30, 0, 0, location)
+	request := func(start time.Time) error {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		path := fmt.Sprintf("/api/quota_pool/1/stats?preset=custom&start_timestamp=%d&end_timestamp=%d", start.Unix(), now.Unix())
+		c.Request = httptest.NewRequest(http.MethodGet, path, nil)
+		_, err := parseQuotaPoolStatsRange(c, now)
+		return err
+	}
+
+	currentHour := time.Unix(now.Unix()-now.Unix()%3600, 0).In(location)
+	assert.NoError(t, request(currentHour.Add(-366*24*time.Hour+time.Hour)))
+	assert.Error(t, request(now.Add(-366*24*time.Hour)))
+}
+
+func TestParseQuotaPoolStatsRangePreservesSecondDSTFallbackHour(t *testing.T) {
+	location, err := time.LoadLocation("America/New_York")
+	assert.NoError(t, err)
+	now, err := time.Parse(time.RFC3339, "2026-11-01T01:30:00-05:00")
+	assert.NoError(t, err)
+	now = now.In(location)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/quota_pool/1/stats?preset=rolling_1d", nil)
+
+	statsRange, err := parseQuotaPoolStatsRange(c, now)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "2026-11-01T01:00:00-05:00", time.Unix(statsRange.EndTimestamp-statsRange.EndTimestamp%3600, 0).In(location).Format(time.RFC3339))
+}
+
 func TestLoadQuotaPoolStatsRejectsInvalidRangeWithBadRequest(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(
 		http.MethodGet,
-		"/api/quota_pool/1/stats?range_type=custom&start_date=2026-08-03&end_date=2026-08-01",
+		"/api/quota_pool/1/stats?preset=custom&start_timestamp=200&end_timestamp=100",
 		nil,
 	)
 

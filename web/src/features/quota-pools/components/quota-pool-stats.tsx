@@ -10,20 +10,12 @@ import type { UseQueryResult } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, Download, RefreshCw } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 
-import { DatePicker } from '@/components/date-picker'
+import { DateTimePicker } from '@/components/datetime-picker'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import {
   Table,
@@ -36,7 +28,10 @@ import {
 import dayjs from '@/lib/dayjs'
 import { formatPercent, formatQuota } from '@/lib/format'
 
-import { exportQuotaPoolStats } from '../api'
+import {
+  beijingPickerDateToTimestamp,
+  timestampToBeijingPickerDate,
+} from '../lib/quota-pool-stats-time'
 import type {
   ApiResponse,
   QuotaPoolMemberStat,
@@ -46,56 +41,12 @@ import type {
 } from '../types'
 import { LoadingOrEmpty } from './quota-pool-data'
 import { QuotaPoolStatsCharts } from './quota-pool-stats-charts'
+import { QuotaPoolStatsExportDialog } from './quota-pool-stats-export-dialog'
+import { quotaPoolStatsPresets } from './quota-pool-stats-options'
 
 type MemberFilter = 'all' | 'active' | 'inactive'
 type MemberSort = 'usage' | 'requests' | 'active_days'
 const MEMBER_PAGE_SIZE = 50
-
-function localDate(date: Date) {
-  return dayjs(date).format('YYYY-MM-DD')
-}
-
-function currentWeekStart() {
-  const today = dayjs()
-  return today.subtract((today.day() + 6) % 7, 'day').format('YYYY-MM-DD')
-}
-
-function customRangeFromStart(
-  range: Extract<QuotaPoolStatsRange, { range_type: 'custom' }>,
-  startDate: string
-): QuotaPoolStatsRange {
-  const start = dayjs(startDate)
-  const currentEnd = dayjs(range.end_date)
-  const latestEnd = start.add(365, 'day')
-  let end = currentEnd
-  if (currentEnd.isBefore(start) || currentEnd.isAfter(latestEnd)) {
-    const today = dayjs()
-    end = latestEnd.isAfter(today) ? today : latestEnd
-  }
-  return {
-    range_type: 'custom',
-    start_date: startDate,
-    end_date: end.format('YYYY-MM-DD'),
-  }
-}
-
-function customRangeFromEnd(
-  range: Extract<QuotaPoolStatsRange, { range_type: 'custom' }>,
-  endDate: string
-): QuotaPoolStatsRange {
-  const end = dayjs(endDate)
-  const currentStart = dayjs(range.start_date)
-  const earliestStart = end.subtract(365, 'day')
-  const start =
-    currentStart.isAfter(end) || currentStart.isBefore(earliestStart)
-      ? earliestStart
-      : currentStart
-  return {
-    range_type: 'custom',
-    start_date: start.format('YYYY-MM-DD'),
-    end_date: endDate,
-  }
-}
 
 function quotaPoolModelShares(stat: QuotaPoolUsageStat) {
   return [
@@ -119,138 +70,91 @@ function quotaPoolModelShares(stat: QuotaPoolUsageStat) {
 
 function PoolStatsControls(props: {
   range: QuotaPoolStatsRange
-  normalizedStartDate?: string
-  normalizedEndDate?: string
+  actualStart?: number
+  actualEnd?: number
   loading: boolean
-  exporting: boolean
   onRangeChange: (range: QuotaPoolStatsRange) => void
   onRefresh: () => void
-  onExport: (format: 'markdown' | 'xlsx') => void
+  onExportOpen: () => void
 }) {
   const { t } = useTranslation()
-  const today = dayjs().format('YYYY-MM-DD')
-  const month = dayjs().format('YYYY-MM')
-  const customRange =
-    props.range.range_type === 'custom' ? props.range : undefined
-  const setRangeType = (rangeType: string) => {
-    if (rangeType === 'month') {
-      props.onRangeChange({ range_type: 'month' })
+  const custom = props.range.preset === 'custom'
+  const selectPreset = (preset: QuotaPoolStatsRange['preset']) => {
+    if (preset !== 'custom') {
+      props.onRangeChange({ preset })
       return
     }
-    if (rangeType === 'custom') {
-      props.onRangeChange({
-        range_type: 'custom',
-        start_date: props.normalizedStartDate ?? currentWeekStart(),
-        end_date: props.normalizedEndDate ?? today,
-      })
-      return
-    }
-    props.onRangeChange({ range_type: 'week' })
+    const end = props.actualEnd ?? Math.floor(Date.now() / 1000)
+    props.onRangeChange({
+      preset,
+      start_timestamp: props.actualStart ?? end - 7 * 24 * 60 * 60,
+      end_timestamp: end,
+    })
   }
 
   return (
     <div className='flex flex-col gap-3 pt-4'>
       <div className='flex flex-wrap items-center gap-2'>
-        <ButtonGroup aria-label={t('Quick date ranges')}>
-          <Button
-            size='sm'
-            disabled={props.loading}
-            variant={
-              props.range.range_type === 'week' && !props.range.anchor
-                ? 'secondary'
-                : 'outline'
-            }
-            aria-pressed={
-              props.range.range_type === 'week' && !props.range.anchor
-            }
-            onClick={() => props.onRangeChange({ range_type: 'week' })}
-          >
-            {t('This week')}
-          </Button>
-          <Button
-            size='sm'
-            disabled={props.loading}
-            variant={
-              props.range.range_type === 'month' && !props.range.anchor
-                ? 'secondary'
-                : 'outline'
-            }
-            aria-pressed={
-              props.range.range_type === 'month' && !props.range.anchor
-            }
-            onClick={() => props.onRangeChange({ range_type: 'month' })}
-          >
-            {t('This month')}
-          </Button>
-        </ButtonGroup>
-        <NativeSelect
-          className='w-32'
-          disabled={props.loading}
-          aria-label={t('Statistics range type')}
-          value={props.range.range_type}
-          onChange={(event) => setRangeType(event.target.value)}
-        >
-          <NativeSelectOption value='week'>{t('By week')}</NativeSelectOption>
-          <NativeSelectOption value='month'>{t('By month')}</NativeSelectOption>
-          <NativeSelectOption value='custom'>
-            {t('Custom range')}
-          </NativeSelectOption>
-        </NativeSelect>
-        {props.range.range_type === 'week' ? (
-          <DatePicker
-            selected={
-              props.range.anchor
-                ? new Date(`${props.range.anchor}T00:00:00`)
-                : undefined
-            }
-            onSelect={(date) =>
-              date &&
-              props.onRangeChange({
-                range_type: 'week',
-                anchor: localDate(date),
-              })
-            }
-            placeholder={t('Select a week')}
-          />
-        ) : null}
-        {props.range.range_type === 'month' ? (
-          <Input
-            className='w-40'
-            type='month'
-            disabled={props.loading}
-            max={month}
-            aria-label={t('Select a month')}
-            value={props.range.anchor ?? ''}
-            onChange={(event) => {
-              if (event.target.value) {
-                props.onRangeChange({
-                  range_type: 'month',
-                  anchor: event.target.value,
-                })
+        <ButtonGroup className='flex-wrap' aria-label={t('Quick date ranges')}>
+          {quotaPoolStatsPresets.map((preset) => (
+            <Button
+              key={preset.value}
+              size='sm'
+              disabled={props.loading}
+              variant={
+                props.range.preset === preset.value ? 'secondary' : 'outline'
               }
-            }}
-          />
-        ) : null}
-        {customRange ? (
-          <div className='flex flex-wrap items-center gap-2'>
+              aria-pressed={props.range.preset === preset.value}
+              onClick={() => selectPreset(preset.value)}
+            >
+              {t(preset.label)}
+            </Button>
+          ))}
+        </ButtonGroup>
+        {custom ? (
+          <div
+            className='flex flex-wrap items-center gap-2'
+            role='group'
+            aria-label={t('Custom range')}
+          >
             <span className='text-muted-foreground text-sm'>{t('From')}</span>
-            <DatePicker
-              selected={new Date(`${customRange.start_date}T00:00:00`)}
-              onSelect={(date) =>
-                date &&
-                props.onRangeChange(
-                  customRangeFromStart(customRange, localDate(date))
-                )
+            <DateTimePicker
+              dateAriaLabel={t('Start date')}
+              timeAriaLabel={t('Start time')}
+              clearAriaLabel={t('Clear start time')}
+              utcFields
+              value={
+                props.range.start_timestamp
+                  ? timestampToBeijingPickerDate(props.range.start_timestamp)
+                  : undefined
+              }
+              onChange={(date) =>
+                props.onRangeChange({
+                  ...props.range,
+                  start_timestamp: date
+                    ? beijingPickerDateToTimestamp(date)
+                    : undefined,
+                })
               }
             />
             <span className='text-muted-foreground text-sm'>{t('To')}</span>
-            <DatePicker
-              selected={new Date(`${customRange.end_date}T00:00:00`)}
-              onSelect={(date) =>
-                date &&
-                props.onRangeChange(
-                  customRangeFromEnd(customRange, localDate(date))
-                )
+            <DateTimePicker
+              dateAriaLabel={t('End date')}
+              timeAriaLabel={t('End time')}
+              clearAriaLabel={t('Clear end time')}
+              utcFields
+              value={
+                props.range.end_timestamp
+                  ? timestampToBeijingPickerDate(props.range.end_timestamp)
+                  : undefined
+              }
+              onChange={(date) =>
+                props.onRangeChange({
+                  ...props.range,
+                  end_timestamp: date
+                    ? beijingPickerDateToTimestamp(date)
+                    : undefined,
+                })
               }
             />
           </div>
@@ -265,28 +169,15 @@ function PoolStatsControls(props: {
             <RefreshCw data-icon='inline-start' aria-hidden='true' />
             {t('Refresh Stats')}
           </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  size='sm'
-                  variant='outline'
-                  disabled={props.loading || props.exporting}
-                />
-              }
-            >
-              <Download data-icon='inline-start' aria-hidden='true' />
-              {props.exporting ? t('Exporting...') : t('Export')}
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align='end'>
-              <DropdownMenuItem onClick={() => props.onExport('markdown')}>
-                {t('Export Markdown')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => props.onExport('xlsx')}>
-                {t('Export Excel')}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button
+            size='sm'
+            variant='outline'
+            disabled={props.loading}
+            onClick={props.onExportOpen}
+          >
+            <Download data-icon='inline-start' aria-hidden='true' />
+            {t('Export')}
+          </Button>
         </div>
       </div>
     </div>
@@ -458,7 +349,7 @@ export function PoolStats(props: {
   selfMode?: boolean
 }) {
   const { t } = useTranslation()
-  const [exporting, setExporting] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
   const stats = props.query.data?.data
   const summary = stats?.summary
   const cards = [
@@ -472,49 +363,24 @@ export function PoolStats(props: {
       formatQuota(summary?.average_usage_per_active_member ?? 0),
     ],
   ]
-  const handleExport = async (format: 'markdown' | 'xlsx') => {
-    setExporting(true)
-    try {
-      const exported = await exportQuotaPoolStats(
-        props.poolId,
-        props.selfMode === true,
-        props.range,
-        format
-      )
-      const href = URL.createObjectURL(exported.blob)
-      const link = document.createElement('a')
-      link.href = href
-      link.download = exported.filename
-      document.body.append(link)
-      link.click()
-      link.remove()
-      URL.revokeObjectURL(href)
-      toast.success(t('Statistics exported successfully'))
-    } catch {
-      toast.error(t('Failed to export statistics'))
-    } finally {
-      setExporting(false)
-    }
-  }
-
   return (
     <div className='flex flex-col gap-3'>
       <PoolStatsControls
         range={props.range}
-        normalizedStartDate={stats?.start_date}
-        normalizedEndDate={stats?.end_date}
+        actualStart={stats?.start_timestamp}
+        actualEnd={stats?.end_timestamp}
         loading={props.query.isFetching}
-        exporting={exporting}
         onRangeChange={props.onRangeChange}
         onRefresh={() => void props.query.refetch()}
-        onExport={(format) => void handleExport(format)}
+        onExportOpen={() => setExportOpen(true)}
       />
       <LoadingOrEmpty query={props.query} empty={!stats}>
         {stats ? (
           <div className='flex flex-col gap-3'>
             <p className='text-muted-foreground text-xs'>
-              {t('Statistics period')}: {stats.start_date ?? '-'} —{' '}
-              {stats.end_date ?? '-'} · {t('Generated at')}:{' '}
+              {t('Statistics period')}: {stats.start_time ?? '-'} —{' '}
+              {stats.end_time ?? '-'} · {t('Granularity')}:{' '}
+              {t(stats.granularity)} · {t('Generated at')}:{' '}
               {stats.generated_time ||
                 (stats.generated_at
                   ? dayjs.unix(stats.generated_at).format('YYYY-MM-DD HH:mm')
@@ -534,7 +400,7 @@ export function PoolStats(props: {
                 </Card>
               ))}
             </div>
-            <QuotaPoolStatsCharts daily={stats.daily ?? []} />
+            <QuotaPoolStatsCharts trend={stats.trend ?? []} />
             <PoolMemberStats items={stats.members ?? []} />
             <div className='grid gap-3 sm:grid-cols-3'>
               <Card>
@@ -571,6 +437,19 @@ export function PoolStats(props: {
           </div>
         ) : null}
       </LoadingOrEmpty>
+      {exportOpen && stats ? (
+        <QuotaPoolStatsExportDialog
+          open={exportOpen}
+          onOpenChange={setExportOpen}
+          poolId={props.poolId}
+          selfMode={props.selfMode}
+          initialRange={{
+            start_timestamp: stats.start_timestamp,
+            end_timestamp: stats.end_timestamp,
+            granularity: stats.granularity,
+          }}
+        />
+      ) : null}
     </div>
   )
 }

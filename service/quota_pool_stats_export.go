@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/xuri/excelize/v2"
 )
@@ -18,7 +19,10 @@ func ExportQuotaPoolStats(format, poolName string, stats *model.QuotaPoolStats) 
 	if stats == nil {
 		return nil, "", "", errQuotaPoolStatsExportFormat
 	}
-	filenameBase := sanitizeQuotaPoolStatsFilename(poolName) + "_" + stats.StartDate + "_" + stats.EndDate
+	location := common.BeijingTimeLocation
+	startLabel := time.Unix(stats.StartTimestamp, 0).In(location).Format("20060102-1504")
+	endLabel := time.Unix(stats.EndTimestamp, 0).In(location).Format("20060102-1504")
+	filenameBase := sanitizeQuotaPoolStatsFilename(poolName) + "_" + startLabel + "_" + endLabel
 	switch format {
 	case "markdown":
 		return renderQuotaPoolStatsMarkdown(poolName, stats), filenameBase + ".md", "text/markdown; charset=utf-8", nil
@@ -33,7 +37,8 @@ func ExportQuotaPoolStats(format, poolName string, stats *model.QuotaPoolStats) 
 func renderQuotaPoolStatsMarkdown(poolName string, stats *model.QuotaPoolStats) []byte {
 	var output bytes.Buffer
 	fmt.Fprintf(&output, "# %s额度池统计\n\n", markdownTableCell(poolName))
-	fmt.Fprintf(&output, "统计区间：%s 至 %s  \n", stats.StartDate, stats.EndDate)
+	fmt.Fprintf(&output, "统计区间：%s 至 %s  \n", stats.StartTime, stats.EndTime)
+	fmt.Fprintf(&output, "走势颗粒度：%s  \n", stats.Granularity)
 	fmt.Fprintf(&output, "统计时区：%s  \n", stats.TimeZone)
 	fmt.Fprintf(&output, "数据生成时间：%s\n\n", formatQuotaPoolStatsTime(stats.GeneratedAt))
 	output.WriteString("## 概览\n\n")
@@ -48,10 +53,10 @@ func renderQuotaPoolStatsMarkdown(poolName string, stats *model.QuotaPoolStats) 
 	fmt.Fprintf(&output, "| 总分配（内部额度单位） | %d |\n", stats.TotalAllocate)
 	fmt.Fprintf(&output, "| 总回收（内部额度单位） | %d |\n\n", stats.TotalReclaim)
 
-	output.WriteString("## 每日走势\n\n")
-	output.WriteString("| 日期 | 活跃成员 | 活跃率 | 调用次数 | 用量（内部额度单位） |\n| --- | ---: | ---: | ---: | ---: |\n")
-	for _, item := range stats.Daily {
-		fmt.Fprintf(&output, "| %s | %d | %.2f%% | %d | %d |\n", item.Date, item.ActiveMembers, item.ActiveRate, item.RequestCount, item.UsedQuota)
+	output.WriteString("## 走势明细\n\n")
+	output.WriteString("| 时间 | 活跃成员 | 活跃率 | 调用次数 | 用量（内部额度单位） |\n| --- | ---: | ---: | ---: | ---: |\n")
+	for _, item := range stats.Trend {
+		fmt.Fprintf(&output, "| %s | %d | %.2f%% | %d | %d |\n", markdownTableCell(item.Label), item.ActiveMembers, item.ActiveRate, item.RequestCount, item.UsedQuota)
 	}
 
 	output.WriteString("\n## 成员明细\n\n")
@@ -85,7 +90,8 @@ func renderQuotaPoolStatsXLSX(stats *model.QuotaPoolStats) ([]byte, error) {
 	}
 	overviewRows := [][]any{
 		{"指标", "数值"},
-		{"统计开始日期", stats.StartDate}, {"统计结束日期", stats.EndDate},
+		{"统计开始时间", stats.StartTime}, {"统计结束时间", stats.EndTime},
+		{"走势颗粒度", string(stats.Granularity)},
 		{"统计时区", stats.TimeZone},
 		{"数据生成时间", formatQuotaPoolStatsTime(stats.GeneratedAt)},
 		{"成员数", stats.Summary.MemberCount}, {"活跃成员数", stats.Summary.ActiveMembers},
@@ -97,11 +103,11 @@ func renderQuotaPoolStatsXLSX(stats *model.QuotaPoolStats) ([]byte, error) {
 		return nil, err
 	}
 
-	dailyRows := [][]any{{"日期", "活跃成员", "活跃率", "调用次数", "用量（内部额度单位）"}}
-	for _, item := range stats.Daily {
-		dailyRows = append(dailyRows, []any{item.Date, item.ActiveMembers, item.ActiveRate / 100, item.RequestCount, item.UsedQuota})
+	trendRows := [][]any{{"时间", "活跃成员", "活跃率", "调用次数", "用量（内部额度单位）"}}
+	for _, item := range stats.Trend {
+		trendRows = append(trendRows, []any{item.Label, item.ActiveMembers, item.ActiveRate / 100, item.RequestCount, item.UsedQuota})
 	}
-	if err := writeQuotaPoolStatsSheet(book, "每日走势", dailyRows); err != nil {
+	if err := writeQuotaPoolStatsSheet(book, "走势明细", trendRows); err != nil {
 		return nil, err
 	}
 
@@ -132,11 +138,11 @@ func renderQuotaPoolStatsXLSX(stats *model.QuotaPoolStats) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := book.SetCellStyle("概览", "B8", "B8", percentageStyle); err != nil {
+	if err := book.SetCellStyle("概览", "B9", "B9", percentageStyle); err != nil {
 		return nil, err
 	}
-	if len(stats.Daily) > 0 {
-		if err := book.SetCellStyle("每日走势", "C2", fmt.Sprintf("C%d", len(stats.Daily)+1), percentageStyle); err != nil {
+	if len(stats.Trend) > 0 {
+		if err := book.SetCellStyle("走势明细", "C2", fmt.Sprintf("C%d", len(stats.Trend)+1), percentageStyle); err != nil {
 			return nil, err
 		}
 	}
@@ -194,7 +200,7 @@ func formatQuotaPoolStatsTime(timestamp int64) string {
 	if timestamp <= 0 {
 		return "-"
 	}
-	return time.Unix(timestamp, 0).In(time.Local).Format("2006-01-02 15:04:05 -07:00 MST")
+	return time.Unix(timestamp, 0).In(common.BeijingTimeLocation).Format("2006-01-02 15:04:05 -07:00 MST")
 }
 
 func markdownTableCell(value string) string {

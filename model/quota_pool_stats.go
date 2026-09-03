@@ -3,12 +3,16 @@ package model
 import (
 	"errors"
 	"sort"
+	"strconv"
 	"time"
+
+	"github.com/QuantumNous/new-api/common"
 )
 
 const quotaPoolStatsMemberBatchSize = 500
 
 var ErrQuotaPoolStatsTimezoneUnsupported = errors.New("quota pool statistics require a whole-hour timezone offset")
+var errInvalidQuotaPoolStatsGranularity = errors.New("invalid quota pool statistics granularity")
 
 type quotaPoolHourlyUsageRow struct {
 	UserId        int
@@ -26,16 +30,20 @@ type quotaPoolHourlyUsageRow struct {
 type quotaPoolMemberActivity struct {
 	activeDays   int
 	lastSeenDate string
+	lastTrendKey string
 	lastActive   int64
 }
 
-func GetQuotaPoolStats(poolId int, startTimestamp, endTimestamp int64) (*QuotaPoolStats, error) {
-	return GetQuotaPoolStatsInLocation(poolId, startTimestamp, endTimestamp, time.Local)
+func GetQuotaPoolStats(poolId int, startTimestamp, endTimestamp int64, granularity QuotaPoolStatsGranularity) (*QuotaPoolStats, error) {
+	return GetQuotaPoolStatsInLocation(poolId, startTimestamp, endTimestamp, granularity, common.BeijingTimeLocation)
 }
 
-func GetQuotaPoolStatsInLocation(poolId int, startTimestamp, endTimestamp int64, location *time.Location) (*QuotaPoolStats, error) {
+func GetQuotaPoolStatsInLocation(poolId int, startTimestamp, endTimestamp int64, granularity QuotaPoolStatsGranularity, location *time.Location) (*QuotaPoolStats, error) {
 	if location == nil {
-		location = time.Local
+		location = common.BeijingTimeLocation
+	}
+	if granularity != QuotaPoolStatsGranularityHour && granularity != QuotaPoolStatsGranularityDay && granularity != QuotaPoolStatsGranularityWeek {
+		return nil, errInvalidQuotaPoolStatsGranularity
 	}
 	if !quotaPoolStatsLocationSupported(startTimestamp, endTimestamp, location) {
 		return nil, ErrQuotaPoolStatsTimezoneUnsupported
@@ -59,32 +67,27 @@ func GetQuotaPoolStatsInLocation(poolId int, startTimestamp, endTimestamp int64,
 	bucketStart := startTimestamp - startTimestamp%3600
 	bucketEndExclusive := endTimestamp - endTimestamp%3600 + 3600
 	usage := make(map[int]usageBucket)
-	startDate := time.Unix(startTimestamp, 0).In(location)
-	startDate = time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, location)
-	endDate := time.Unix(endTimestamp, 0).In(location)
-	endDate = time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 0, 0, 0, 0, location)
+	trend, trendIndexByKey := buildQuotaPoolTrend(startTimestamp, endTimestamp, granularity, location)
 	stats := &QuotaPoolStats{
-		Usage: []QuotaPoolUsageStat{}, Members: []QuotaPoolMemberStat{}, Daily: []QuotaPoolDailyStat{},
+		Granularity: granularity, StartTimestamp: startTimestamp, EndTimestamp: endTimestamp,
+		StartTime: formatQuotaPoolStatsTimestamp(startTimestamp, location), EndTime: formatQuotaPoolStatsTimestamp(endTimestamp, location),
+		Usage: []QuotaPoolUsageStat{}, Members: []QuotaPoolMemberStat{}, Trend: trend,
 		Recharge: []QuotaPoolRechargeStat{}, Summary: QuotaPoolStatsSummary{MemberCount: len(members)}, TimeZone: location.String(),
-	}
-	dailyIndexByDate := make(map[string]int)
-	for date := startDate; !date.After(endDate); date = date.AddDate(0, 0, 1) {
-		dateKey := date.Format(time.DateOnly)
-		stats.Daily = append(stats.Daily, QuotaPoolDailyStat{Date: dateKey})
-		dailyIndexByDate[dateKey] = len(stats.Daily) - 1
 	}
 	activities := make(map[int]*quotaPoolMemberActivity, len(members))
 	for _, member := range members {
 		activities[member.Id] = &quotaPoolMemberActivity{}
 	}
 	err = walkQuotaPoolHourlyUsage(ids, bucketStart, bucketEndExclusive, func(row quotaPoolHourlyUsageRow) {
-		dateKey := time.Unix(row.CreatedAt, 0).In(location).Format(time.DateOnly)
-		dailyIndex, exists := dailyIndexByDate[dateKey]
+		rowTime := time.Unix(row.CreatedAt, 0).In(location)
+		dateKey := rowTime.Format(time.DateOnly)
+		trendKey := quotaPoolTrendKey(rowTime, granularity)
+		trendIndex, exists := trendIndexByKey[trendKey]
 		if !exists {
 			return
 		}
-		stats.Daily[dailyIndex].RequestCount += row.RequestCount
-		stats.Daily[dailyIndex].UsedQuota += row.UsedQuota
+		stats.Trend[trendIndex].RequestCount += row.RequestCount
+		stats.Trend[trendIndex].UsedQuota += row.UsedQuota
 		bucket := usage[row.UserId]
 		bucket.RequestCount += row.RequestCount
 		bucket.UsedQuota += row.UsedQuota
@@ -102,7 +105,10 @@ func GetQuotaPoolStatsInLocation(poolId int, startTimestamp, endTimestamp int64,
 		if activity.lastSeenDate != dateKey {
 			activity.lastSeenDate = dateKey
 			activity.activeDays++
-			stats.Daily[dailyIndex].ActiveMembers++
+		}
+		if activity.lastTrendKey != trendKey {
+			activity.lastTrendKey = trendKey
+			stats.Trend[trendIndex].ActiveMembers++
 		}
 		if row.CreatedAt > activity.lastActive {
 			activity.lastActive = row.CreatedAt
@@ -111,8 +117,8 @@ func GetQuotaPoolStatsInLocation(poolId int, startTimestamp, endTimestamp int64,
 	if err != nil {
 		return nil, err
 	}
-	for index := range stats.Daily {
-		stats.Daily[index].ActiveRate = quotaPoolPercentage(stats.Daily[index].ActiveMembers, len(members))
+	for index := range stats.Trend {
+		stats.Trend[index].ActiveRate = quotaPoolPercentage(stats.Trend[index].ActiveMembers, len(members))
 	}
 
 	for _, member := range members {
@@ -187,6 +193,64 @@ func quotaPoolStatsLocationSupported(startTimestamp, endTimestamp int64, locatio
 		return false
 	}
 	return true
+}
+
+func buildQuotaPoolTrend(startTimestamp, endTimestamp int64, granularity QuotaPoolStatsGranularity, location *time.Location) ([]QuotaPoolTrendStat, map[string]int) {
+	trend := make([]QuotaPoolTrendStat, 0)
+	indexByKey := make(map[string]int)
+	start := time.Unix(startTimestamp, 0).In(location)
+	var cursor time.Time
+	var advance func(time.Time) time.Time
+	switch granularity {
+	case QuotaPoolStatsGranularityHour:
+		cursor = time.Unix(startTimestamp-startTimestamp%3600, 0).In(location)
+		advance = func(value time.Time) time.Time { return value.Add(time.Hour) }
+	case QuotaPoolStatsGranularityDay:
+		cursor = time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, location)
+		advance = func(value time.Time) time.Time { return value.AddDate(0, 0, 1) }
+	case QuotaPoolStatsGranularityWeek:
+		weekday := int(start.Weekday())
+		if weekday == 0 {
+			weekday = 7
+		}
+		cursor = time.Date(start.Year(), start.Month(), start.Day()-weekday+1, 0, 0, 0, 0, location)
+		advance = func(value time.Time) time.Time { return value.AddDate(0, 0, 7) }
+	}
+	for cursor.Unix() <= endTimestamp {
+		next := advance(cursor)
+		bucketStart := max(startTimestamp, cursor.Unix())
+		bucketEnd := min(endTimestamp, next.Unix()-1)
+		label := cursor.Format(time.DateOnly)
+		if granularity == QuotaPoolStatsGranularityHour {
+			label = cursor.Format("2006-01-02 15:00 -07:00")
+		} else if granularity == QuotaPoolStatsGranularityWeek {
+			label = cursor.Format(time.DateOnly) + " — " + next.AddDate(0, 0, -1).Format(time.DateOnly)
+		}
+		key := quotaPoolTrendKey(cursor, granularity)
+		indexByKey[key] = len(trend)
+		trend = append(trend, QuotaPoolTrendStat{BucketStart: bucketStart, BucketEnd: bucketEnd, Label: label})
+		cursor = next
+	}
+	return trend, indexByKey
+}
+
+func quotaPoolTrendKey(value time.Time, granularity QuotaPoolStatsGranularity) string {
+	switch granularity {
+	case QuotaPoolStatsGranularityHour:
+		return strconv.FormatInt(value.Unix()-value.Unix()%3600, 10)
+	case QuotaPoolStatsGranularityWeek:
+		weekday := int(value.Weekday())
+		if weekday == 0 {
+			weekday = 7
+		}
+		return time.Date(value.Year(), value.Month(), value.Day()-weekday+1, 0, 0, 0, 0, value.Location()).Format(time.DateOnly)
+	default:
+		return value.Format(time.DateOnly)
+	}
+}
+
+func formatQuotaPoolStatsTimestamp(timestamp int64, location *time.Location) string {
+	return time.Unix(timestamp, 0).In(location).Format("2006-01-02 15:04:05 -07:00 MST")
 }
 
 func walkQuotaPoolHourlyUsage(userIds []int, startTimestamp, endTimestampExclusive int64, visit func(quotaPoolHourlyUsageRow)) error {

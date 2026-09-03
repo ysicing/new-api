@@ -43,7 +43,7 @@ func SendDingTalkAnnouncementGroupTestMessage(ctx context.Context) error {
 	if conversationID == "" {
 		return ErrDingTalkGroupNotConfigured
 	}
-	content := "公告群通知配置成功。\n\n发送时间：" + time.Now().Format(time.RFC3339)
+	content := "公告群通知配置成功。\n\n发送时间：" + time.Now().In(common.BeijingTimeLocation).Format(time.RFC3339)
 	if err := sendAnnouncementGroupMessage(ctx, settings, conversationID, "系统公告测试", content); err != nil {
 		return fmt.Errorf("%w: %v", ErrDingTalkSendFailed, err)
 	}
@@ -169,8 +169,8 @@ func SyncAnnouncementGroupNotifications(previousRaw, currentRaw string, operator
 		if err != nil || id <= 0 {
 			continue
 		}
-		// 前端以 UTC 保存 RFC3339 时间；正文展示使用服务本地时区，调度仍使用原始 Unix 时间戳。
-		displayPublishAt := publishAt.In(now.Location())
+		// 前端以 UTC 保存 RFC3339 时间；正文统一展示北京时间，调度仍使用原始 Unix 时间戳。
+		displayPublishAt := publishAt.In(common.BeijingTimeLocation)
 		_, existed := previousById[id]
 		if !existed && conversationID == "" {
 			metadata, _ := common.Marshal(map[string]any{"announcement_id": id, "announcement_type": announcement.Type})

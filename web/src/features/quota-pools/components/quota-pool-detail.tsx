@@ -1,6 +1,6 @@
 import { Alert02Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { lazy, Suspense, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -16,6 +16,7 @@ import {
   getQuotaPoolStats,
   getQuotaPoolTransactions,
 } from '../api'
+import { isQuotaPoolStatsRangeReady } from '../lib/quota-pool-stats-time'
 import type {
   QuotaPool,
   QuotaPoolAdminContact,
@@ -62,7 +63,7 @@ export function QuotaPoolDetail(props: {
   const [membersPageSize, setMembersPageSize] = useState(20)
   const [membersKeyword, setMembersKeyword] = useState('')
   const [statsRange, setStatsRange] = useState<QuotaPoolStatsRange>(() => ({
-    range_type: 'week',
+    preset: 'rolling_7d',
   }))
   const canViewManagement = props.capabilities.can_manage_members
   const showNewUserNotice =
@@ -98,9 +99,13 @@ export function QuotaPoolDetail(props: {
   const stats = useQuery({
     queryKey: ['quota-pool', props.pool.id, 'stats', statsRange],
     queryFn: () => getQuotaPoolStats(props.pool.id, props.selfMode, statsRange),
-    enabled: canViewManagement && tab === 'stats',
+    enabled:
+      canViewManagement &&
+      tab === 'stats' &&
+      isQuotaPoolStatsRangeReady(statsRange),
     staleTime: QUOTA_POOL_STATS_STALE_TIME,
     retry: false,
+    placeholderData: keepPreviousData,
   })
   const logs = useQuery({
     queryKey: ['quota-pool', props.pool.id, 'operation-logs'],

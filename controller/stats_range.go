@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/gin-gonic/gin"
 )
 
@@ -13,11 +14,10 @@ const maxQuotaPoolStatsDays = 366
 var errInvalidQuotaPoolStatsRange = errors.New("invalid quota pool statistics range")
 
 type quotaPoolStatsRange struct {
-	RangeType      string `json:"range_type"`
+	Preset         string `json:"preset"`
+	Granularity    string `json:"granularity"`
 	StartTimestamp int64  `json:"start_timestamp"`
 	EndTimestamp   int64  `json:"end_timestamp"`
-	StartDate      string `json:"start_date"`
-	EndDate        string `json:"end_date"`
 }
 
 func statsRange(c *gin.Context, now time.Time) (int64, int64) {
@@ -42,87 +42,68 @@ func statsRange(c *gin.Context, now time.Time) (int64, int64) {
 func parseQuotaPoolStatsRange(c *gin.Context, now time.Time) (quotaPoolStatsRange, error) {
 	location := now.Location()
 	if location == nil {
-		location = time.Local
+		location = common.BeijingTimeLocation
 	}
 	now = now.In(location)
-	rangeType := c.DefaultQuery("range_type", "")
-	if rangeType == "" {
-		rangeType = c.DefaultQuery("period", "week")
-	}
-
+	preset := c.DefaultQuery("preset", "rolling_7d")
 	var start, end time.Time
-	switch rangeType {
-	case "week":
-		anchor := now
-		if raw := c.Query("anchor"); raw != "" {
-			parsed, err := time.ParseInLocation(time.DateOnly, raw, location)
-			if err != nil {
-				return quotaPoolStatsRange{}, errInvalidQuotaPoolStatsRange
-			}
-			if parsed.After(now) {
-				return quotaPoolStatsRange{}, errInvalidQuotaPoolStatsRange
-			}
-			anchor = parsed
+	autoGranularity := "day"
+	currentHour := time.Unix(now.Unix()-now.Unix()%3600, 0).In(location)
+	switch preset {
+	case "rolling_1d", "rolling_7d", "rolling_14d", "rolling_29d":
+		days := map[string]int{"rolling_1d": 1, "rolling_7d": 7, "rolling_14d": 14, "rolling_29d": 29}[preset]
+		start = currentHour.Add(-time.Duration(days*24-1) * time.Hour)
+		end = now
+		if days == 1 {
+			autoGranularity = "hour"
 		}
-		weekday := int(anchor.Weekday())
+	case "today":
+		start = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
+		end = now
+		autoGranularity = "hour"
+	case "this_week":
+		weekday := int(now.Weekday())
 		if weekday == 0 {
 			weekday = 7
 		}
-		start = time.Date(anchor.Year(), anchor.Month(), anchor.Day()-weekday+1, 0, 0, 0, 0, location)
-		end = start.AddDate(0, 0, 7).Add(-time.Second)
-	case "month":
-		anchor := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, location)
-		if raw := c.Query("anchor"); raw != "" {
-			parsed, err := time.ParseInLocation("2006-01", raw, location)
-			if err != nil {
-				return quotaPoolStatsRange{}, errInvalidQuotaPoolStatsRange
-			}
-			if parsed.After(now) {
-				return quotaPoolStatsRange{}, errInvalidQuotaPoolStatsRange
-			}
-			anchor = parsed
-		}
-		start = time.Date(anchor.Year(), anchor.Month(), 1, 0, 0, 0, 0, location)
-		end = start.AddDate(0, 1, 0).Add(-time.Second)
+		start = time.Date(now.Year(), now.Month(), now.Day()-weekday+1, 0, 0, 0, 0, location)
+		end = now
+	case "this_month":
+		start = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, location)
+		end = now
 	case "custom":
-		var err error
-		start, err = time.ParseInLocation(time.DateOnly, c.Query("start_date"), location)
-		if err != nil {
+		startTimestamp, startErr := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+		endTimestamp, endErr := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+		if startErr != nil || endErr != nil || startTimestamp <= 0 || endTimestamp <= 0 {
 			return quotaPoolStatsRange{}, errInvalidQuotaPoolStatsRange
 		}
-		endDate, err := time.ParseInLocation(time.DateOnly, c.Query("end_date"), location)
-		if err != nil {
+		requestedStart := time.Unix(startTimestamp, 0).In(location)
+		requestedEnd := time.Unix(endTimestamp, 0).In(location)
+		if requestedStart.After(now) || requestedEnd.After(now) || requestedEnd.Before(requestedStart) || requestedEnd.Sub(requestedStart) > maxQuotaPoolStatsDays*24*time.Hour {
 			return quotaPoolStatsRange{}, errInvalidQuotaPoolStatsRange
 		}
-		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
-		if endDate.After(today) {
+		start = time.Unix(requestedStart.Unix()-requestedStart.Unix()%3600, 0).In(location)
+		end = time.Unix(requestedEnd.Unix()-requestedEnd.Unix()%3600+3600-1, 0).In(location)
+		if end.After(now) {
+			end = now
+		}
+		if end.Sub(start) > maxQuotaPoolStatsDays*24*time.Hour {
 			return quotaPoolStatsRange{}, errInvalidQuotaPoolStatsRange
 		}
-		end = endDate.AddDate(0, 0, 1).Add(-time.Second)
+		if requestedEnd.Sub(requestedStart) <= 48*time.Hour {
+			autoGranularity = "hour"
+		}
 	default:
 		return quotaPoolStatsRange{}, errInvalidQuotaPoolStatsRange
 	}
-
-	if start.After(now) || end.Before(start) || quotaPoolStatsDayCount(start, end) > maxQuotaPoolStatsDays {
+	if start.After(now) || end.After(now) || end.Before(start) {
 		return quotaPoolStatsRange{}, errInvalidQuotaPoolStatsRange
 	}
-	if end.After(now) {
-		end = now
+	granularity := c.DefaultQuery("granularity", autoGranularity)
+	if granularity != "hour" && granularity != "day" && granularity != "week" {
+		return quotaPoolStatsRange{}, errInvalidQuotaPoolStatsRange
 	}
 	return quotaPoolStatsRange{
-		RangeType: rangeType, StartTimestamp: start.Unix(), EndTimestamp: end.Unix(),
-		StartDate: start.Format(time.DateOnly), EndDate: end.Format(time.DateOnly),
+		Preset: preset, Granularity: granularity, StartTimestamp: start.Unix(), EndTimestamp: end.Unix(),
 	}, nil
-}
-
-func quotaPoolStatsDayCount(start, end time.Time) int {
-	endDate := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, end.Location())
-	days := 0
-	for cursor := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location()); !cursor.After(endDate); cursor = cursor.AddDate(0, 0, 1) {
-		days++
-		if days > maxQuotaPoolStatsDays {
-			return days
-		}
-	}
-	return days
 }

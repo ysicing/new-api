@@ -78,6 +78,23 @@ export const STATIC_I18N_KEYS = [
   'Fully customized',
   'Announcement group delivery',
 
+  // Quota pool statistics presets and export options
+  '1 day',
+  '7 days',
+  '14 days',
+  '29 days',
+  'Today',
+  'Current day',
+  'This week',
+  'This month',
+  'Custom range',
+  'hour',
+  'day',
+  'week',
+  'Hour granularity',
+  'Day granularity',
+  'Week granularity',
+
   // Pricing constants
   'Name',
   'Price: Low to High',

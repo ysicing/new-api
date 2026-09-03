@@ -110,8 +110,12 @@ export interface QuotaPoolMemberStat extends QuotaPoolUsageStat {
   average_daily_usage: number
 }
 
-export interface QuotaPoolDailyStat {
-  date: string
+export type QuotaPoolStatsGranularity = 'hour' | 'day' | 'week'
+
+export interface QuotaPoolTrendStat {
+  bucket_start: number
+  bucket_end: number
+  label: string
   active_members: number
   active_rate: number
   request_count: number
@@ -128,17 +132,18 @@ export interface QuotaPoolStatsSummary {
 }
 
 export interface QuotaPoolStats {
-  range_type: QuotaPoolStatsPeriod | 'custom'
-  start_date: string
-  end_date: string
+  preset: QuotaPoolStatsPreset
+  granularity: QuotaPoolStatsGranularity
   start_timestamp: number
   end_timestamp: number
+  start_time: string
+  end_time: string
   generated_at: number
   generated_time?: string
   time_zone?: string
   usage: QuotaPoolUsageStat[]
   members: QuotaPoolMemberStat[]
-  daily: QuotaPoolDailyStat[]
+  trend: QuotaPoolTrendStat[]
   summary: QuotaPoolStatsSummary
   recharge: Array<{ type: string; count: number; amount: number }>
   total_usage: number
@@ -147,12 +152,28 @@ export interface QuotaPoolStats {
   total_reclaim: number
 }
 
-export type QuotaPoolStatsPeriod = 'week' | 'month'
+export type QuotaPoolStatsPreset =
+  | 'rolling_1d'
+  | 'rolling_7d'
+  | 'rolling_14d'
+  | 'rolling_29d'
+  | 'today'
+  | 'this_week'
+  | 'this_month'
+  | 'custom'
 
-export type QuotaPoolStatsRange =
-  | { range_type: 'week'; anchor?: string }
-  | { range_type: 'month'; anchor?: string }
-  | { range_type: 'custom'; start_date: string; end_date: string }
+export type QuotaPoolStatsRange = {
+  preset: QuotaPoolStatsPreset
+  start_timestamp?: number
+  end_timestamp?: number
+  granularity?: QuotaPoolStatsGranularity
+}
+
+export type QuotaPoolStatsActualRange = {
+  start_timestamp: number
+  end_timestamp: number
+  granularity: QuotaPoolStatsGranularity
+}
 
 export interface PageData<T> {
   items: T[]
