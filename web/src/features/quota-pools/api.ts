@@ -11,6 +11,7 @@ import type {
   QuotaPoolOperationLog,
   QuotaPoolStats,
   QuotaPoolStatsPeriod,
+  QuotaPoolStatsRange,
   QuotaPoolTransaction,
 } from './types'
 
@@ -114,15 +115,38 @@ export async function getQuotaPoolTransactions(poolId: number, self = false) {
 export async function getQuotaPoolStats(
   poolId: number,
   self = false,
-  period: QuotaPoolStatsPeriod = 'week'
+  range: QuotaPoolStatsRange | QuotaPoolStatsPeriod = 'week'
 ) {
   const endpoint = self
     ? '/api/quota_pool/self/stats'
     : `/api/quota_pool/${poolId}/stats`
   const response = await api.get<ApiResponse<QuotaPoolStats>>(endpoint, {
-    params: { period },
+    params: typeof range === 'string' ? { period: range } : range,
   })
   return response.data
+}
+
+export async function exportQuotaPoolStats(
+  poolId: number,
+  self: boolean,
+  range: QuotaPoolStatsRange,
+  format: 'markdown' | 'xlsx'
+) {
+  const endpoint = self
+    ? '/api/quota_pool/self/stats/export'
+    : `/api/quota_pool/${poolId}/stats/export`
+  const response = await api.get<Blob>(endpoint, {
+    params: { ...range, format },
+    responseType: 'blob',
+  })
+  const disposition = String(response.headers['content-disposition'] ?? '')
+  const encodedFilename = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+  return {
+    blob: response.data,
+    filename: encodedFilename
+      ? decodeURIComponent(encodedFilename)
+      : `quota_pool_stats.${format === 'xlsx' ? 'xlsx' : 'md'}`,
+  }
 }
 
 export async function getQuotaPoolOperationLogs(poolId: number, self = false) {

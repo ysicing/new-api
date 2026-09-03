@@ -72,14 +72,28 @@ func GetOperationsRechargeLeaderboard(period string, now time.Time) (*Operations
 }
 
 func GetCachedQuotaPoolStats(poolId int, startTimestamp, endTimestamp int64, now time.Time) (*model.QuotaPoolStats, int64, error) {
-	cacheSuffix := fmt.Sprintf("quota_pool:%d:%d:%d", poolId, startTimestamp, endTimestamp)
+	return GetCachedQuotaPoolStatsInLocation(poolId, startTimestamp, endTimestamp, now, time.Local)
+}
+
+func GetCachedQuotaPoolStatsInLocation(poolId int, startTimestamp, endTimestamp int64, now time.Time, location *time.Location) (*model.QuotaPoolStats, int64, error) {
+	cacheEndTimestamp := endTimestamp - endTimestamp%int64(operationsStatsCacheTTL/time.Second)
+	cacheSuffix := fmt.Sprintf("quota_pool:v2:%d:%d:%d", poolId, startTimestamp, cacheEndTimestamp)
 	entry, err := loadOperationsStatsCache(cacheSuffix, now, func() (*model.QuotaPoolStats, error) {
-		return model.GetQuotaPoolStats(poolId, startTimestamp, endTimestamp)
+		stats, err := model.GetQuotaPoolStatsInLocation(poolId, startTimestamp, endTimestamp, location)
+		if err != nil {
+			return nil, err
+		}
+		stats.StartTimestamp = startTimestamp
+		stats.EndTimestamp = endTimestamp
+		return stats, nil
 	})
 	if err != nil {
 		return nil, 0, err
 	}
-	return entry.Data, entry.GeneratedAt, nil
+	stats := *entry.Data
+	stats.GeneratedAt = entry.GeneratedAt
+	stats.GeneratedTime = time.Unix(entry.GeneratedAt, 0).In(location).Format("2006-01-02 15:04:05 -07:00 MST")
+	return &stats, entry.GeneratedAt, nil
 }
 
 func GetCachedModelStatistics(period string, userId int, now time.Time) (*ModelStatisticsSection, error) {

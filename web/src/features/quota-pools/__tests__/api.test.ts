@@ -9,10 +9,12 @@ the Free Software Foundation, either version 3 of the License, or
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 import {
+  exportQuotaPoolStats,
   getQuotaPoolCandidates,
   getQuotaPoolMembers,
   getQuotaPool,
   getQuotaPools,
+  getQuotaPoolStats,
   moveUserQuotaPool,
   rechargeQuotaPoolMember,
   removeQuotaPoolMember,
@@ -155,5 +157,33 @@ describe('quota pool members API', () => {
     expect(apiMocks.post).toHaveBeenCalledWith('/api/quota_pool/7/admins', {
       user_id: 3,
     })
+  })
+
+  test('passes custom statistics range and export format to matching endpoints', async () => {
+    const range = {
+      range_type: 'custom' as const,
+      start_date: '2026-08-01',
+      end_date: '2026-08-31',
+    }
+    await getQuotaPoolStats(7, false, range)
+    apiMocks.get.mockResolvedValueOnce({
+      data: new Blob(['report']),
+      headers: {
+        'content-disposition':
+          "attachment; filename*=UTF-8''%E4%BA%A7%E7%A0%94.xlsx",
+      },
+    })
+
+    const exported = await exportQuotaPoolStats(7, true, range, 'xlsx')
+
+    expect(apiMocks.get).toHaveBeenNthCalledWith(1, '/api/quota_pool/7/stats', {
+      params: range,
+    })
+    expect(apiMocks.get).toHaveBeenNthCalledWith(
+      2,
+      '/api/quota_pool/self/stats/export',
+      { params: { ...range, format: 'xlsx' }, responseType: 'blob' }
+    )
+    expect(exported.filename).toBe('产研.xlsx')
   })
 })

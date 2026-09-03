@@ -29,7 +29,7 @@ func useOperationsStatsRedis(t *testing.T) *miniredis.Miniredis {
 func TestOperationsTopUsersCachesResultForFiveMinutes(t *testing.T) {
 	truncate(t)
 	server := useOperationsStatsRedis(t)
-	now := time.Date(2026, time.August, 27, 12, 30, 0, 0, time.Local)
+	now := time.Date(2026, time.August, 27, 12, 31, 0, 0, time.Local)
 	user := model.User{Id: 1, Username: "cached-user", Password: "password", AffCode: "stats-cache-user"}
 	require.NoError(t, model.DB.Create(&user).Error)
 	require.NoError(t, model.DB.Create(&model.QuotaData{
@@ -119,15 +119,19 @@ func TestQuotaPoolStatsUsesFiveMinuteRedisCache(t *testing.T) {
 	first, firstGeneratedAt, err := GetCachedQuotaPoolStats(pool.Id, start, now.Unix(), now)
 	require.NoError(t, err)
 	assert.Equal(t, 100, first.TotalUsage)
+	assert.Equal(t, now.Unix(), first.EndTimestamp)
 
 	require.NoError(t, model.DB.Model(&model.QuotaData{}).Where("user_id = ?", user.Id).Update("quota", 200).Error)
-	second, secondGeneratedAt, err := GetCachedQuotaPoolStats(pool.Id, start, now.Unix(), now.Add(4*time.Minute+59*time.Second))
+	secondNow := now.Add(2 * time.Minute)
+	second, secondGeneratedAt, err := GetCachedQuotaPoolStats(pool.Id, start, secondNow.Unix(), secondNow)
 	require.NoError(t, err)
 	assert.Equal(t, 100, second.TotalUsage)
 	assert.Equal(t, firstGeneratedAt, secondGeneratedAt)
+	assert.Equal(t, now.Unix(), second.EndTimestamp)
 
 	server.FastForward(5*time.Minute + time.Second)
-	third, thirdGeneratedAt, err := GetCachedQuotaPoolStats(pool.Id, start, now.Unix(), now.Add(5*time.Minute+1*time.Second))
+	thirdNow := now.Add(5*time.Minute + time.Second)
+	third, thirdGeneratedAt, err := GetCachedQuotaPoolStats(pool.Id, start, thirdNow.Unix(), thirdNow)
 	require.NoError(t, err)
 	assert.Equal(t, 200, third.TotalUsage)
 	assert.Greater(t, thirdGeneratedAt, secondGeneratedAt)

@@ -52,6 +52,16 @@ func TestWriteQuotaPoolErrorReturnsCandidateValidationCode(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), `"code":"QUOTA_POOL_CANDIDATE_INVALID"`)
 }
 
+func TestWriteQuotaPoolErrorReturnsStatisticsTimezoneCode(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+
+	writeQuotaPoolError(c, model.ErrQuotaPoolStatsTimezoneUnsupported)
+
+	assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"code":"QUOTA_POOL_STATS_TIMEZONE_UNSUPPORTED"`)
+}
+
 func TestSelfQuotaPoolManagementEndpointsRequirePoolManager(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(

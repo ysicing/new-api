@@ -86,13 +86,17 @@ func TestGetQuotaPoolStatsAggregatesMembersAndTransactions(t *testing.T) {
 	user := User{Username: "pool-stats-user", Password: "password", AffCode: "pool-stats-aff", QuotaPoolId: pool.Id}
 	require.NoError(t, mainDB.Create(&user).Error)
 	require.NoError(t, mainDB.Create(&QuotaData{UserID: user.Id, Username: user.Username, CreatedAt: 100, ModelName: "deepseek-r1", Quota: 45}).Error)
-	require.NoError(t, mainDB.Create(&QuotaPoolTransaction{PoolId: pool.Id, Type: QuotaPoolTransactionAllocateAuto, Amount: -200, CreatedAt: 100}).Error)
+	require.NoError(t, mainDB.Create(&[]QuotaPoolTransaction{
+		{PoolId: pool.Id, Type: QuotaPoolTransactionAllocateAuto, Amount: -200, CreatedAt: 100},
+		{PoolId: pool.Id, Type: QuotaPoolTransactionReclaimUser, Amount: 50, CreatedAt: 110},
+	}).Error)
 
 	stats, err := GetQuotaPoolStats(pool.Id, 90, 120)
 
 	require.NoError(t, err)
 	assert.Equal(t, 45, stats.TotalUsage)
 	assert.Equal(t, 200, stats.TotalAllocate)
+	assert.Equal(t, 50, stats.TotalReclaim)
 	require.Len(t, stats.Usage, 1)
 	assert.Equal(t, 45, stats.Usage[0].DeepSeekQuota)
 }
@@ -158,6 +162,75 @@ func TestGetQuotaPoolStatsMapsDefaultPoolMembersToVirtualPoolID(t *testing.T) {
 	assert.Equal(t, 45, stats.TotalUsage)
 	require.Len(t, stats.Usage, 1)
 	assert.Equal(t, user.Id, stats.Usage[0].UserId)
+}
+
+func TestGetQuotaPoolStatsInLocationIncludesActivityTrendAndInactiveMembers(t *testing.T) {
+	mainDB, _ := setupICodeStatsTest(t)
+	location := time.FixedZone("UTC+8", 8*60*60)
+	pool := QuotaPool{Name: "成员活跃统计池", PoolType: QuotaPoolTypeNormal, Enabled: true}
+	require.NoError(t, mainDB.Create(&pool).Error)
+	members := []User{
+		{Id: 1, Username: "alice", Password: "password", AffCode: "pool-active-a", QuotaPoolId: pool.Id},
+		{Id: 2, Username: "bob", Password: "password", AffCode: "pool-active-b", QuotaPoolId: pool.Id},
+		{Id: 3, Username: "outsider", Password: "password", AffCode: "pool-active-c", QuotaPoolId: 0},
+	}
+	require.NoError(t, mainDB.Create(&members).Error)
+	require.NoError(t, mainDB.Create(&[]QuotaData{
+		{UserID: 1, Username: "alice", CreatedAt: time.Date(2026, time.August, 17, 9, 0, 0, 0, location).Unix(), ModelName: "gpt-5", Count: 2, Quota: 30},
+		{UserID: 1, Username: "alice", CreatedAt: time.Date(2026, time.August, 17, 10, 0, 0, 0, location).Unix(), ModelName: "claude-4", Count: 1, Quota: 20},
+		{UserID: 1, Username: "alice", CreatedAt: time.Date(2026, time.August, 18, 11, 0, 0, 0, location).Unix(), ModelName: "gpt-5", Count: 3, Quota: 50},
+		{UserID: 3, Username: "outsider", CreatedAt: time.Date(2026, time.August, 17, 9, 0, 0, 0, location).Unix(), ModelName: "gpt-5", Count: 10, Quota: 1000},
+	}).Error)
+	start := time.Date(2026, time.August, 17, 0, 0, 0, 0, location)
+	end := time.Date(2026, time.August, 19, 15, 30, 0, 0, location)
+
+	stats, err := GetQuotaPoolStatsInLocation(pool.Id, start.Unix(), end.Unix(), location)
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, stats.Summary.MemberCount)
+	assert.Equal(t, 1, stats.Summary.ActiveMembers)
+	assert.Equal(t, 50.0, stats.Summary.ActiveRate)
+	assert.Equal(t, 6, stats.Summary.RequestCount)
+	assert.Equal(t, 100, stats.Summary.TotalUsage)
+	assert.Equal(t, 100.0, stats.Summary.AverageUsagePerActiveMember)
+	assert.Equal(t, "UTC+8", stats.TimeZone)
+	require.Len(t, stats.Daily, 3)
+	assert.Equal(t, QuotaPoolDailyStat{Date: "2026-08-17", ActiveMembers: 1, ActiveRate: 50, RequestCount: 3, UsedQuota: 50}, stats.Daily[0])
+	assert.Equal(t, QuotaPoolDailyStat{Date: "2026-08-19"}, stats.Daily[2])
+	require.Len(t, stats.Members, 2)
+	assert.Equal(t, "alice", stats.Members[0].Username)
+	assert.True(t, stats.Members[0].Active)
+	assert.Equal(t, 2, stats.Members[0].ActiveDays)
+	assert.Equal(t, 6, stats.Members[0].RequestCount)
+	assert.Equal(t, 100, stats.Members[0].UsedQuota)
+	assert.Equal(t, 50.0, stats.Members[0].AverageDailyUsage)
+	assert.Equal(t, 100.0, stats.Members[0].UsageShare)
+	assert.Equal(t, time.Date(2026, time.August, 18, 11, 0, 0, 0, location).Unix(), stats.Members[0].LastActiveAt)
+	assert.Equal(t, "2026-08-18 11:00:00 +08:00 UTC+8", stats.Members[0].LastActiveTime)
+	assert.Equal(t, "bob", stats.Members[1].Username)
+	assert.False(t, stats.Members[1].Active)
+	assert.Zero(t, stats.Members[1].UsedQuota)
+}
+
+func TestGetQuotaPoolStatsInLocationRejectsHalfHourTimezone(t *testing.T) {
+	location := time.FixedZone("UTC+5:30", 5*60*60+30*60)
+	start := time.Date(2026, time.August, 17, 0, 0, 0, 0, location)
+	end := time.Date(2026, time.August, 17, 23, 59, 59, 0, location)
+
+	_, err := GetQuotaPoolStatsInLocation(1, start.Unix(), end.Unix(), location)
+
+	assert.ErrorIs(t, err, ErrQuotaPoolStatsTimezoneUnsupported)
+}
+
+func TestGetQuotaPoolStatsInLocationRejectsHalfHourDSTTransition(t *testing.T) {
+	location, err := time.LoadLocation("Australia/Lord_Howe")
+	require.NoError(t, err)
+	start := time.Date(2026, time.April, 5, 0, 0, 0, 0, location)
+	end := time.Date(2026, time.April, 5, 23, 59, 59, 0, location)
+
+	_, err = GetQuotaPoolStatsInLocation(1, start.Unix(), end.Unix(), location)
+
+	assert.ErrorIs(t, err, ErrQuotaPoolStatsTimezoneUnsupported)
 }
 
 func TestGetRechargeLeaderboardUsesStableSecondaryUsageSort(t *testing.T) {

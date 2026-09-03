@@ -76,8 +76,13 @@ require (
 	github.com/hashicorp/go-version v1.7.0 // indirect
 	github.com/paulmach/orb v0.11.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
+	github.com/richardlehane/mscfb v1.0.4 // indirect
+	github.com/richardlehane/msoleps v1.0.4 // indirect
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
+	github.com/tiendc/go-deepcopy v1.6.0 // indirect
+	github.com/xuri/efp v0.0.1 // indirect
+	github.com/xuri/nfp v0.0.1 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.opentelemetry.io/otel v1.34.0 // indirect
 	go.opentelemetry.io/otel/trace v1.34.0 // indirect
@@ -168,6 +173,7 @@ require (
 	github.com/QuantumNous/new-api/relaykit v0.0.0
 	github.com/ergoapi/ldap v0.0.2
 	github.com/go-ldap/ldap/v3 v3.4.11
+	github.com/xuri/excelize/v2 v2.9.1
 )
 
 replace github.com/QuantumNous/new-api/relaykit => ./relaykit

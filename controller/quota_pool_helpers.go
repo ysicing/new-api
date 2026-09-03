@@ -138,6 +138,8 @@ func writeQuotaPoolError(c *gin.Context, err error) {
 		status, code, message = http.StatusConflict, "QUOTA_POOL_REFILL_LIMITED", "额度池临时充值超出限制"
 	case errors.Is(err, model.ErrQuotaPoolInvalidAmount):
 		status, code, message = http.StatusBadRequest, "QUOTA_POOL_INVALID_AMOUNT", "额度金额无效"
+	case errors.Is(err, model.ErrQuotaPoolStatsTimezoneUnsupported):
+		status, code, message = http.StatusInternalServerError, "QUOTA_POOL_STATS_TIMEZONE_UNSUPPORTED", "额度池统计要求服务时区使用整小时 UTC 偏移"
 	}
 	c.AbortWithStatusJSON(status, gin.H{"success": false, "code": code, "message": message})
 }

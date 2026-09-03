@@ -195,14 +195,7 @@ func GetSelfQuotaPoolStats(c *gin.Context) {
 	if !requireSelfQuotaPoolMembersManagement(c, admin) {
 		return
 	}
-	now := time.Now()
-	start, end := statsRange(c, now.Truncate(5*time.Minute))
-	stats, _, err := service.GetCachedQuotaPoolStats(pool.Id, start, end, now)
-	if err != nil {
-		writeQuotaPoolError(c, err)
-		return
-	}
-	common.ApiSuccess(c, stats)
+	writeQuotaPoolStats(c, pool.Id)
 }
 
 func GetSelfQuotaPoolCandidates(c *gin.Context) {

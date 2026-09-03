@@ -4,6 +4,7 @@ import "sort"
 
 type usageAggregateRow struct {
 	UserId        int `gorm:"column:user_id"`
+	RequestCount  int `gorm:"column:request_count"`
 	UsedQuota     int `gorm:"column:used_quota"`
 	GptQuota      int `gorm:"column:gpt_quota"`
 	ClaudeQuota   int `gorm:"column:claude_quota"`
@@ -13,7 +14,7 @@ type usageAggregateRow struct {
 	OtherQuota    int `gorm:"column:other_quota"`
 }
 
-const usageAggregateSelect = `user_id,
+const usageAggregateMetricsSelect = `COALESCE(SUM(count), 0) AS request_count,
 COALESCE(SUM(quota), 0) AS used_quota,
 COALESCE(SUM(CASE WHEN COALESCE(LOWER(model_name), '') LIKE '%gpt%'
   OR COALESCE(LOWER(model_name), '') LIKE 'o1%'
@@ -36,6 +37,8 @@ COALESCE(SUM(CASE WHEN NOT (
   OR COALESCE(LOWER(model_name), '') LIKE '%gemini%'
   OR COALESCE(LOWER(model_name), '') LIKE '%qwen%'
 ) THEN quota ELSE 0 END), 0) AS other_quota`
+
+const usageAggregateSelect = "user_id,\n" + usageAggregateMetricsSelect
 
 func GetTopUsers(startTimestamp, endTimestamp int64, modelName string, limit int) ([]UserQuotaStat, error) {
 	limit = normalizeStatsLimit(limit)
@@ -105,7 +108,7 @@ func aggregateOperationsUsage(startTimestamp, endTimestamp int64, modelName stri
 
 func (row usageAggregateRow) bucket() usageBucket {
 	return usageBucket{
-		UsedQuota: row.UsedQuota, GptQuota: row.GptQuota, ClaudeQuota: row.ClaudeQuota,
+		RequestCount: row.RequestCount, UsedQuota: row.UsedQuota, GptQuota: row.GptQuota, ClaudeQuota: row.ClaudeQuota,
 		DeepSeekQuota: row.DeepSeekQuota, GeminiQuota: row.GeminiQuota,
 		QwenQuota: row.QwenQuota, OtherQuota: row.OtherQuota,
 	}

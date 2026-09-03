@@ -91,6 +91,7 @@ export interface QuotaPoolOperationLog {
 export interface QuotaPoolUsageStat {
   user_id: number
   username: string
+  request_count: number
   used_quota: number
   gpt_quota: number
   claude_quota: number
@@ -100,15 +101,58 @@ export interface QuotaPoolUsageStat {
   other_quota: number
 }
 
+export interface QuotaPoolMemberStat extends QuotaPoolUsageStat {
+  active: boolean
+  active_days: number
+  last_active_at: number
+  last_active_time?: string
+  usage_share: number
+  average_daily_usage: number
+}
+
+export interface QuotaPoolDailyStat {
+  date: string
+  active_members: number
+  active_rate: number
+  request_count: number
+  used_quota: number
+}
+
+export interface QuotaPoolStatsSummary {
+  member_count: number
+  active_members: number
+  active_rate: number
+  request_count: number
+  total_usage: number
+  average_usage_per_active_member: number
+}
+
 export interface QuotaPoolStats {
+  range_type: QuotaPoolStatsPeriod | 'custom'
+  start_date: string
+  end_date: string
+  start_timestamp: number
+  end_timestamp: number
+  generated_at: number
+  generated_time?: string
+  time_zone?: string
   usage: QuotaPoolUsageStat[]
+  members: QuotaPoolMemberStat[]
+  daily: QuotaPoolDailyStat[]
+  summary: QuotaPoolStatsSummary
   recharge: Array<{ type: string; count: number; amount: number }>
   total_usage: number
   total_refill: number
   total_allocate: number
+  total_reclaim: number
 }
 
 export type QuotaPoolStatsPeriod = 'week' | 'month'
+
+export type QuotaPoolStatsRange =
+  | { range_type: 'week'; anchor?: string }
+  | { range_type: 'month'; anchor?: string }
+  | { range_type: 'custom'; start_date: string; end_date: string }
 
 export interface PageData<T> {
   items: T[]

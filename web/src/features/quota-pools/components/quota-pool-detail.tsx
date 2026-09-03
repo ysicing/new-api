@@ -2,7 +2,7 @@ import { Alert02Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { lazy, Suspense, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -21,7 +21,7 @@ import type {
   QuotaPoolAdminContact,
   QuotaPoolCapabilities,
   QuotaPoolDirectoryItem,
-  QuotaPoolStatsPeriod,
+  QuotaPoolStatsRange,
 } from '../types'
 import { PoolConfiguration } from './quota-pool-configuration'
 import {
@@ -32,7 +32,12 @@ import {
 } from './quota-pool-data'
 import { AvailableQuotaPoolDirectory } from './quota-pool-directory'
 import { PoolMembers } from './quota-pool-members'
-import { PoolStats } from './quota-pool-stats'
+
+const PoolStats = lazy(() =>
+  import('./quota-pool-stats').then((module) => ({ default: module.PoolStats }))
+)
+
+const QUOTA_POOL_STATS_STALE_TIME = 5 * 60 * 1000
 
 type DetailTab =
   | 'overview'
@@ -56,7 +61,9 @@ export function QuotaPoolDetail(props: {
   const [membersPage, setMembersPage] = useState(1)
   const [membersPageSize, setMembersPageSize] = useState(20)
   const [membersKeyword, setMembersKeyword] = useState('')
-  const [statsPeriod, setStatsPeriod] = useState<QuotaPoolStatsPeriod>('week')
+  const [statsRange, setStatsRange] = useState<QuotaPoolStatsRange>(() => ({
+    range_type: 'week',
+  }))
   const canViewManagement = props.capabilities.can_manage_members
   const showNewUserNotice =
     props.selfMode === true &&
@@ -89,10 +96,11 @@ export function QuotaPoolDetail(props: {
     enabled: canViewManagement && tab === 'transactions',
   })
   const stats = useQuery({
-    queryKey: ['quota-pool', props.pool.id, 'stats', statsPeriod],
-    queryFn: () =>
-      getQuotaPoolStats(props.pool.id, props.selfMode, statsPeriod),
+    queryKey: ['quota-pool', props.pool.id, 'stats', statsRange],
+    queryFn: () => getQuotaPoolStats(props.pool.id, props.selfMode, statsRange),
     enabled: canViewManagement && tab === 'stats',
+    staleTime: QUOTA_POOL_STATS_STALE_TIME,
+    retry: false,
   })
   const logs = useQuery({
     queryKey: ['quota-pool', props.pool.id, 'operation-logs'],
@@ -185,11 +193,24 @@ export function QuotaPoolDetail(props: {
                 <PoolOperationLogs query={logs} />
               </TabsContent>
               <TabsContent value='stats'>
-                <PoolStats
-                  query={stats}
-                  period={statsPeriod}
-                  onPeriodChange={setStatsPeriod}
-                />
+                <Suspense
+                  fallback={
+                    <p
+                      className='text-muted-foreground py-6 text-center text-sm'
+                      role='status'
+                    >
+                      {t('Loading...')}
+                    </p>
+                  }
+                >
+                  <PoolStats
+                    query={stats}
+                    range={statsRange}
+                    onRangeChange={setStatsRange}
+                    poolId={props.pool.id}
+                    selfMode={props.selfMode}
+                  />
+                </Suspense>
               </TabsContent>
               <TabsContent value='config'>
                 <PoolConfiguration

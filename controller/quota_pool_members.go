@@ -1,8 +1,6 @@
 package controller
 
 import (
-	"time"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -282,12 +280,5 @@ func GetQuotaPoolStats(c *gin.Context) {
 	if !ok || !requireQuotaPoolFeature(c) {
 		return
 	}
-	now := time.Now()
-	start, end := statsRange(c, now.Truncate(5*time.Minute))
-	stats, _, err := service.GetCachedQuotaPoolStats(id, start, end, now)
-	if err != nil {
-		writeQuotaPoolError(c, err)
-		return
-	}
-	common.ApiSuccess(c, stats)
+	writeQuotaPoolStats(c, id)
 }
