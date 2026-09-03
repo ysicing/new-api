@@ -163,7 +163,7 @@ func TestAddUserToQuotaPoolRejectsIneligibleCandidates(t *testing.T) {
 	}
 }
 
-func TestAddUserToQuotaPoolRequiresNewUserPoolSource(t *testing.T) {
+func TestAddUserToQuotaPoolAcceptsNewUserAndLegacyDefaultSources(t *testing.T) {
 	db := setupQuotaPoolFundsTestDB(t)
 	target := QuotaPool{Name: "目标池", PoolType: QuotaPoolTypeNormal, Enabled: true, BaseQuota: 100, Quota: 100}
 	newUserPool := QuotaPool{Name: QuotaPoolNewUserName, PoolType: QuotaPoolTypeNewUser, Enabled: true, BaseQuota: -1, Quota: -1}
@@ -178,8 +178,15 @@ func TestAddUserToQuotaPoolRequiresNewUserPoolSource(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&users).Error)
 
-	_, err := AddUserToQuotaPool(users[1].Id, target.Id, 7)
-	assert.ErrorIs(t, err, ErrQuotaPoolCandidateInvalid)
+	legacyResult, err := AddUserToQuotaPool(users[1].Id, target.Id, 7)
+	require.NoError(t, err)
+	assert.Equal(t, QuotaPoolDefaultUserPoolId, legacyResult.OldPoolId)
+	assert.Equal(t, target.Id, legacyResult.NewPoolId)
+	var legacyUser User
+	require.NoError(t, db.First(&legacyUser, users[1].Id).Error)
+	assert.Equal(t, target.Id, legacyUser.QuotaPoolId)
+	assert.Zero(t, legacyUser.Quota)
+
 	_, err = AddUserToQuotaPool(users[2].Id, target.Id, 7)
 	assert.ErrorIs(t, err, ErrQuotaPoolCandidateInvalid)
 	result, err := AddUserToQuotaPool(users[0].Id, target.Id, 7)

@@ -83,7 +83,7 @@ func MoveUserBetweenQuotaPools(userId, targetPoolId int, allowSystemTarget bool,
 func AddUserToQuotaPool(userId, targetPoolId, operatorId int) (*QuotaPoolMoveResult, error) {
 	return moveUserBetweenQuotaPools(userId, targetPoolId, operatorId, quotaPoolMoveOptions{
 		requireEligibleCandidate: true,
-		requireNewUserSource:     true,
+		requireCandidateSource:   true,
 	})
 }
 
@@ -111,7 +111,7 @@ func RemoveQuotaPoolMember(removal QuotaPoolMemberRemoval) (*QuotaPoolMoveResult
 type quotaPoolMoveOptions struct {
 	allowSystemTarget        bool
 	requireEligibleCandidate bool
-	requireNewUserSource     bool
+	requireCandidateSource   bool
 	requiredSourcePoolId     int
 	requireNormalSource      bool
 	guardAdminRemoval        bool
@@ -193,7 +193,7 @@ func prepareQuotaPoolMove(tx *gorm.DB, context *quotaPoolMoveContext) (*User, ma
 }
 
 func (context *quotaPoolMoveContext) validateMoveSource(tx *gorm.DB, source *QuotaPool, user *User) error {
-	if context.options.requireNewUserSource && (source == nil || !source.IsNewUserPool()) {
+	if context.options.requireCandidateSource && user.QuotaPoolId != QuotaPoolDefaultUserPoolId && (source == nil || !source.IsNewUserPool()) {
 		return ErrQuotaPoolCandidateInvalid
 	}
 	if context.options.requireNormalSource && (source == nil || source.PoolType != QuotaPoolTypeNormal) {

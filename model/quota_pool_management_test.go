@@ -202,15 +202,21 @@ func TestListQuotaPoolCandidatesFiltersEligibilityAndSearchesByID(t *testing.T) 
 	items, total, err := ListQuotaPoolCandidates("", &common.PageInfo{Page: 1, PageSize: 20})
 
 	require.NoError(t, err)
-	assert.EqualValues(t, 2, total)
-	require.Len(t, items, 2)
-	assert.ElementsMatch(t, []int{users[0].Id, users[5].Id}, []int{items[0].Id, items[1].Id})
+	assert.EqualValues(t, 3, total)
+	require.Len(t, items, 3)
+	assert.ElementsMatch(t, []int{users[0].Id, users[4].Id, users[5].Id}, []int{items[0].Id, items[1].Id, items[2].Id})
 
 	items, total, err = ListQuotaPoolCandidates(strconv.Itoa(users[0].Id), &common.PageInfo{Page: 1, PageSize: 20})
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, total)
 	require.Len(t, items, 1)
 	assert.Equal(t, users[0].Id, items[0].Id)
+
+	items, total, err = ListQuotaPoolCandidates("legacy-default", &common.PageInfo{Page: 1, PageSize: 20})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	require.Len(t, items, 1)
+	assert.Equal(t, users[4].Id, items[0].Id)
 }
 
 func TestUpdateQuotaPoolConfigAdjustsAvailableQuotaWithBaseQuota(t *testing.T) {

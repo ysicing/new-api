@@ -221,15 +221,18 @@ func ListAvailableQuotaPoolDirectory() ([]QuotaPoolDirectoryItem, error) {
 }
 
 func ListQuotaPoolCandidates(keyword string, page *common.PageInfo) ([]QuotaPoolMember, int64, error) {
+	sourcePoolIds := []int{QuotaPoolDefaultUserPoolId}
 	var newUserPool QuotaPool
 	if err := DB.Where("pool_type = ?", QuotaPoolTypeNewUser).First(&newUserPool).Error; errors.Is(err, gorm.ErrRecordNotFound) {
-		return []QuotaPoolMember{}, 0, nil
+		// 历史存量用户使用 quota_pool_id=0，即使新用户池缺失也应允许迁入普通池。
 	} else if err != nil {
 		return nil, 0, err
+	} else {
+		sourcePoolIds = append(sourcePoolIds, newUserPool.Id)
 	}
 	query := DB.Model(&User{}).Where(
-		"quota_pool_id = ? AND role IN ? AND status = ?",
-		newUserPool.Id,
+		"quota_pool_id IN ? AND role IN ? AND status = ?",
+		sourcePoolIds,
 		[]int{common.RoleCommonUser, common.RoleQuotaPoolSuperAdmin, common.RoleAdminUser},
 		common.UserStatusEnabled,
 	)
