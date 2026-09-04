@@ -24,6 +24,10 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { useSidebarView } from '../use-sidebar-view'
 
+const statusState = vi.hoisted(() => ({
+  status: {} as { SidebarModulesAdmin?: string },
+}))
+
 vi.mock('@tanstack/react-router', () => ({
   useLocation: ({
     select,
@@ -37,11 +41,12 @@ vi.mock('react-i18next', () => ({
 }))
 
 vi.mock('@/hooks/use-status', () => ({
-  useStatus: () => ({ status: {} }),
+  useStatus: () => ({ status: statusState.status }),
 }))
 
 afterEach(() => {
   useAuthStore.getState().auth.reset()
+  statusState.status = {}
 })
 
 test('sub-admin navigation hides channels and system settings entries', () => {
@@ -60,4 +65,80 @@ test('sub-admin navigation hides channels and system settings entries', () => {
   expect(adminEntryTitles).not.toContain('Channels')
   expect(adminEntryTitles).not.toContain('System Settings')
   expect(adminEntryTitles).toContain('Users')
+})
+
+test('personal navigation lists Wallet, Profile, and Tools in order', () => {
+  useAuthStore.getState().auth.setUser({
+    id: 1,
+    username: 'user',
+    role: ROLE.USER,
+  })
+
+  const { result } = renderHook(() => useSidebarView())
+  const personalGroup = result.current.navGroups.find(
+    (group) => group.id === 'personal'
+  )
+
+  expect(personalGroup?.items.map((item) => item.title)).toEqual([
+    'Wallet',
+    'Profile',
+    'Tools',
+  ])
+})
+
+test('historical sidebar configurations without tools keep Tools visible', () => {
+  statusState.status = {
+    SidebarModulesAdmin:
+      '{"personal":{"enabled":true,"topup":true,"personal":true}}',
+  }
+  useAuthStore.getState().auth.setUser({
+    id: 1,
+    username: 'user',
+    role: ROLE.USER,
+    sidebar_modules:
+      '{"personal":{"enabled":true,"topup":true,"personal":true}}',
+  })
+
+  const { result } = renderHook(() => useSidebarView())
+  const personalGroup = result.current.navGroups.find(
+    (group) => group.id === 'personal'
+  )
+
+  expect(personalGroup?.items.map((item) => item.title)).toContain('Tools')
+})
+
+test('admin personal.tools=false hides Tools', () => {
+  statusState.status = {
+    SidebarModulesAdmin:
+      '{"personal":{"enabled":true,"topup":true,"personal":true,"tools":false}}',
+  }
+  useAuthStore.getState().auth.setUser({
+    id: 1,
+    username: 'user',
+    role: ROLE.USER,
+  })
+
+  const { result } = renderHook(() => useSidebarView())
+  const personalGroup = result.current.navGroups.find(
+    (group) => group.id === 'personal'
+  )
+
+  expect(personalGroup?.items.map((item) => item.title)).not.toContain('Tools')
+})
+
+test('user personal.tools=false hides Tools', () => {
+  useAuthStore.getState().auth.setUser({
+    id: 1,
+    username: 'user',
+    role: ROLE.USER,
+    sidebar_modules:
+      '{"personal":{"enabled":true,"topup":true,"personal":true,"tools":false}}',
+  })
+
+  const { result } = renderHook(() => useSidebarView())
+  const personalGroup = result.current.navGroups.find(
+    (group) => group.id === 'personal'
+  )
+
+  expect(personalGroup?.items.map((item) => item.title)).not.toContain('Tools')
 })

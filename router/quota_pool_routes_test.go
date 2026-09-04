@@ -28,6 +28,7 @@ func TestQuotaPoolCompatibilityRoutesAreRegistered(t *testing.T) {
 		"GET /api/quota_pool/:id/transactions", "GET /api/quota_pool/:id/operation_logs",
 		"GET /api/quota_pool/:id/stats", "GET /api/quota_pool/:id/stats/export", "GET /api/quota_pool/candidates",
 		"GET /api/quota_pool/recharge_query/records", "POST /api/quota_pool/recharge_query/eligibility",
+		"GET /api/user/auto_recharge/eligibility",
 		"GET /api/quota_pool/self/", "PUT /api/quota_pool/self/",
 		"GET /api/quota_pool/self/members", "GET /api/quota_pool/self/transactions", "GET /api/quota_pool/self/stats/export",
 		"DELETE /api/quota_pool/self/members/:user_id", "PUT /api/quota_pool/self/members/:user_id",
@@ -54,4 +55,16 @@ func TestQuotaPoolRechargeQueryRoutesRequireRootAuthentication(t *testing.T) {
 		engine.ServeHTTP(recorder, request)
 		assert.Equal(t, http.StatusUnauthorized, recorder.Code, endpoint.path)
 	}
+}
+
+func TestSelfAutoRechargeEligibilityRouteRequiresAuthentication(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	SetApiRouter(engine)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/user/auto_recharge/eligibility", nil)
+	engine.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
 }

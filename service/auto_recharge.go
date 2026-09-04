@@ -43,6 +43,36 @@ type AutoRechargeEligibility struct {
 	Monthly   AutoRechargeLimitUsage `json:"monthly"`
 }
 
+type SelfAutoRechargeStatus string
+
+const (
+	SelfAutoRechargeStatusEligible  SelfAutoRechargeStatus = "eligible"
+	SelfAutoRechargeStatusNotNeeded SelfAutoRechargeStatus = "not_needed"
+	SelfAutoRechargeStatusBlocked   SelfAutoRechargeStatus = "blocked"
+)
+
+type AutoRechargeGuidance string
+
+const (
+	AutoRechargeGuidanceQuotaPoolAdmin           AutoRechargeGuidance = "quota_pool_admin"
+	AutoRechargeGuidanceDepartmentQuotaPoolAdmin AutoRechargeGuidance = "department_quota_pool_admin"
+	AutoRechargeGuidanceOperationsOA             AutoRechargeGuidance = "operations_oa"
+)
+
+type SelfAutoRechargeEligibility struct {
+	Status    SelfAutoRechargeStatus `json:"status"`
+	Eligible  bool                   `json:"eligible"`
+	Reason    string                 `json:"reason,omitempty"`
+	UserQuota int                    `json:"user_quota"`
+	Threshold int                    `json:"threshold"`
+	Amount    int                    `json:"amount"`
+	PoolName  string                 `json:"pool_name"`
+	PoolType  string                 `json:"pool_type"`
+	Weekly    AutoRechargeLimitUsage `json:"weekly"`
+	Monthly   AutoRechargeLimitUsage `json:"monthly"`
+	Guidance  AutoRechargeGuidance   `json:"guidance,omitempty"`
+}
+
 type effectiveAutoRechargePolicy struct {
 	AmountQuota  int
 	WeeklyLimit  int
@@ -84,14 +114,60 @@ func GetAutoRechargeEligibility(identifier string, now time.Time) (*AutoRecharge
 	if err != nil {
 		return nil, err
 	}
-	result, _ := evaluateAutoRechargeUser(user, now, true)
+	now = now.In(common.BeijingTimeLocation)
+	result, _ := evaluateAutoRechargeEligibility(user, now)
+	return &result, nil
+}
+
+// GetSelfAutoRechargeEligibility 返回本人自动充值资格的只读快照，不会执行充值。
+func GetSelfAutoRechargeEligibility(userId int, now time.Time) (*SelfAutoRechargeEligibility, error) {
+	user, err := model.GetUserById(userId, false)
+	if err != nil {
+		return nil, err
+	}
+	now = now.In(common.BeijingTimeLocation)
+	result, pool := evaluateAutoRechargeEligibility(user, now)
+	self := &SelfAutoRechargeEligibility{
+		Eligible:  result.Eligible,
+		Reason:    result.Reason,
+		UserQuota: result.UserQuota,
+		Threshold: result.Threshold,
+		Amount:    result.Amount,
+		PoolName:  result.PoolName,
+		PoolType:  model.QuotaPoolTypeDefault,
+		Weekly:    result.Weekly,
+		Monthly:   result.Monthly,
+	}
+	if pool != nil {
+		self.PoolType = pool.PoolType
+	}
+	switch {
+	case result.Eligible:
+		self.Status = SelfAutoRechargeStatusEligible
+	case result.Reason == "quota_above_threshold":
+		self.Status = SelfAutoRechargeStatusNotNeeded
+	default:
+		self.Status = SelfAutoRechargeStatusBlocked
+		if pool == nil {
+			self.Guidance = AutoRechargeGuidanceOperationsOA
+		} else if pool.IsNewUserPool() {
+			self.Guidance = AutoRechargeGuidanceDepartmentQuotaPoolAdmin
+		} else {
+			self.Guidance = AutoRechargeGuidanceQuotaPoolAdmin
+		}
+	}
+	return self, nil
+}
+
+func evaluateAutoRechargeEligibility(user *model.User, now time.Time) (AutoRechargeEligibility, *model.QuotaPool) {
+	result, pool := evaluateAutoRechargeUser(user, now, true)
 	// 维护任务只扫描启用用户；诊断需包含这层外部约束，避免把任务永远
 	// 不会处理的禁用用户误报为可自动充值。
-	if user.Status != common.UserStatusEnabled {
+	if user != nil && user.Status != common.UserStatusEnabled {
 		result.Eligible = false
 		result.Reason = "user_disabled"
 	}
-	return &result, nil
+	return result, pool
 }
 
 func GetWeeklyAutoRechargeUsage(user *model.User, pool *model.QuotaPool, now time.Time) (WeeklyAutoRechargeUsage, error) {
@@ -104,6 +180,7 @@ func GetWeeklyAutoRechargeUsage(user *model.User, pool *model.QuotaPool, now tim
 	if policy.AmountQuota <= 0 {
 		return usage, nil
 	}
+	now = now.In(common.BeijingTimeLocation)
 	used, err := model.CountAutoRechargeLogs(user.Id, startOfWeek(now).Unix())
 	if err != nil {
 		return usage, err
@@ -118,6 +195,7 @@ func GetWeeklyAutoRechargeUsage(user *model.User, pool *model.QuotaPool, now tim
 }
 
 func tryAutoRechargeUser(user *model.User, now time.Time) QuotaPoolAutoRechargeResult {
+	now = now.In(common.BeijingTimeLocation)
 	eligibility, pool := evaluateAutoRechargeUser(user, now, false)
 	if !eligibility.Eligible {
 		return QuotaPoolAutoRechargeResult{Reason: eligibility.Reason}

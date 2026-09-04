@@ -34,6 +34,7 @@ import {
   User,
   Users,
   Wallet,
+  Wrench,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -125,6 +126,11 @@ export function useSidebarData(): SidebarData {
             title: t('Profile'),
             url: '/profile',
             icon: User,
+          },
+          {
+            title: t('Tools'),
+            url: '/tools',
+            icon: Wrench,
           },
         ],
       },

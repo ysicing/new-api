@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -16,6 +17,7 @@ type MonthlyQuotaPoolRefillResult struct {
 
 func RefillMonthlyQuotaPools(now time.Time) (MonthlyQuotaPoolRefillResult, error) {
 	result := MonthlyQuotaPoolRefillResult{}
+	now = now.In(common.BeijingTimeLocation)
 	currentMonth := now.Year()*100 + int(now.Month())
 	var pools []model.QuotaPool
 	err := model.DB.Where(

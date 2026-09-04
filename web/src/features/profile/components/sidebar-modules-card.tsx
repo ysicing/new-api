@@ -120,6 +120,11 @@ export function SidebarModulesCard() {
           title: t('Personal Settings'),
           description: t('Personal info settings'),
         },
+        {
+          key: 'tools',
+          title: t('Tools'),
+          description: t('Account self-service queries and diagnostics.'),
+        },
       ],
     },
   ]
