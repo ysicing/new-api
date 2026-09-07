@@ -36,7 +36,7 @@ const requestLog: UsageLog = {
   upstream_request_id: '',
 }
 
-test('shows model request User-Agent only to administrators', () => {
+test('shows model request User-Agent to administrators and the log owner', () => {
   const adminView = render(
     <DetailsDialog
       log={requestLog}
@@ -59,6 +59,6 @@ test('shows model request User-Agent only to administrators', () => {
     />
   )
 
-  expect(screen.queryByText('User Agent')).not.toBeInTheDocument()
-  expect(screen.queryByText('codex-cli/1.2')).not.toBeInTheDocument()
+  expect(screen.getByText('User Agent')).toBeInTheDocument()
+  expect(screen.getByText('codex-cli/1.2')).toBeInTheDocument()
 })

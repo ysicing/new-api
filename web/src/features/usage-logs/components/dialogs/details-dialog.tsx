@@ -721,7 +721,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
             />
           )}
 
-          {props.isAdmin && showTiming && other?.user_agent && (
+          {showTiming && other?.user_agent && (
             <DetailRow
               label={t('User Agent')}
               value={String(other.user_agent)}

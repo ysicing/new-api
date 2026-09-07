@@ -123,10 +123,7 @@ func formatUserLogs(logs []*Log, startIdx int) {
 			delete(otherMap, "admin_info")
 			// Remove operation-audit details (operator/route info), admin-only.
 			delete(otherMap, "audit_info")
-			// Request UA is admin-only; login-session UA remains visible to its owner.
-			if logs[i].Type != LogTypeLogin {
-				delete(otherMap, "user_agent")
-			}
+			// 请求 UA 由用户自己的客户端产生，保留给日志所有者排查调用来源。
 			// delete(otherMap, "reject_reason")
 			// delete(otherMap, "stream_status")
 		}
