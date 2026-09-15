@@ -2826,6 +2826,7 @@
     "Member removed": "Member removed",
     "Member usage details": "Member usage details",
     "Members": "Members",
+    "Members can still use their existing quota after this pool is disabled. Automatic recharge and quota allocation by pool administrators will stop.": "Members can still use their existing quota after this pool is disabled. Automatic recharge and quota allocation by pool administrators will stop.",
     "Memory": "Memory",
     "Memory Hits": "Memory Hits",
     "Memory Threshold (%)": "Memory Threshold (%)",

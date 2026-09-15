@@ -37,9 +37,10 @@ export function QuotaPoolMemberActions(props: {
     (props.capabilities.can_manage_admins ||
       (!props.member.quota_pool_admin && props.member.role === ROLE.USER))
   const canGrantPoolAdmin =
-    props.member.role === ROLE.USER ||
-    props.member.role === ROLE.QUOTA_POOL_SUPER_ADMIN ||
-    props.member.role === ROLE.ADMIN
+    props.pool.enabled &&
+    (props.member.role === ROLE.USER ||
+      props.member.role === ROLE.QUOTA_POOL_SUPER_ADMIN ||
+      props.member.role === ROLE.ADMIN)
   const canManagePoolAdmin =
     props.capabilities.can_manage_admins &&
     (props.member.quota_pool_admin || canGrantPoolAdmin)
@@ -52,12 +53,14 @@ export function QuotaPoolMemberActions(props: {
     <DataTableRowActionMenu ariaLabel={t('Open menu')}>
       {showQuotaActions ? (
         <>
-          <DropdownMenuItem
-            disabled={props.rechargeDisabled}
-            onClick={() => props.onQuotaAction('recharge')}
-          >
-            {t('Recharge')}
-          </DropdownMenuItem>
+          {props.pool.enabled && (
+            <DropdownMenuItem
+              disabled={props.rechargeDisabled}
+              onClick={() => props.onQuotaAction('recharge')}
+            >
+              {t('Recharge')}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             disabled={(props.member.reclaim_amounts?.length ?? 0) === 0}
             onClick={() => props.onQuotaAction('reclaim')}

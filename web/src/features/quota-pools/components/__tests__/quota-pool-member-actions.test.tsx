@@ -6,7 +6,7 @@ it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 
 import type {
@@ -74,4 +74,55 @@ test('protected pools do not expose member removal', () => {
   expect(
     screen.queryByRole('button', { name: 'Remove member' })
   ).not.toBeInTheDocument()
+})
+
+test.each([true, false])(
+  'pool enabled=%s controls recharge and admin grant while retaining reclaim and removal',
+  async (enabled) => {
+    const onQuotaAction = vi.fn()
+    render(
+      <QuotaPoolMemberActions
+        pool={{ ...pool, pool_type: 'normal', enabled }}
+        capabilities={{ ...capabilities, can_manage_admins: true }}
+        member={{ ...member, reclaim_amounts: [30] }}
+        onQuotaAction={onQuotaAction}
+        onRemove={vi.fn()}
+        onAdminAction={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Open menu' }))
+    await screen.findByRole('menuitem', { name: 'Reclaim' })
+    expect(Boolean(screen.queryByRole('menuitem', { name: 'Recharge' }))).toBe(
+      enabled
+    )
+    expect(
+      Boolean(
+        screen.queryByRole('menuitem', { name: 'Set pool administrator' })
+      )
+    ).toBe(enabled)
+    expect(
+      screen.getByRole('menuitem', { name: 'Remove member' })
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Reclaim' }))
+    expect(onQuotaAction).toHaveBeenCalledWith('reclaim')
+  }
+)
+
+test('disabled pool retains administrator revocation', async () => {
+  const onAdminAction = vi.fn()
+  render(
+    <QuotaPoolMemberActions
+      pool={{ ...pool, pool_type: 'normal', enabled: false }}
+      capabilities={{ ...capabilities, can_manage_admins: true }}
+      member={{ ...member, quota_pool_admin: true }}
+      onQuotaAction={vi.fn()}
+      onRemove={vi.fn()}
+      onAdminAction={onAdminAction}
+    />
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Open menu' }))
+  fireEvent.click(
+    await screen.findByRole('menuitem', { name: 'Remove pool administrator' })
+  )
+  expect(onAdminAction).toHaveBeenCalledWith('revoke')
 })

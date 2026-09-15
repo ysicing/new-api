@@ -244,15 +244,14 @@ export function QuotaPools() {
       <SectionPageLayout>
         <SectionPageLayout.Title>{t('Quota pools')}</SectionPageLayout.Title>
         <SectionPageLayout.Actions>
-          {user?.role === ROLE.SUPER_ADMIN &&
-            selected?.pool_type === 'normal' && (
-              <QuotaPoolStatusAction
-                key={selected.id}
-                pool={selected}
-                onSaved={refresh}
-              />
-            )}
-          {selectedCapabilities.can_refill && selected && (
+          {user?.role === ROLE.SUPER_ADMIN && selected && (
+            <QuotaPoolStatusAction
+              key={selected.id}
+              pool={selected}
+              onSaved={refresh}
+            />
+          )}
+          {selectedCapabilities.can_refill && selected?.enabled && (
             <Button variant='outline' onClick={() => setRefillOpen(true)}>
               <RefreshCw data-icon='inline-start' />
               {t('Refill')}

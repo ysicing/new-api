@@ -287,7 +287,18 @@ func evaluateAutoRechargeUser(user *model.User, now time.Time, collectDetails bo
 }
 
 func autoRechargePool(user *model.User) (*model.QuotaPool, string) {
-	if !common.QuotaPoolEnabled || user.QuotaPoolId == model.QuotaPoolDefaultUserPoolId {
+	if !common.QuotaPoolEnabled {
+		return nil, ""
+	}
+	if user.QuotaPoolId == model.QuotaPoolDefaultUserPoolId {
+		// 存量用户以 0 标识系统池，仍走原有充值记账，但不能绕过池的禁用状态。
+		pool, err := model.GetDefaultQuotaPool()
+		if err != nil {
+			return nil, "quota_pool_not_found"
+		}
+		if !pool.Enabled {
+			return nil, "quota_pool_disabled"
+		}
 		return nil, ""
 	}
 	pool, err := model.GetQuotaPoolById(user.QuotaPoolId)

@@ -2826,6 +2826,7 @@
     "Member removed": "Участник удалён",
     "Member usage details": "Использование по участникам",
     "Members": "Участники",
+    "Members can still use their existing quota after this pool is disabled. Automatic recharge and quota allocation by pool administrators will stop.": "После отключения пула участники смогут использовать оставшуюся квоту. Автоматическое пополнение и выделение квоты администраторами пула будут приостановлены.",
     "Memory": "Память",
     "Memory Hits": "Попаданий памяти",
     "Memory Threshold (%)": "Порог памяти (%)",

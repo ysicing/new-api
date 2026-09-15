@@ -58,6 +58,13 @@ export function QuotaPoolStatusAction(props: {
             {props.pool.enabled
               ? t('Disable quota pool {{pool}}?', { pool: props.pool.name })
               : t('Enable quota pool {{pool}}?', { pool: props.pool.name })}
+            {props.pool.enabled && (
+              <span className='mt-2 block'>
+                {t(
+                  'Members can still use their existing quota after this pool is disabled. Automatic recharge and quota allocation by pool administrators will stop.'
+                )}
+              </span>
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

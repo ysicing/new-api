@@ -132,9 +132,6 @@ func SetQuotaPoolEnabled(poolId int, enabled bool) error {
 	if err := DB.Where("id = ?", poolId).First(&pool).Error; err != nil {
 		return mapQuotaPoolRecordError(err)
 	}
-	if pool.IsSystemPool() {
-		return ErrQuotaPoolSystemReadonly
-	}
 	return DB.Model(&pool).Update("enabled", enabled).Error
 }
 

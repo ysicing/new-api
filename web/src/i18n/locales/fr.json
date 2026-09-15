@@ -2826,6 +2826,7 @@
     "Member removed": "Membre retiré",
     "Member usage details": "Détails d'utilisation des membres",
     "Members": "Membres",
+    "Members can still use their existing quota after this pool is disabled. Automatic recharge and quota allocation by pool administrators will stop.": "Après la désactivation, les membres peuvent encore utiliser leur quota existant. La recharge automatique et les allocations de quota par les administrateurs du pool seront interrompues.",
     "Memory": "Mémoire",
     "Memory Hits": "Hits mémoire",
     "Memory Threshold (%)": "Seuil mémoire (%)",

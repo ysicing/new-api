@@ -2826,6 +2826,7 @@
     "Member removed": "メンバーを移出しました",
     "Member usage details": "メンバー使用量の詳細",
     "Members": "メンバー",
+    "Members can still use their existing quota after this pool is disabled. Automatic recharge and quota allocation by pool administrators will stop.": "無効化後も、メンバーは既存のクォータを利用できます。自動チャージは停止し、プール管理者によるメンバーへのクォータ追加もできなくなります。",
     "Memory": "メモリ",
     "Memory Hits": "メモリヒット",
     "Memory Threshold (%)": "メモリ閾値 (%)",

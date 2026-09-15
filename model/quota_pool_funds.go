@@ -24,6 +24,10 @@ func AllocateQuotaFromPool(poolId, userId, amount int, transactionType string, o
 		if err != nil {
 			return err
 		}
+		// 禁用只阻止发放额度；回收共用的成员锁仍须允许资金退回池中。
+		if !pool.Enabled {
+			return ErrQuotaPoolDisabled
+		}
 		change.QuotaBefore = pool.Quota
 		change.QuotaAfter = pool.Quota - amount
 		debit := tx.Model(&QuotaPool{}).
@@ -63,9 +67,6 @@ func lockQuotaPoolMember(tx *gorm.DB, poolId, userId int) (*QuotaPool, *User, er
 	if pool.IsSystemPool() {
 		return nil, nil, ErrQuotaPoolSystemReadonly
 	}
-	if !pool.Enabled {
-		return nil, nil, ErrQuotaPoolDisabled
-	}
 	var user User
 	if err := lockForUpdate(tx).Where("id = ?", userId).First(&user).Error; err != nil {
 		return nil, nil, err
@@ -82,6 +83,7 @@ func MoveUserBetweenQuotaPools(userId, targetPoolId int, allowSystemTarget bool,
 
 func AddUserToQuotaPool(userId, targetPoolId, operatorId int) (*QuotaPoolMoveResult, error) {
 	return moveUserBetweenQuotaPools(userId, targetPoolId, operatorId, quotaPoolMoveOptions{
+		allowDisabledTarget:      true,
 		requireEligibleCandidate: true,
 		requireCandidateSource:   true,
 	})
@@ -110,6 +112,7 @@ func RemoveQuotaPoolMember(removal QuotaPoolMemberRemoval) (*QuotaPoolMoveResult
 
 type quotaPoolMoveOptions struct {
 	allowSystemTarget        bool
+	allowDisabledTarget      bool
 	requireEligibleCandidate bool
 	requireCandidateSource   bool
 	requiredSourcePoolId     int
@@ -182,7 +185,7 @@ func prepareQuotaPoolMove(tx *gorm.DB, context *quotaPoolMoveContext) (*User, ma
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := validateMoveTarget(pools[context.targetPoolId], context.targetPoolId, context.options.allowSystemTarget); err != nil {
+	if err := validateMoveTarget(pools[context.targetPoolId], context.targetPoolId, context.options); err != nil {
 		return nil, nil, err
 	}
 	if err := context.validateMoveSource(tx, pools[user.QuotaPoolId], &user); err != nil {
@@ -240,17 +243,19 @@ func lockMovePools(tx *gorm.DB, oldPoolId, targetPoolId int) (map[int]*QuotaPool
 	return result, nil
 }
 
-func validateMoveTarget(target *QuotaPool, targetPoolId int, allowSystemTarget bool) error {
+func validateMoveTarget(target *QuotaPool, targetPoolId int, options quotaPoolMoveOptions) error {
 	if targetPoolId == QuotaPoolDefaultUserPoolId {
 		return nil
 	}
 	if target == nil {
 		return ErrQuotaPoolNotFound
 	}
-	if target.IsSystemPool() && !allowSystemTarget {
+	if target.IsSystemPool() && !options.allowSystemTarget {
 		return ErrQuotaPoolSystemReadonly
 	}
-	if !target.Enabled {
+	// 添加成员允许进入禁用池，后续首充由充值流程独立检查池状态。
+	// 移出成员和通用迁移继续沿用目标池必须启用的约束。
+	if !target.Enabled && !options.allowDisabledTarget {
 		return ErrQuotaPoolDisabled
 	}
 	return nil

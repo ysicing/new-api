@@ -25,6 +25,7 @@ func setupAutoRechargeTest(t *testing.T) *gorm.DB {
 	previousEnabled, previousRedis := common.QuotaPoolEnabled, common.RedisEnabled
 	previousConfig := *operation_setting.GetAutoRechargeSetting()
 	model.DB, model.LOG_DB = db, db
+	require.NoError(t, model.SyncSystemQuotaPools())
 	common.QuotaPoolEnabled = true
 	common.RedisEnabled = false
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
@@ -561,4 +562,43 @@ func TestQuotaPoolMaintenanceResultIncludesSkipReasons(t *testing.T) {
 		"quota_above_threshold":  1,
 		"new_user_pool_disabled": 1,
 	}, result.SkipReasons)
+}
+
+func TestDisabledSystemDefaultPoolBlocksAutoRechargeUntilRestored(t *testing.T) {
+	db := setupAutoRechargeTest(t)
+	require.NoError(t, model.SyncSystemQuotaPools())
+	pool, err := model.GetDefaultQuotaPool()
+	require.NoError(t, err)
+	user := model.User{Username: "disabled-default-member", AffCode: "disabled-default-member", Status: common.UserStatusEnabled}
+	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, model.SetQuotaPoolEnabled(pool.Id, false))
+	result := tryAutoRechargeUser(&user, time.Now())
+	assert.False(t, result.Recharged)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Zero(t, user.Quota)
+	require.NoError(t, model.SetQuotaPoolEnabled(pool.Id, true))
+	result = tryAutoRechargeUser(&user, time.Now())
+	assert.True(t, result.Recharged)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, common.QuotaFromFloat(common.QuotaPerUnit), user.Quota)
+}
+
+func TestJoiningDisabledQuotaPoolDoesNotGrantInitialRecharge(t *testing.T) {
+	db := setupAutoRechargeTest(t)
+	source, err := model.GetNewUserQuotaPool()
+	require.NoError(t, err)
+	target := model.QuotaPool{Name: "disabled-team", PoolType: model.QuotaPoolTypeNormal, Enabled: true, Quota: 1000000, AutoRechargeAmount: -1}
+	require.NoError(t, db.Create(&target).Error)
+	require.NoError(t, model.SetQuotaPoolEnabled(target.Id, false))
+	user := model.User{Username: "new-team-member", AffCode: "new-team-member", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: source.Id, Quota: 80}
+	require.NoError(t, db.Create(&user).Error)
+	_, err = model.AddUserToQuotaPool(user.Id, target.Id, 6)
+	require.NoError(t, err)
+	result := TryAutoRechargeUserById(user.Id)
+	assert.False(t, result.Recharged)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	require.NoError(t, db.First(&target, target.Id).Error)
+	assert.Equal(t, target.Id, user.QuotaPoolId)
+	assert.Zero(t, user.Quota)
+	assert.Equal(t, 1000000, target.Quota)
 }

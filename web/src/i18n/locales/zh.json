@@ -2826,6 +2826,7 @@
     "Member removed": "成员已移出",
     "Member usage details": "成员用量明细",
     "Members": "成员",
+    "Members can still use their existing quota after this pool is disabled. Automatic recharge and quota allocation by pool administrators will stop.": "禁用后，成员仍可使用已有额度，但将停止自动充值，池管理员也无法再为成员添加额度。",
     "Memory": "内存",
     "Memory Hits": "内存命中",
     "Memory Threshold (%)": "内存阈值 (%)",

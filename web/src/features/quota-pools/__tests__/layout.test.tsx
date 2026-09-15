@@ -451,8 +451,8 @@ test.each([
   [100, 'normal', true],
   [10, 'normal', false],
   [2, 'normal', false],
-  [100, 'default', false],
-  [100, 'new_user', false],
+  [100, 'default', true],
+  [100, 'new_user', true],
 ] as const)(
   'role %s sees status action for %s pool: %s',
   async (role, poolType, visible) => {
@@ -505,6 +505,11 @@ test('root confirms disable and restore, refreshing detail and list status', asy
   })
   fireEvent.click(await screen.findByText(pool.name))
   fireEvent.click(await screen.findByRole('button', { name: 'Disable' }))
+  expect(
+    screen.getByText(
+      'Members can still use their existing quota after this pool is disabled. Automatic recharge and quota allocation by pool administrators will stop.'
+    )
+  ).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
   expect(apiMocks.setQuotaPoolEnabled).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Disable' }))
@@ -515,6 +520,11 @@ test('root confirms disable and restore, refreshing detail and list status', asy
   await screen.findByRole('cell', { name: 'Disabled' })
   fireEvent.click(screen.getByText(pool.name))
   fireEvent.click(await screen.findByRole('button', { name: 'Enable' }))
+  expect(
+    screen.queryByText(
+      'Members can still use their existing quota after this pool is disabled. Automatic recharge and quota allocation by pool administrators will stop.'
+    )
+  ).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
   await screen.findByRole('button', { name: 'Disable' })
   expect(apiMocks.setQuotaPoolEnabled).toHaveBeenLastCalledWith(pool.id, true)
@@ -565,3 +575,40 @@ test('failed status change keeps confirmation open and allows retry', async () =
   )
   expect(apiMocks.setQuotaPoolEnabled).toHaveBeenCalledTimes(2)
 })
+
+test.each([true, false])(
+  'pool enabled=%s controls refill while retaining member addition',
+  async (enabled) => {
+    const selectedPool = { ...pool, enabled }
+    const capabilities = {
+      ...viewCapabilities,
+      can_refill: true,
+      can_manage_members: true,
+    }
+    apiMocks.getQuotaPools.mockResolvedValue({
+      success: true,
+      data: { items: [selectedPool], total: 1, capabilities },
+    })
+    apiMocks.getQuotaPool.mockResolvedValue({
+      success: true,
+      data: { pool: selectedPool, capabilities },
+    })
+    renderQuotaPools({
+      id: 3,
+      username: 'root',
+      role: 100,
+      quota_pool_enabled: true,
+    })
+    fireEvent.click(await screen.findByText(pool.name))
+    await screen.findByRole('tab', { name: 'Overview' })
+    expect(Boolean(screen.queryByRole('button', { name: 'Refill' }))).toBe(
+      enabled
+    )
+    expect(
+      screen.getByRole('button', { name: 'Add member' })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: enabled ? 'Disable' : 'Enable' })
+    ).toBeInTheDocument()
+  }
+)

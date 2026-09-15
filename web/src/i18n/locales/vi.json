@@ -2826,6 +2826,7 @@
     "Member removed": "Đã xóa thành viên khỏi nhóm",
     "Member usage details": "Chi tiết mức dùng thành viên",
     "Members": "Thành viên",
+    "Members can still use their existing quota after this pool is disabled. Automatic recharge and quota allocation by pool administrators will stop.": "Sau khi tắt nhóm, thành viên vẫn có thể sử dụng hạn mức hiện có. Việc tự động nạp và cấp thêm hạn mức cho thành viên bởi quản trị viên nhóm sẽ dừng lại.",
     "Memory": "Bộ nhớ",
     "Memory Hits": "Lượt truy cập bộ nhớ",
     "Memory Threshold (%)": "Ngưỡng bộ nhớ (%)",
