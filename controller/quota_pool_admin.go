@@ -110,12 +110,12 @@ func UpdateQuotaPool(c *gin.Context) {
 		writeQuotaPoolError(c, err)
 		return
 	}
-	change, err := model.UpdateQuotaPoolConfig(id, updates, c.GetInt("id"))
+	change, changes, err := model.UpdateQuotaPoolConfig(id, updates, c.GetInt("id"))
 	if err != nil {
 		writeQuotaPoolError(c, err)
 		return
 	}
-	recordQuotaPoolAudit(c, id, "quota_pool.update", map[string]any{"fields": len(updates)})
+	recordQuotaPoolAudit(c, id, "quota_pool.update", map[string]any{"fields": len(changes), "changes": changes})
 	warning := ""
 	if req.AutoRechargeAmount != nil && *req.AutoRechargeAmount > float64(operation_setting.GetAutoRechargeSetting().Amount*3) {
 		warning = "自动充值金额超过全局默认金额的 3 倍，请确认配置风险"

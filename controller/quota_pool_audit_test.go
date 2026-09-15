@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -158,4 +159,36 @@ func TestRecordQuotaPoolAuditStillWritesWhenSnapshotsCannotBeLoaded(t *testing.T
 	assert.NotContains(t, params, "user_name")
 	assert.NotContains(t, params, "quota_pool_name")
 	assert.NotContains(t, params, "target_pool_name")
+}
+
+func TestQuotaPoolConfigAuditRecordsBeforeAndAfter(t *testing.T) {
+	for _, self := range []bool{false, true} {
+		t.Run(fmt.Sprint(self), func(t *testing.T) {
+			db, c := setupQuotaPoolAuditTest(t)
+			require.NoError(t, db.AutoMigrate(&model.QuotaPoolAdmin{}))
+			previous := common.QuotaPoolEnabled
+			common.QuotaPoolEnabled = true
+			t.Cleanup(func() { common.QuotaPoolEnabled = previous })
+			pool := model.QuotaPool{Name: "配置审计池", PoolType: model.QuotaPoolTypeNormal, Enabled: true, WeeklyLimit: 2}
+			require.NoError(t, db.Create(&pool).Error)
+			c.Request = httptest.NewRequest(http.MethodPut, "/api/quota_pool/config", strings.NewReader(`{"weekly_limit":5}`))
+			c.Set("role", common.RoleRootUser)
+			c.Params = gin.Params{{Key: "id", Value: fmt.Sprint(pool.Id)}}
+			if self {
+				c.Set("role", common.RoleCommonUser)
+				require.NoError(t, db.Create(&model.QuotaPoolAdmin{PoolId: pool.Id, UserId: c.GetInt("id"), Level: model.QuotaPoolAdminLevel}).Error)
+				UpdateSelfQuotaPool(c)
+			} else {
+				UpdateQuotaPool(c)
+			}
+			other := lastQuotaPoolAudit(t, db)
+			expectedAction := "quota_pool.update"
+			if self {
+				expectedAction = "quota_pool.self_update"
+			}
+			assert.Equal(t, expectedAction, other.Op.Action)
+			assert.Equal(t, float64(1), other.Op.Params["fields"])
+			assert.Equal(t, []any{map[string]any{"field": "weekly_limit", "before": float64(2), "after": float64(5)}}, other.Op.Params["changes"])
+		})
+	}
 }

@@ -127,3 +127,46 @@ test.each([
     )
   ).toBe(content)
 })
+
+test.each(['quota_pool.update', 'quota_pool.self_update'])(
+  'renders %s configuration snapshots with units and special values',
+  (action) => {
+    const result = renderQuotaPoolOperation(
+      operationLog(action, {
+        ...baseParams,
+        fields: 3,
+        changes: [
+          { field: 'auto_recharge_amount', before: -1, after: 500000 },
+          { field: 'weekly_limit', before: 0, after: 3 },
+          { field: 'monthly_limit', before: 5, after: -1 },
+        ],
+      }),
+      translate
+    )
+    expect(result).toContain(
+      `Recharge amount: Inherit system setting → ${formatQuota(500000)}`
+    )
+    expect(result).toContain('Weekly limit: Unlimited → 3')
+    expect(result).toContain('Monthly limit: 5 → Inherit system setting')
+  }
+)
+
+test('renders zero recharge as disabled and boolean and name changes', () => {
+  const result = renderQuotaPoolOperation(
+    operationLog('quota_pool.update', {
+      ...baseParams,
+      changes: [
+        { field: 'auto_recharge_amount', before: 500000, after: 0 },
+        { field: 'monthly_refill_enabled', before: false, after: true },
+        { field: 'name', before: 'Old team', after: 'New team' },
+        null,
+        { field: 'unknown', before: 1, after: 2 },
+      ],
+    }),
+    translate
+  )
+  expect(result).toContain(`Recharge amount: ${formatQuota(500000)} → Disabled`)
+  expect(result).toContain('Monthly refill: Disabled → Enabled')
+  expect(result).toContain('Name: Old team → New team')
+  expect(result).not.toContain('unknown')
+})

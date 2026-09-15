@@ -58,16 +58,25 @@ func validateQuotaPoolPolicyUpdates(pool QuotaPool, updates map[string]any) erro
 	return nil
 }
 
-func UpdateQuotaPoolConfig(poolId int, updates map[string]any, operatorId int) (*QuotaPoolBalanceChange, error) {
+// QuotaPoolConfigChange 保存事务内的配置变更快照，金额使用内部额度单位。
+type QuotaPoolConfigChange struct {
+	Field  string `json:"field"`
+	Before any    `json:"before"`
+	After  any    `json:"after"`
+}
+
+// UpdateQuotaPoolConfig 更新池配置，返回余额变化及实际配置变更快照；失败时不返回审计快照。
+func UpdateQuotaPoolConfig(poolId int, updates map[string]any, operatorId int) (*QuotaPoolBalanceChange, []QuotaPoolConfigChange, error) {
 	if len(updates) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	for key := range updates {
 		if _, ok := quotaPoolConfigColumns[key]; !ok {
-			return nil, ErrQuotaPoolPermissionDenied
+			return nil, nil, ErrQuotaPoolPermissionDenied
 		}
 	}
 	var change *QuotaPoolBalanceChange
+	changes := make([]QuotaPoolConfigChange, 0, len(updates))
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var pool QuotaPool
 		if err := lockForUpdate(tx).Where("id = ?", poolId).First(&pool).Error; err != nil {
@@ -109,6 +118,22 @@ func UpdateQuotaPoolConfig(poolId int, updates map[string]any, operatorId int) (
 			}
 			updates["quota"] = gorm.Expr("quota + ?", delta)
 		}
+		// 在持有行锁时读取旧值；使用实际变化而非表单提交字段数，避免并发和未修改字段造成误导。
+		for _, previous := range []struct {
+			field string
+			value any
+		}{
+			{"name", pool.Name}, {"base_quota", pool.BaseQuota},
+			{"auto_recharge_amount", pool.AutoRechargeAmount},
+			{"weekly_limit", pool.WeeklyLimit}, {"monthly_limit", pool.MonthlyLimit},
+			{"monthly_refill_enabled", pool.MonthlyRefillEnabled},
+			{"monthly_refill_top_up", pool.MonthlyRefillTopUp},
+			{"monthly_refill_amount", pool.MonthlyRefillAmount}, {"monthly_refill_day", pool.MonthlyRefillDay},
+		} {
+			if next, ok := updates[previous.field]; ok && next != previous.value {
+				changes = append(changes, QuotaPoolConfigChange{Field: previous.field, Before: previous.value, After: next})
+			}
+		}
 		if err := tx.Model(&QuotaPool{}).Where("id = ?", poolId).Updates(updates).Error; err != nil {
 			return err
 		}
@@ -122,9 +147,9 @@ func UpdateQuotaPoolConfig(poolId int, updates map[string]any, operatorId int) (
 		}).Error
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return change, nil
+	return change, changes, nil
 }
 
 func SetQuotaPoolEnabled(poolId int, enabled bool) error {

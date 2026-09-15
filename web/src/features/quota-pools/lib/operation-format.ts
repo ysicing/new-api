@@ -42,7 +42,7 @@ export function renderQuotaPoolOperationDescriptor(
   const template = operationTemplate(descriptor)
   if (!template) return null
   const params = descriptor.params
-  return t(template, {
+  const summary = t(template, {
     user: identifierLabel(params.user_name, params.user_id, true),
     pool: identifierLabel(params.quota_pool_name, params.quota_pool_id, false),
     targetPool: identifierLabel(
@@ -53,6 +53,71 @@ export function renderQuotaPoolOperationDescriptor(
     amount: quotaLabel(params.amount),
     fields: numberLabel(params.fields),
   })
+  if (
+    !['quota_pool.update', 'quota_pool.self_update'].includes(
+      descriptor.action
+    ) ||
+    !Array.isArray(params.changes)
+  ) {
+    return summary
+  }
+
+  const labels: Record<string, string> = {
+    name: t('Name'),
+    base_quota: t('Base quota'),
+    auto_recharge_amount: t('Recharge amount'),
+    weekly_limit: t('Weekly limit'),
+    monthly_limit: t('Monthly limit'),
+    monthly_refill_enabled: t('Monthly refill'),
+    monthly_refill_top_up: t('Top up to target quota'),
+    monthly_refill_amount: t('Monthly refill amount'),
+    monthly_refill_day: t('Monthly refill day'),
+  }
+  const details: string[] = []
+  for (const change of params.changes) {
+    if (
+      !change ||
+      typeof change !== 'object' ||
+      typeof change.field !== 'string'
+    ) {
+      continue
+    }
+    if (!Object.hasOwn(labels, change.field)) continue
+    const label = labels[change.field]
+    details.push(
+      `${label}: ${formatQuotaPoolConfigValue(change.field, change.before, t)} → ${formatQuotaPoolConfigValue(change.field, change.after, t)}`
+    )
+  }
+  return [summary, ...details].join('\n')
+}
+
+function formatQuotaPoolConfigValue(
+  field: string,
+  value: unknown,
+  t: Translate
+): string {
+  if (field === 'name') return typeof value === 'string' ? value : '—'
+  if (field === 'monthly_refill_enabled' || field === 'monthly_refill_top_up') {
+    if (typeof value !== 'boolean') return '—'
+    return value ? t('Enabled') : t('Disabled')
+  }
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—'
+  if (
+    ['auto_recharge_amount', 'weekly_limit', 'monthly_limit'].includes(field)
+  ) {
+    if (value === -1) return t('Inherit system setting')
+    if (value === 0) {
+      return field === 'auto_recharge_amount' ? t('Disabled') : t('Unlimited')
+    }
+  }
+  if (
+    ['base_quota', 'auto_recharge_amount', 'monthly_refill_amount'].includes(
+      field
+    )
+  ) {
+    return formatQuota(value)
+  }
+  return String(value)
 }
 
 function operationTemplate(

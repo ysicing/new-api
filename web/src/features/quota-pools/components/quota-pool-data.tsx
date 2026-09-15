@@ -220,7 +220,9 @@ export function PoolOperationLogs(props: {
               <TableCell>
                 {item.username || (item.user_id > 0 ? `#${item.user_id}` : '—')}
               </TableCell>
-              <TableCell>{renderQuotaPoolOperation(item, t)}</TableCell>
+              <TableCell className='whitespace-pre-line'>
+                {renderQuotaPoolOperation(item, t)}
+              </TableCell>
               <TableCell>{formatTimestamp(item.created_at)}</TableCell>
             </TableRow>
           ))}

@@ -224,7 +224,7 @@ func TestUpdateQuotaPoolConfigAdjustsAvailableQuotaWithBaseQuota(t *testing.T) {
 	pool, _ := seedQuotaPoolMember(t, db, 1000, 0)
 	require.NoError(t, db.Model(&pool).Update("quota", 400).Error)
 
-	change, err := UpdateQuotaPoolConfig(pool.Id, map[string]any{"base_quota": 1200, "weekly_limit": 3}, 7)
+	change, _, err := UpdateQuotaPoolConfig(pool.Id, map[string]any{"base_quota": 1200, "weekly_limit": 3}, 7)
 
 	require.NoError(t, err)
 	require.NotNil(t, change)
@@ -248,7 +248,7 @@ func TestUpdateQuotaPoolConfigValidatesSpecialValuesAndMonthlyPolicy(t *testing.
 			pool := QuotaPool{Name: "校验池", PoolType: QuotaPoolTypeNormal, Enabled: true}
 			require.NoError(t, db.Create(&pool).Error)
 
-			_, err := UpdateQuotaPoolConfig(pool.Id, updates, 7)
+			_, _, err := UpdateQuotaPoolConfig(pool.Id, updates, 7)
 
 			assert.ErrorIs(t, err, ErrQuotaPoolInvalidAmount)
 		})
@@ -261,7 +261,7 @@ func TestUpdateQuotaPoolConfigValidatesSpecialValuesAndMonthlyPolicy(t *testing.
 		}
 		require.NoError(t, db.Create(&pool).Error)
 
-		_, err := UpdateQuotaPoolConfig(pool.Id, map[string]any{"monthly_refill_enabled": true}, 7)
+		_, _, err := UpdateQuotaPoolConfig(pool.Id, map[string]any{"monthly_refill_enabled": true}, 7)
 
 		assert.ErrorIs(t, err, ErrQuotaPoolInvalidAmount)
 	})
@@ -269,7 +269,7 @@ func TestUpdateQuotaPoolConfigValidatesSpecialValuesAndMonthlyPolicy(t *testing.
 	db := setupQuotaPoolFundsTestDB(t)
 	pool := QuotaPool{Name: "有效池", PoolType: QuotaPoolTypeNormal, Enabled: true}
 	require.NoError(t, db.Create(&pool).Error)
-	_, err := UpdateQuotaPoolConfig(pool.Id, map[string]any{
+	_, _, err := UpdateQuotaPoolConfig(pool.Id, map[string]any{
 		"monthly_refill_enabled": true,
 		"monthly_refill_top_up":  true,
 		"monthly_refill_amount":  500,
