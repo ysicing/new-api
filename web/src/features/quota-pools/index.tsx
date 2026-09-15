@@ -13,6 +13,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { canListAllQuotaPools, shouldShowQuotaPoolList } from './access'
@@ -24,6 +25,7 @@ import {
   RefillQuotaPoolDialog,
 } from './components/quota-pool-dialogs'
 import { QuotaPoolList } from './components/quota-pool-list'
+import { QuotaPoolStatusAction } from './components/quota-pool-status-action'
 import { QuotaPoolSwitcher } from './components/quota-pool-switcher'
 import type { QuotaPool, QuotaPoolCapabilities } from './types'
 
@@ -242,6 +244,14 @@ export function QuotaPools() {
       <SectionPageLayout>
         <SectionPageLayout.Title>{t('Quota pools')}</SectionPageLayout.Title>
         <SectionPageLayout.Actions>
+          {user?.role === ROLE.SUPER_ADMIN &&
+            selected?.pool_type === 'normal' && (
+              <QuotaPoolStatusAction
+                key={selected.id}
+                pool={selected}
+                onSaved={refresh}
+              />
+            )}
           {selectedCapabilities.can_refill && selected && (
             <Button variant='outline' onClick={() => setRefillOpen(true)}>
               <RefreshCw data-icon='inline-start' />

@@ -17,6 +17,7 @@ import type { QuotaPool, QuotaPoolCapabilities } from '../types'
 
 const apiMocks = vi.hoisted(() => ({
   addQuotaPoolMember: vi.fn(),
+  setQuotaPoolEnabled: vi.fn(),
   getQuotaPools: vi.fn(),
   getQuotaPool: vi.fn(),
   getQuotaPoolCandidates: vi.fn(),
@@ -444,4 +445,123 @@ test('global administrator opens the add-member dialog from pool details', async
     await screen.findByRole('dialog', { name: 'Add member' })
   ).toBeInTheDocument()
   expect(screen.getByRole('combobox', { name: 'User' })).toBeInTheDocument()
+})
+
+test.each([
+  [100, 'normal', true],
+  [10, 'normal', false],
+  [2, 'normal', false],
+  [100, 'default', false],
+  [100, 'new_user', false],
+] as const)(
+  'role %s sees status action for %s pool: %s',
+  async (role, poolType, visible) => {
+    const selectedPool = { ...pool, pool_type: poolType }
+    apiMocks.getQuotaPools.mockResolvedValue({
+      success: true,
+      data: { items: [selectedPool], total: 1, capabilities: viewCapabilities },
+    })
+    apiMocks.getQuotaPool.mockResolvedValue({
+      success: true,
+      data: { pool: selectedPool, capabilities: viewCapabilities },
+    })
+    renderQuotaPools({
+      id: 3,
+      username: 'operator',
+      role,
+      quota_pool_enabled: true,
+    })
+    fireEvent.click(await screen.findByText(pool.name))
+    await screen.findByRole('tab', { name: 'Overview' })
+    expect(Boolean(screen.queryByRole('button', { name: 'Disable' }))).toBe(
+      visible
+    )
+  }
+)
+
+test('root confirms disable and restore, refreshing detail and list status', async () => {
+  let enabled = true
+  apiMocks.getQuotaPools.mockImplementation(async () => ({
+    success: true,
+    data: {
+      items: [{ ...pool, enabled }],
+      total: 1,
+      capabilities: viewCapabilities,
+    },
+  }))
+  apiMocks.getQuotaPool.mockImplementation(async () => ({
+    success: true,
+    data: { pool: { ...pool, enabled }, capabilities: viewCapabilities },
+  }))
+  apiMocks.setQuotaPoolEnabled.mockImplementation(async (_id, nextEnabled) => {
+    enabled = nextEnabled
+    return { success: true }
+  })
+  renderQuotaPools({
+    id: 3,
+    username: 'root',
+    role: 100,
+    quota_pool_enabled: true,
+  })
+  fireEvent.click(await screen.findByText(pool.name))
+  fireEvent.click(await screen.findByRole('button', { name: 'Disable' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(apiMocks.setQuotaPoolEnabled).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Disable' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+  await screen.findByRole('button', { name: 'Enable' })
+  expect(apiMocks.setQuotaPoolEnabled).toHaveBeenCalledWith(pool.id, false)
+  fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+  await screen.findByRole('cell', { name: 'Disabled' })
+  fireEvent.click(screen.getByText(pool.name))
+  fireEvent.click(await screen.findByRole('button', { name: 'Enable' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+  await screen.findByRole('button', { name: 'Disable' })
+  expect(apiMocks.setQuotaPoolEnabled).toHaveBeenLastCalledWith(pool.id, true)
+})
+
+test('failed status change keeps confirmation open and allows retry', async () => {
+  apiMocks.getQuotaPools.mockResolvedValue({
+    success: true,
+    data: { items: [pool], total: 1, capabilities: viewCapabilities },
+  })
+  apiMocks.getQuotaPool.mockResolvedValue({
+    success: true,
+    data: { pool, capabilities: viewCapabilities },
+  })
+  let resolveRequest: (value: {
+    success: boolean
+    message: string
+  }) => void = () => {}
+  apiMocks.setQuotaPoolEnabled.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveRequest = resolve
+      })
+  )
+  renderQuotaPools({
+    id: 3,
+    username: 'root',
+    role: 100,
+    quota_pool_enabled: true,
+  })
+  fireEvent.click(await screen.findByText(pool.name))
+  fireEvent.click(await screen.findByRole('button', { name: 'Disable' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeDisabled()
+  )
+  expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+  resolveRequest({ success: false, message: 'Operation failed' })
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeEnabled()
+  )
+  expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+  expect(apiMocks.setQuotaPoolEnabled).toHaveBeenCalledTimes(1)
+  apiMocks.setQuotaPoolEnabled.mockResolvedValue({ success: true })
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+  await waitFor(() =>
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  )
+  expect(apiMocks.setQuotaPoolEnabled).toHaveBeenCalledTimes(2)
 })

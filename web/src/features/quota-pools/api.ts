@@ -176,6 +176,13 @@ export async function refillQuotaPool(poolId: number, amount: number) {
   return response.data
 }
 
+export async function setQuotaPoolEnabled(poolId: number, enabled: boolean) {
+  const response = await api.post<ApiResponse>(
+    `/api/quota_pool/${poolId}/${enabled ? 'enable' : 'disable'}`
+  )
+  return response.data
+}
+
 export async function addQuotaPoolMember(
   poolId: number,
   userId: number,

@@ -20,6 +20,7 @@ import {
   removeQuotaPoolMember,
   reclaimQuotaPoolMember,
   setQuotaPoolAdmin,
+  setQuotaPoolEnabled,
 } from '../api'
 
 const apiMocks = vi.hoisted(() => ({
@@ -42,6 +43,17 @@ describe('quota pool members API', () => {
     apiMocks.put.mockResolvedValue({ data: { success: true, data: {} } })
     apiMocks.delete.mockResolvedValue({ data: { success: true, data: {} } })
   })
+
+  test.each([
+    [false, '/api/quota_pool/7/disable'],
+    [true, '/api/quota_pool/7/enable'],
+  ] as const)(
+    'sets enabled=%s through the Root endpoint',
+    async (enabled, endpoint) => {
+      await setQuotaPoolEnabled(7, enabled)
+      expect(apiMocks.post).toHaveBeenCalledWith(endpoint)
+    }
+  )
 
   test('passes pagination and search parameters to the global endpoint', async () => {
     await getQuotaPoolMembers(7, false, {
