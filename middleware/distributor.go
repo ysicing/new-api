@@ -32,6 +32,7 @@ type ModelRequest struct {
 
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
+		defer service.ReleaseChannelConcurrency(c)
 		var channel *model.Channel
 		channelId, ok := common.GetContextKey(c, constant.ContextKeyTokenSpecificChannelId)
 		modelRequest, shouldSelectChannel, err := getModelRequest(c)
@@ -161,8 +162,27 @@ func Distribute() func(c *gin.Context) {
 				}
 			}
 		}
+		reserveInitialChannel := channel != nil
+		// MJ 派生操作稍后绑定原任务渠道，不能被此处的临时选路容量阻挡。
+		if strings.Contains(c.Request.URL.Path, "/mj/") {
+			switch c.GetInt("relay_mode") {
+			case relayconstant.RelayModeMidjourneyChange, relayconstant.RelayModeMidjourneySimpleChange, relayconstant.RelayModeMidjourneyAction, relayconstant.RelayModeMidjourneyModal, relayconstant.RelayModeMidjourneyVideo:
+				reserveInitialChannel = false
+			}
+		}
+		if reserveInitialChannel {
+			var capacityErr *types.NewAPIError
+			channel, capacityErr = service.ReserveChannelForRequest(c, channel)
+			if capacityErr != nil {
+				abortWithOpenAiMessage(c, capacityErr.StatusCode, capacityErr.Error(), capacityErr.GetErrorCode())
+				return
+			}
+		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
-		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
+		if setupErr := SetupContextForSelectedChannel(c, channel, modelRequest.Model); setupErr != nil {
+			abortWithOpenAiMessage(c, setupErr.StatusCode, setupErr.Error(), setupErr.GetErrorCode())
+			return
+		}
 		c.Next()
 		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest {
 			service.RecordChannelAffinity(c, channel.Id)

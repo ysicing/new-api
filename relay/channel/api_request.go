@@ -529,6 +529,9 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
+	if leaseCtx := service.ChannelConcurrencyContext(c); leaseCtx != nil {
+		req = req.WithContext(leaseCtx)
+	}
 	resp, err := relayClient.Do(req)
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())

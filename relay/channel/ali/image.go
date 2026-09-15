@@ -192,7 +192,7 @@ func oaiFormEdit2AliImageEdit(c *gin.Context, info *relaycommon.RelayInfo, reque
 	return &imageRequest, nil
 }
 
-func updateTask(info *relaycommon.RelayInfo, taskID string) (*AliResponse, error, []byte) {
+func updateTask(c *gin.Context, info *relaycommon.RelayInfo, taskID string) (*AliResponse, error, []byte) {
 	url := fmt.Sprintf("%s/api/v1/tasks/%s", info.ChannelBaseUrl, taskID)
 
 	var aliResponse AliResponse
@@ -205,6 +205,9 @@ func updateTask(info *relaycommon.RelayInfo, taskID string) (*AliResponse, error
 	req.Header.Set("Authorization", "Bearer "+info.ApiKey)
 
 	client := &http.Client{}
+	if leaseCtx := service.ChannelConcurrencyContext(c); leaseCtx != nil {
+		req = req.WithContext(leaseCtx)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		common.SysLog("updateTask client.Do err: " + err.Error())
@@ -232,16 +235,32 @@ func asyncTaskWait(c *gin.Context, info *relaycommon.RelayInfo, taskID string) (
 	var taskResponse AliResponse
 	var responseBody []byte
 
-	time.Sleep(time.Duration(5) * time.Second)
+	initialWait := time.NewTimer(5 * time.Second)
+	defer initialWait.Stop()
+	var canceled <-chan struct{}
+	if leaseCtx := service.ChannelConcurrencyContext(c); leaseCtx != nil {
+		canceled = leaseCtx.Done()
+	}
+	select {
+	case <-initialWait.C:
+	case <-canceled:
+		return nil, nil, c.Request.Context().Err()
+	}
 
 	for {
 		logger.LogDebug(c, "asyncTaskWait step %d/%d, wait %d seconds", step, maxStep, waitSeconds)
 		step++
-		rsp, err, body := updateTask(info, taskID)
+		rsp, err, body := updateTask(c, info, taskID)
 		responseBody = body
 		if err != nil {
 			logger.LogWarn(c, "asyncTaskWait UpdateTask err: "+err.Error())
-			time.Sleep(time.Duration(waitSeconds) * time.Second)
+			timer := time.NewTimer(time.Duration(waitSeconds) * time.Second)
+			select {
+			case <-timer.C:
+			case <-canceled:
+				timer.Stop()
+				return nil, nil, c.Request.Context().Err()
+			}
 			continue
 		}
 
@@ -262,7 +281,13 @@ func asyncTaskWait(c *gin.Context, info *relaycommon.RelayInfo, taskID string) (
 		if step >= maxStep {
 			break
 		}
-		time.Sleep(time.Duration(waitSeconds) * time.Second)
+		timer := time.NewTimer(time.Duration(waitSeconds) * time.Second)
+		select {
+		case <-timer.C:
+		case <-canceled:
+			timer.Stop()
+			return nil, nil, c.Request.Context().Err()
+		}
 	}
 
 	return nil, nil, fmt.Errorf("aliAsyncTaskWait timeout")

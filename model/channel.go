@@ -21,6 +21,8 @@ import (
 )
 
 type Channel struct {
+	// MaxConcurrency 为 nil 或 0 时不限并发；按渠道 ID 共享所有模型和 Key 的名额。
+	MaxConcurrency     *int    `json:"max_concurrency" gorm:"type:int"`
 	Id                 int     `json:"id"`
 	Type               int     `json:"type" gorm:"default:0"`
 	Key                string  `json:"key" gorm:"not null"`

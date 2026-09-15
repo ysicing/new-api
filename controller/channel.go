@@ -476,6 +476,10 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		return fmt.Errorf("channel cannot be empty")
 	}
 
+	if channel.MaxConcurrency != nil && (*channel.MaxConcurrency < 0 || *channel.MaxConcurrency > 100000) {
+		return fmt.Errorf("max_concurrency must be between 0 and 100000")
+	}
+
 	// 校验 channel settings
 	if err := channel.ValidateSettings(); err != nil {
 		return fmt.Errorf("渠道额外设置[channel setting] 格式错误：%s", err.Error())

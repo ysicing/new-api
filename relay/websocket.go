@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"context"
 	"fmt"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -33,6 +34,15 @@ func WssHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.
 	if resp != nil {
 		info.TargetWs = resp.(*websocket.Conn)
 		defer info.TargetWs.Close()
+		target, client := info.TargetWs, info.ClientWs
+		// 租约续期失败会取消请求；关闭阻塞中的 WebSocket 读写以及时结束占用。
+		stop := context.AfterFunc(c.Request.Context(), func() {
+			_ = target.Close()
+			if client != nil {
+				_ = client.Close()
+			}
+		})
+		defer stop()
 	}
 
 	usage, newAPIError := adaptor.DoResponse(c, nil, info)

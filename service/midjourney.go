@@ -274,6 +274,21 @@ func ConvertSimpleChangeParams(content string) *dto.MidjourneyRequest {
 }
 
 func DoMidjourneyHttpRequest(c *gin.Context, timeout time.Duration, fullRequestURL string) (*dto.MidjourneyResponseWithStatusCode, []byte, error) {
+	// 最终发送前按实际渠道兜底占位，避免缺少 taskId 等输入跳过原任务分支后绕过容量限制。
+	if channelID := c.GetInt("channel_id"); channelID > 0 {
+		channel, err := model.CacheGetChannel(channelID)
+		if err != nil {
+			return MidjourneyErrorWithStatusCodeWrapper(http.StatusServiceUnavailable, "get_channel_failed", http.StatusServiceUnavailable), nil, err
+		}
+		if _, capacityErr := ReserveChannelForRequest(c, channel); capacityErr != nil {
+			code := 30
+			if capacityErr.StatusCode != http.StatusTooManyRequests {
+				code = http.StatusServiceUnavailable
+			}
+			return MidjourneyErrorWithStatusCodeWrapper(code, capacityErr.Error(), capacityErr.StatusCode), nil, capacityErr.Err
+		}
+	}
+
 	var nullBytes []byte
 	//var requestBody io.Reader
 	//requestBody = c.Request.Body
@@ -311,7 +326,11 @@ func DoMidjourneyHttpRequest(c *gin.Context, timeout time.Duration, fullRequestU
 	if err != nil {
 		return MidjourneyErrorWithStatusCodeWrapper(constant.MjErrorUnknown, "create_request_failed", http.StatusInternalServerError), nullBytes, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	parent := context.Background()
+	if leaseCtx := ChannelConcurrencyContext(c); leaseCtx != nil {
+		parent = leaseCtx
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	// 使用带有超时的 context 创建新的请求
 	req = req.WithContext(ctx)
 	req.Header.Set("Content-Type", c.Request.Header.Get("Content-Type"))

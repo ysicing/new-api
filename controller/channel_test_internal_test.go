@@ -463,3 +463,17 @@ func TestTestAllChannelsRejectsExistingActiveTask(t *testing.T) {
 	require.Contains(t, recorder.Body.String(), existing.TaskID)
 	require.Contains(t, recorder.Body.String(), "已有通道测试任务正在运行或等待中")
 }
+
+func TestValidateChannelConcurrencyBounds(t *testing.T) {
+	for _, value := range []int{0, 1, 100000, -1, 100001} {
+		t.Run(fmt.Sprint(value), func(t *testing.T) {
+			channel := &model.Channel{Type: constant.ChannelTypeOpenAI, MaxConcurrency: common.GetPointer(value)}
+			err := validateChannel(channel, false)
+			if value < 0 || value > 100000 {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

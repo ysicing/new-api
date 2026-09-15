@@ -336,6 +336,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     hasConfiguredOverrideValue(values.status_code_mapping) ||
     values.tag?.trim() ||
     values.remark?.trim() ||
+    values.max_concurrency ||
     values.priority ||
     values.weight ||
     values.proxy?.trim() ||
@@ -737,6 +738,7 @@ export function ChannelMutateDrawer({
   )
   const currentSettings = form.watch('settings')
   const currentAdvancedCustom = form.watch('advanced_custom')
+  const currentMaxConcurrency = form.watch('max_concurrency')
   const currentPriority = form.watch('priority')
   const currentWeight = form.watch('weight')
   const currentTestModel = form.watch('test_model')
@@ -1003,12 +1005,14 @@ export function ChannelMutateDrawer({
     ? 'error'
     : 'idle'
   const advancedSummary = advancedHaveErrors ? t('Error') : undefined
-  const routingStrategyConfigured = Boolean(
-    currentPriority ||
-    currentWeight ||
-    currentTestModel?.trim() ||
-    (currentAutoBan ?? 1) !== 1
-  )
+  const routingStrategyConfigured =
+    Boolean(currentMaxConcurrency) ||
+    Boolean(
+      currentPriority ||
+      currentWeight ||
+      currentTestModel?.trim() ||
+      (currentAutoBan ?? 1) !== 1
+    )
   const internalNotesConfigured = Boolean(
     currentTag?.trim() || currentRemark?.trim()
   )
@@ -3643,6 +3647,38 @@ export function ChannelMutateDrawer({
                               title={t('Routing Strategy')}
                               icon={<Route className='h-3.5 w-3.5' />}
                               iconTone='info'
+                            />
+                            <FormField
+                              control={form.control}
+                              name='max_concurrency'
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>
+                                    {t('Maximum concurrent requests')}
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      type='number'
+                                      min={0}
+                                      max={100000}
+                                      step={1}
+                                      {...field}
+                                      value={field.value ?? 0}
+                                      onChange={(event) =>
+                                        field.onChange(
+                                          Number(event.target.value)
+                                        )
+                                      }
+                                    />
+                                  </FormControl>
+                                  <FormDescription>
+                                    {t(
+                                      '0 means unlimited. Streaming requests occupy a slot until they finish. Requests are rejected with HTTP 429 when this channel is full.'
+                                    )}
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
                             />
                             <div className='grid gap-4 sm:grid-cols-2'>
                               <FormField
