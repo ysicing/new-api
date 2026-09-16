@@ -30,7 +30,10 @@ func TestChannelConcurrencyHoldsStreamingSlotUntilCancellation(t *testing.T) {
 	t.Cleanup(func() { model.DB, common.RedisEnabled = previousDB, previousRedis })
 	finished := make(chan struct{})
 	router := gin.New()
-	router.Use(func(c *gin.Context) { common.SetContextKey(c, constant.ContextKeyTokenSpecificChannelId, "701") })
+	router.Use(func(c *gin.Context) {
+		common.SetContextKey(c, constant.ContextKeyTokenSpecificChannelId, "701")
+		c.Set(common.RequestIdKey, "concurrency-test")
+	})
 	router.POST("/v1/chat/completions", func(c *gin.Context) {
 		if c.Query("stream") == "true" {
 			defer close(finished)
@@ -67,6 +70,9 @@ func TestChannelConcurrencyHoldsStreamingSlotUntilCancellation(t *testing.T) {
 	require.NoError(t, err)
 	_ = busy.Body.Close()
 	assert.Equal(t, http.StatusTooManyRequests, busy.StatusCode, string(body))
+	var rejected map[string]any
+	require.NoError(t, common.Unmarshal(body, &rejected))
+	assert.Equal(t, map[string]any{"error": map[string]any{"code": "channel_concurrency_limit", "message": "Concurrency limit exceeded for account, please retry later (request id: concurrency-test)", "type": "new_api_error"}}, rejected)
 	cancel()
 	<-finished
 	failed, err := server.Client().Post(server.URL+"/v1/chat/completions?fail=true", "application/json", strings.NewReader(`{"model":"chat-model"}`))

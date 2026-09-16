@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"sync"
 	"time"
@@ -16,10 +17,12 @@ import (
 	"github.com/google/uuid"
 )
 
-var ErrChannelConcurrencyFull = errors.New("channel concurrency limit reached")
+var ErrChannelConcurrencyFull = errors.New(channelConcurrencyLimitMessage)
 
 const channelLeaseTTL = 30 * time.Second
 const channelLeaseKey = "channel_concurrency_lease"
+const channelConcurrencyRejectedKey = "channel_concurrency_rejected"
+const channelConcurrencyLimitMessage = "Concurrency limit exceeded for account, please retry later"
 
 // 每个请求使用独立租约。Redis 服务端时间避免实例时钟偏移；续租支持长流，过期回收崩溃实例的名额。
 var acquireChannelLease = redis.NewScript(`
@@ -156,14 +159,27 @@ func acquireChannelSlot(ctx context.Context, channelID, limit int, cancel contex
 	}), nil
 }
 
-// ReserveChannelForRequest 只检查已选渠道的容量；满载直接返回 429，不扩展既有选路或重试策略。
+// ReserveChannelForRequest 只检查已选渠道的容量；满载短暂随机延迟后返回 429，不排队或重新选路。
 func ReserveChannelForRequest(c *gin.Context, channel *model.Channel) (*model.Channel, *types.NewAPIError) {
 	err := reserveChannelConcurrency(c, channel)
 	if err == nil {
 		return channel, nil
 	}
 	if errors.Is(err, ErrChannelConcurrencyFull) {
+		// 延迟只缓和拒绝响应，不占并发名额，也不在等待后重新竞争名额。
+		timer := time.NewTimer(200*time.Millisecond + time.Duration(rand.Int64N(int64(600*time.Millisecond)+1)))
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-c.Request.Context().Done():
+		}
+		c.Set(channelConcurrencyRejectedKey, true)
 		return nil, types.NewErrorWithStatusCode(ErrChannelConcurrencyFull, "channel_concurrency_limit", http.StatusTooManyRequests, types.ErrOptionWithSkipRetry())
 	}
 	return nil, types.NewErrorWithStatusCode(errors.New("channel concurrency store unavailable"), "channel_concurrency_unavailable", http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
+}
+
+// IsChannelConcurrencyRejection 区分本地渠道并发拒绝与上游返回的 429。
+func IsChannelConcurrencyRejection(c *gin.Context) bool {
+	return c.GetBool(channelConcurrencyRejectedKey)
 }
