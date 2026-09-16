@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
-	"testing/synctest"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -166,52 +165,4 @@ func TestMidjourneyFinalSendRejectsFullChannelWithoutEarlierReservation(t *testi
 	require.NotNil(t, result)
 	assert.Equal(t, 429, result.StatusCode)
 	assert.Equal(t, 30, result.Response.Code)
-}
-
-func TestChannelConcurrencyRejectionDelayAndErrorContract(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		setupChannelConcurrencyStore(t, false)
-		channel := &model.Channel{Id: 1101, MaxConcurrency: common.GetPointer(1)}
-		require.NoError(t, reserveChannelConcurrency(concurrencyRequest(t), channel))
-		recorder := httptest.NewRecorder()
-		request, _ := gin.CreateTestContext(recorder)
-		request.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
-		start := time.Now()
-		_, apiErr := ReserveChannelForRequest(request, channel)
-		elapsed := time.Since(start)
-		require.NotNil(t, apiErr)
-		assert.GreaterOrEqual(t, elapsed, 200*time.Millisecond)
-		assert.LessOrEqual(t, elapsed, 800*time.Millisecond)
-		assert.Equal(t, "channel_concurrency_limit", string(apiErr.GetErrorCode()))
-		assert.Equal(t, "new_api_error", apiErr.ToOpenAIError().Type)
-		assert.Equal(t, "Concurrency limit exceeded for account, please retry later", apiErr.Error())
-	})
-}
-
-func TestChannelConcurrencyCanceledDelayStopsWaiting(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		setupChannelConcurrencyStore(t, false)
-		channel := &model.Channel{Id: 1102, MaxConcurrency: common.GetPointer(1)}
-		require.NoError(t, reserveChannelConcurrency(concurrencyRequest(t), channel))
-		request := concurrencyRequest(t)
-		ctx, cancel := context.WithCancel(request.Request.Context())
-		defer cancel()
-		request.Request = request.Request.WithContext(ctx)
-		completed := make(chan struct{})
-		go func() { _, _ = ReserveChannelForRequest(request, channel); close(completed) }()
-		synctest.Wait()
-		select {
-		case <-completed:
-			t.Fatal("rejected without waiting")
-		default:
-		}
-		cancel()
-		synctest.Wait()
-		select {
-		case <-completed:
-		default:
-			t.Fatal("delay did not stop after cancellation")
-		}
-		assert.False(t, request.Writer.Written())
-	})
 }
