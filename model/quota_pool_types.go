@@ -2,12 +2,16 @@ package model
 
 import (
 	"errors"
+	"fmt"
 
 	"gorm.io/gorm"
 )
 
 const (
 	QuotaPoolAdminLevel = 1
+
+	// QuotaPoolMonthlyManualRefillLimit 是每个池每自然月允许的临时充值次数。
+	QuotaPoolMonthlyManualRefillLimit = 3
 
 	QuotaPoolDefaultUserPoolId = 0
 	QuotaPoolUnlimitedQuota    = -1
@@ -35,21 +39,24 @@ const (
 )
 
 var (
-	ErrQuotaPoolNotFound          = errors.New("quota pool not found")
-	ErrQuotaPoolFeatureDisabled   = errors.New("quota pool feature disabled")
-	ErrQuotaPoolDisabled          = errors.New("quota pool disabled")
-	ErrQuotaPoolInvalidAmount     = errors.New("quota pool invalid amount")
-	ErrQuotaPoolInsufficientQuota = errors.New("quota pool insufficient quota")
-	ErrQuotaPoolMemberMismatch    = errors.New("quota pool member mismatch")
-	ErrQuotaPoolCandidateInvalid  = errors.New("quota pool candidate invalid")
-	ErrQuotaPoolPermissionDenied  = errors.New("quota pool permission denied")
-	ErrQuotaPoolSystemReadonly    = errors.New("quota pool system pool is read-only")
-	ErrQuotaPoolSamePool          = errors.New("user already belongs to quota pool")
-	ErrQuotaPoolNameExists        = errors.New("quota pool name exists")
-	ErrQuotaPoolRefillLimited     = errors.New("quota pool refill limited")
-	ErrQuotaPoolAdminConflict     = errors.New("user manages another quota pool")
-	ErrQuotaPoolHasMembers        = errors.New("quota pool has members")
-	ErrQuotaPoolAdjustLimited     = errors.New("quota pool adjustment exceeds available quota")
+	ErrQuotaPoolNotFound             = errors.New("quota pool not found")
+	ErrQuotaPoolFeatureDisabled      = errors.New("quota pool feature disabled")
+	ErrQuotaPoolDisabled             = errors.New("quota pool disabled")
+	ErrQuotaPoolInvalidAmount        = errors.New("quota pool invalid amount")
+	ErrQuotaPoolInsufficientQuota    = errors.New("quota pool insufficient quota")
+	ErrQuotaPoolMemberMismatch       = errors.New("quota pool member mismatch")
+	ErrQuotaPoolCandidateInvalid     = errors.New("quota pool candidate invalid")
+	ErrQuotaPoolPermissionDenied     = errors.New("quota pool permission denied")
+	ErrQuotaPoolSystemReadonly       = errors.New("quota pool system pool is read-only")
+	ErrQuotaPoolSamePool             = errors.New("user already belongs to quota pool")
+	ErrQuotaPoolNameExists           = errors.New("quota pool name exists")
+	ErrQuotaPoolRefillLimited        = errors.New("quota pool refill limited")
+	ErrQuotaPoolRefillBaseInvalid    = fmt.Errorf("%w: base quota must be positive", ErrQuotaPoolRefillLimited)
+	ErrQuotaPoolRefillAmountLimited  = fmt.Errorf("%w: amount exceeds half of base quota", ErrQuotaPoolRefillLimited)
+	ErrQuotaPoolRefillMonthlyLimited = fmt.Errorf("%w: monthly refill count reached", ErrQuotaPoolRefillLimited)
+	ErrQuotaPoolAdminConflict        = errors.New("user manages another quota pool")
+	ErrQuotaPoolHasMembers           = errors.New("quota pool has members")
+	ErrQuotaPoolAdjustLimited        = errors.New("quota pool adjustment exceeds available quota")
 )
 
 type QuotaPool struct {

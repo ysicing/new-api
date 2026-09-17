@@ -388,20 +388,6 @@ export function PoolStats(props: {
               {stats.time_zone ? `(${stats.time_zone}) ` : ''}·{' '}
               {t('Cached for about 5 minutes')}
             </p>
-            <div className='grid gap-3 sm:grid-cols-2 xl:grid-cols-3'>
-              {cards.map(([label, value]) => (
-                <Card key={label}>
-                  <CardHeader>
-                    <CardTitle className='text-sm'>{label}</CardTitle>
-                  </CardHeader>
-                  <CardContent className='text-xl font-semibold tabular-nums'>
-                    {value}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-            <QuotaPoolStatsCharts trend={stats.trend ?? []} />
-            <PoolMemberStats items={stats.members ?? []} />
             <div className='grid gap-3 sm:grid-cols-3'>
               <Card>
                 <CardHeader>
@@ -434,6 +420,20 @@ export function PoolStats(props: {
                 </CardContent>
               </Card>
             </div>
+            <div className='grid gap-3 sm:grid-cols-2 xl:grid-cols-3'>
+              {cards.map(([label, value]) => (
+                <Card key={label}>
+                  <CardHeader>
+                    <CardTitle className='text-sm'>{label}</CardTitle>
+                  </CardHeader>
+                  <CardContent className='text-xl font-semibold tabular-nums'>
+                    {value}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            <QuotaPoolStatsCharts trend={stats.trend ?? []} />
+            <PoolMemberStats items={stats.members ?? []} />
           </div>
         ) : null}
       </LoadingOrEmpty>

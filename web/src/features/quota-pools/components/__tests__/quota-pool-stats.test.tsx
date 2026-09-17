@@ -109,6 +109,35 @@ function statsQuery(
 }
 
 describe('quota pool statistics', () => {
+  test('shows funding totals above usage summaries and member details', () => {
+    render(
+      <PoolStats
+        query={statsQuery()}
+        range={{ preset: 'rolling_7d' }}
+        onRangeChange={vi.fn()}
+        poolId={7}
+      />
+    )
+    const targets = [
+      screen.getByText('Average usage per active member'),
+      screen.getAllByTestId('quota-pool-chart')[0],
+      ...screen.getAllByRole('table'),
+    ]
+    for (const label of [
+      'Total allocated',
+      'Total refilled',
+      'Total reclaimed',
+    ]) {
+      const total = screen.getByText(label)
+      for (const target of targets) {
+        expect(
+          total.compareDocumentPosition(target) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        ).not.toBe(0)
+      }
+    }
+  })
+
   test('shows all page presets and emits the selected preset', () => {
     const onRangeChange = vi.fn()
     render(

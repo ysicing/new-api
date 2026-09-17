@@ -330,3 +330,25 @@ func TestReclaimQuotaPoolMemberUsesRequestedAllowedAmount(t *testing.T) {
 	require.NoError(t, db.Where("user_id = ?", user.Id).First(&transaction).Error)
 	assert.Equal(t, 400, transaction.Amount)
 }
+
+func TestWriteQuotaPoolRefillErrorExplainsSpecificLimit(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		err     error
+		message string
+	}{
+		{"base", model.ErrQuotaPoolRefillBaseInvalid, "额度池基础额度必须大于 0，当前无法临时充值"},
+		{"amount", model.ErrQuotaPoolRefillAmountLimited, "单次临时充值金额不能超过当前基础额度的 50%，请减少充值金额"},
+		{"monthly", model.ErrQuotaPoolRefillMonthlyLimited, "该额度池本月临时充值已达 3 次上限，请下月再试"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			writeQuotaPoolError(c, test.err)
+			assert.Equal(t, http.StatusConflict, recorder.Code)
+			var response map[string]any
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+			assert.Equal(t, map[string]any{"success": false, "code": "QUOTA_POOL_REFILL_LIMITED", "message": test.message}, response)
+		})
+	}
+}

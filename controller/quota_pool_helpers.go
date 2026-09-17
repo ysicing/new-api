@@ -2,6 +2,7 @@ package controller
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -136,6 +137,14 @@ func writeQuotaPoolError(c *gin.Context, err error) {
 		status, code, message = http.StatusBadRequest, "QUOTA_POOL_CANDIDATE_INVALID", "用户不符合额度池成员条件"
 	case errors.Is(err, model.ErrQuotaPoolRefillLimited):
 		status, code, message = http.StatusConflict, "QUOTA_POOL_REFILL_LIMITED", "额度池临时充值超出限制"
+		switch {
+		case errors.Is(err, model.ErrQuotaPoolRefillBaseInvalid):
+			message = "额度池基础额度必须大于 0，当前无法临时充值"
+		case errors.Is(err, model.ErrQuotaPoolRefillAmountLimited):
+			message = "单次临时充值金额不能超过当前基础额度的 50%，请减少充值金额"
+		case errors.Is(err, model.ErrQuotaPoolRefillMonthlyLimited):
+			message = fmt.Sprintf("该额度池本月临时充值已达 %d 次上限，请下月再试", model.QuotaPoolMonthlyManualRefillLimit)
+		}
 	case errors.Is(err, model.ErrQuotaPoolInvalidAmount):
 		status, code, message = http.StatusBadRequest, "QUOTA_POOL_INVALID_AMOUNT", "额度金额无效"
 	case errors.Is(err, model.ErrQuotaPoolStatsTimezoneUnsupported):

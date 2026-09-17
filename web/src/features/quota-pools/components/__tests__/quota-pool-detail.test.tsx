@@ -7,8 +7,10 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
-import { expect, test } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, expect, test, vi } from 'vitest'
+
+import { api } from '@/lib/api'
 
 import type { QuotaPool, QuotaPoolCapabilities } from '../../types'
 import { QuotaPoolDetail } from '../quota-pool-detail'
@@ -54,7 +56,8 @@ const adminContacts = [
 
 function renderDetail(
   capabilities: QuotaPoolCapabilities,
-  poolOverrides?: Partial<QuotaPool>
+  poolOverrides?: Partial<QuotaPool>,
+  selfMode = true
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -65,7 +68,7 @@ function renderDetail(
         pool={{ ...pool, ...poolOverrides }}
         capabilities={capabilities}
         adminContacts={adminContacts}
-        selfMode
+        selfMode={selfMode}
       />
     </QueryClientProvider>
   )
@@ -117,4 +120,134 @@ test('pool manager keeps all management tabs', () => {
     expect(screen.getByRole('tab', { name })).toBeInTheDocument()
   }
   expect(screen.queryByText('Pool administrators')).not.toBeInTheDocument()
+})
+
+vi.mock('@/lib/api', () => ({ api: { get: vi.fn() } }))
+afterEach(() => vi.clearAllMocks())
+
+test.each([false, true])(
+  'history pages and page sizes are independent for self=%s',
+  async (self) => {
+    vi.mocked(api.get).mockImplementation(async (url, config) => {
+      const page = config?.params?.p ?? 1
+      const isLog = String(url).endsWith('/operation_logs')
+      const item = isLog
+        ? {
+            id: page,
+            username: 'operator',
+            user_id: 1,
+            content: `log-${page}`,
+            other: '',
+            created_at: 1,
+          }
+        : {
+            id: page,
+            user_name: `member-${page}`,
+            amount: 10,
+            type: 'allocate_manual',
+            created_at: 1,
+          }
+      return { data: { success: true, data: { items: [item], total: 21 } } }
+    })
+    renderDetail(
+      { ...memberCapabilities, can_manage_members: true },
+      undefined,
+      self
+    )
+    fireEvent.click(screen.getByRole('tab', { name: 'Transactions' }))
+    await screen.findByText('member-1')
+    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+    await screen.findByText('member-2')
+    const prefix = self ? '/api/quota_pool/self' : '/api/quota_pool/7'
+    expect(api.get).toHaveBeenCalledWith(`${prefix}/transactions`, {
+      params: { p: 2, page_size: 10 },
+    })
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Operation logs' }))
+    await screen.findByText('log-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+    await screen.findByText('log-2')
+    expect(api.get).toHaveBeenCalledWith(`${prefix}/operation_logs`, {
+      params: { p: 2, page_size: 10 },
+    })
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Transactions' }))
+    await screen.findByText('member-2')
+    await waitFor(() =>
+      expect(
+        screen.getByRole('combobox', { name: 'Rows per page' })
+      ).toBeEnabled()
+    )
+    fireEvent.change(screen.getByRole('combobox', { name: 'Rows per page' }), {
+      target: { value: '20' },
+    })
+    await screen.findByText('member-1')
+    expect(api.get).toHaveBeenCalledWith(`${prefix}/transactions`, {
+      params: { p: 1, page_size: 20 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+    await screen.findByText('member-2')
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Operation logs' }))
+    await screen.findByText('log-2')
+    expect(screen.getByRole('combobox', { name: 'Rows per page' })).toHaveValue(
+      '10'
+    )
+  }
+)
+
+test('empty history disables both page navigation buttons', async () => {
+  vi.mocked(api.get).mockResolvedValue({
+    data: { success: true, data: { items: [], total: 0 } },
+  })
+  renderDetail({ ...memberCapabilities, can_manage_members: true })
+  fireEvent.click(screen.getByRole('tab', { name: 'Transactions' }))
+  await waitFor(() =>
+    expect(
+      screen.getByRole('combobox', { name: 'Rows per page' })
+    ).toBeEnabled()
+  )
+  expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled()
+})
+
+test('history navigation waits for the request and can go back after a failed page', async () => {
+  const firstPage = {
+    data: {
+      success: true,
+      data: {
+        items: [
+          {
+            id: 1,
+            user_name: 'first-member',
+            amount: 10,
+            type: 'allocate_manual',
+            created_at: 1,
+          },
+        ],
+        total: 21,
+      },
+    },
+  }
+  const pending = Promise.withResolvers<typeof firstPage>()
+  vi.mocked(api.get)
+    .mockResolvedValueOnce(firstPage)
+    .mockImplementationOnce(() => pending.promise)
+    .mockResolvedValue(firstPage)
+  renderDetail({ ...memberCapabilities, can_manage_members: true })
+  fireEvent.click(screen.getByRole('tab', { name: 'Transactions' }))
+  await screen.findByText('first-member')
+  fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled()
+  )
+  expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled()
+  expect(screen.getByRole('combobox', { name: 'Rows per page' })).toBeDisabled()
+  pending.reject(new Error('network unavailable'))
+  await screen.findByText('Loading failed')
+  expect(screen.getByRole('button', { name: 'Previous page' })).toBeEnabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Previous page' }))
+  await screen.findByText('first-member')
 })

@@ -102,12 +102,18 @@ export async function getQuotaPoolCandidates(
   return response.data
 }
 
-export async function getQuotaPoolTransactions(poolId: number, self = false) {
+export async function getQuotaPoolTransactions(
+  poolId: number,
+  self = false,
+  options: { page?: number; pageSize?: number } = {}
+) {
   const endpoint = self
     ? '/api/quota_pool/self/transactions'
     : `/api/quota_pool/${poolId}/transactions`
-  const response =
-    await api.get<ApiResponse<PageData<QuotaPoolTransaction>>>(endpoint)
+  const response = await api.get<ApiResponse<PageData<QuotaPoolTransaction>>>(
+    endpoint,
+    { params: { p: options.page ?? 1, page_size: options.pageSize ?? 10 } }
+  )
   return response.data
 }
 
@@ -148,12 +154,18 @@ export async function exportQuotaPoolStats(
   }
 }
 
-export async function getQuotaPoolOperationLogs(poolId: number, self = false) {
+export async function getQuotaPoolOperationLogs(
+  poolId: number,
+  self = false,
+  options: { page?: number; pageSize?: number } = {}
+) {
   const endpoint = self
     ? '/api/quota_pool/self/operation_logs'
     : `/api/quota_pool/${poolId}/operation_logs`
-  const response =
-    await api.get<ApiResponse<PageData<QuotaPoolOperationLog>>>(endpoint)
+  const response = await api.get<ApiResponse<PageData<QuotaPoolOperationLog>>>(
+    endpoint,
+    { params: { p: options.page ?? 1, page_size: options.pageSize ?? 10 } }
+  )
   return response.data
 }
 

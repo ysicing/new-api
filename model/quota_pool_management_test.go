@@ -100,14 +100,21 @@ func TestAddQuotaPoolManualRefillEnforcesAmountAndMonthlyLimit(t *testing.T) {
 	assert.Equal(t, 1500, first.QuotaAfter)
 	_, err = AddQuotaPoolManualRefill(pool.Id, 750, 8)
 	require.NoError(t, err, "second refill can use the updated base quota")
-	_, err = AddQuotaPoolManualRefill(pool.Id, 100, 8)
+	third, err := AddQuotaPoolManualRefill(pool.Id, 100, 8)
+	require.NoError(t, err, "third refill is allowed")
+	assert.Equal(t, 2350, third.QuotaAfter)
+	_, err = AddQuotaPoolManualRefill(pool.Id, 100, 9)
+	require.ErrorIs(t, err, ErrQuotaPoolRefillMonthlyLimited, "fourth refill is rejected even for another operator")
 	require.ErrorIs(t, err, ErrQuotaPoolRefillLimited)
+	require.NoError(t, db.First(&pool, pool.Id).Error)
+	assert.Equal(t, 2350, pool.Quota)
+	assert.Equal(t, 2350, pool.BaseQuota)
 
 	var transactions int64
 	require.NoError(t, db.Model(&QuotaPoolTransaction{}).
 		Where("pool_id = ? AND type = ?", pool.Id, QuotaPoolTransactionManualRefill).
 		Count(&transactions).Error)
-	assert.EqualValues(t, 2, transactions)
+	assert.EqualValues(t, 3, transactions)
 }
 
 func TestListQuotaPoolMembersSearchesCurrentPoolUserFields(t *testing.T) {
@@ -288,4 +295,29 @@ func TestDeleteQuotaPoolRejectsSystemPoolsAndPoolsWithMembers(t *testing.T) {
 	require.ErrorIs(t, DeleteQuotaPool(pool.Id), ErrQuotaPoolHasMembers)
 	require.NoError(t, db.Model(&user).Update("quota_pool_id", 0).Error)
 	require.NoError(t, DeleteQuotaPool(pool.Id))
+}
+
+func TestManualRefillReportsSpecificAmountFailureWithoutChangingBalance(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		base, amount int
+		expected     error
+	}{
+		{"invalid base", 0, 100, ErrQuotaPoolRefillBaseInvalid},
+		{"over half", 1000, 501, ErrQuotaPoolRefillAmountLimited},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db := setupQuotaPoolFundsTestDB(t)
+			pool, _ := seedQuotaPoolMember(t, db, 1000, 0)
+			require.NoError(t, db.Model(&pool).Update("base_quota", test.base).Error)
+			_, err := AddQuotaPoolManualRefill(pool.Id, test.amount, 8)
+			require.ErrorIs(t, err, test.expected)
+			require.ErrorIs(t, err, ErrQuotaPoolRefillLimited)
+			require.NoError(t, db.First(&pool, pool.Id).Error)
+			assert.Equal(t, 1000, pool.Quota)
+			var count int64
+			require.NoError(t, db.Model(&QuotaPoolTransaction{}).Where("pool_id = ?", pool.Id).Count(&count).Error)
+			assert.Zero(t, count)
+		})
+	}
 }

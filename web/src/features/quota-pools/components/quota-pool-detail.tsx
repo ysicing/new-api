@@ -32,6 +32,7 @@ import {
   PoolTransactions,
 } from './quota-pool-data'
 import { AvailableQuotaPoolDirectory } from './quota-pool-directory'
+import { QuotaPoolHistoryPagination } from './quota-pool-history-pagination'
 import { PoolMembers } from './quota-pool-members'
 
 const PoolStats = lazy(() =>
@@ -62,6 +63,10 @@ export function QuotaPoolDetail(props: {
   const [membersPage, setMembersPage] = useState(1)
   const [membersPageSize, setMembersPageSize] = useState(20)
   const [membersKeyword, setMembersKeyword] = useState('')
+  const [transactionsPage, setTransactionsPage] = useState(1)
+  const [transactionsPageSize, setTransactionsPageSize] = useState(10)
+  const [logsPage, setLogsPage] = useState(1)
+  const [logsPageSize, setLogsPageSize] = useState(10)
   const [statsRange, setStatsRange] = useState<QuotaPoolStatsRange>(() => ({
     preset: 'rolling_7d',
   }))
@@ -92,8 +97,20 @@ export function QuotaPoolDetail(props: {
     enabled: canViewManagement && tab === 'members',
   })
   const transactions = useQuery({
-    queryKey: ['quota-pool', props.pool.id, 'transactions'],
-    queryFn: () => getQuotaPoolTransactions(props.pool.id, props.selfMode),
+    queryKey: [
+      'quota-pool',
+      props.pool.id,
+      'transactions',
+      props.selfMode ? 'self' : 'all',
+      transactionsPage,
+      transactionsPageSize,
+    ],
+    queryFn: () =>
+      getQuotaPoolTransactions(props.pool.id, props.selfMode, {
+        page: transactionsPage,
+        pageSize: transactionsPageSize,
+      }),
+    placeholderData: keepPreviousData,
     enabled: canViewManagement && tab === 'transactions',
   })
   const stats = useQuery({
@@ -108,8 +125,20 @@ export function QuotaPoolDetail(props: {
     placeholderData: keepPreviousData,
   })
   const logs = useQuery({
-    queryKey: ['quota-pool', props.pool.id, 'operation-logs'],
-    queryFn: () => getQuotaPoolOperationLogs(props.pool.id, props.selfMode),
+    queryKey: [
+      'quota-pool',
+      props.pool.id,
+      'operation-logs',
+      props.selfMode ? 'self' : 'all',
+      logsPage,
+      logsPageSize,
+    ],
+    queryFn: () =>
+      getQuotaPoolOperationLogs(props.pool.id, props.selfMode, {
+        page: logsPage,
+        pageSize: logsPageSize,
+      }),
+    placeholderData: keepPreviousData,
     enabled: canViewManagement && tab === 'logs',
   })
 
@@ -193,9 +222,31 @@ export function QuotaPoolDetail(props: {
               </TabsContent>
               <TabsContent value='transactions'>
                 <PoolTransactions query={transactions} />
+                <QuotaPoolHistoryPagination
+                  page={transactionsPage}
+                  pageSize={transactionsPageSize}
+                  total={transactions.data?.data?.total ?? 0}
+                  loading={transactions.isFetching}
+                  onPageChange={setTransactionsPage}
+                  onPageSizeChange={(value) => {
+                    setTransactionsPage(1)
+                    setTransactionsPageSize(value)
+                  }}
+                />
               </TabsContent>
               <TabsContent value='logs'>
                 <PoolOperationLogs query={logs} />
+                <QuotaPoolHistoryPagination
+                  page={logsPage}
+                  pageSize={logsPageSize}
+                  total={logs.data?.data?.total ?? 0}
+                  loading={logs.isFetching}
+                  onPageChange={setLogsPage}
+                  onPageSizeChange={(value) => {
+                    setLogsPage(1)
+                    setLogsPageSize(value)
+                  }}
+                />
               </TabsContent>
               <TabsContent value='stats'>
                 <Suspense

@@ -15,6 +15,8 @@ import {
   getQuotaPool,
   getQuotaPools,
   getQuotaPoolStats,
+  getQuotaPoolTransactions,
+  getQuotaPoolOperationLogs,
   moveUserQuotaPool,
   rechargeQuotaPoolMember,
   removeQuotaPoolMember,
@@ -52,6 +54,21 @@ describe('quota pool members API', () => {
     async (enabled, endpoint) => {
       await setQuotaPoolEnabled(7, enabled)
       expect(apiMocks.post).toHaveBeenCalledWith(endpoint)
+    }
+  )
+
+  test.each([false, true])(
+    'paginates both history endpoints for self=%s',
+    async (self) => {
+      await getQuotaPoolTransactions(7, self, { page: 2, pageSize: 20 })
+      await getQuotaPoolOperationLogs(7, self, { page: 3, pageSize: 50 })
+      const prefix = self ? '/api/quota_pool/self' : '/api/quota_pool/7'
+      expect(apiMocks.get).toHaveBeenCalledWith(`${prefix}/transactions`, {
+        params: { p: 2, page_size: 20 },
+      })
+      expect(apiMocks.get).toHaveBeenCalledWith(`${prefix}/operation_logs`, {
+        params: { p: 3, page_size: 50 },
+      })
     }
   )
 

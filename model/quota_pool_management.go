@@ -75,8 +75,11 @@ func AddQuotaPoolManualRefill(poolId, amount, operatorId int) (*QuotaPoolBalance
 		if !pool.Enabled {
 			return ErrQuotaPoolDisabled
 		}
-		if pool.BaseQuota <= 0 || amount*2 > pool.BaseQuota {
-			return ErrQuotaPoolRefillLimited
+		if pool.BaseQuota <= 0 {
+			return ErrQuotaPoolRefillBaseInvalid
+		}
+		if amount > pool.BaseQuota/2 {
+			return ErrQuotaPoolRefillAmountLimited
 		}
 		var count int64
 		if err := tx.Model(&QuotaPoolTransaction{}).
@@ -84,8 +87,8 @@ func AddQuotaPoolManualRefill(poolId, amount, operatorId int) (*QuotaPoolBalance
 			Count(&count).Error; err != nil {
 			return err
 		}
-		if count >= 2 {
-			return ErrQuotaPoolRefillLimited
+		if count >= QuotaPoolMonthlyManualRefillLimit {
+			return ErrQuotaPoolRefillMonthlyLimited
 		}
 		change.QuotaBefore = pool.Quota
 		change.QuotaAfter = pool.Quota + amount
