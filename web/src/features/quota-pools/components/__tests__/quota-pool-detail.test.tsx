@@ -11,6 +11,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { api } from '@/lib/api'
+import { formatQuota } from '@/lib/format'
 
 import type { QuotaPool, QuotaPoolCapabilities } from '../../types'
 import { QuotaPoolDetail } from '../quota-pool-detail'
@@ -75,9 +76,21 @@ function renderDetail(
 }
 
 test('ordinary pool member only sees the overview tab', () => {
-  renderDetail(memberCapabilities)
+  renderDetail(memberCapabilities, {
+    auto_recharge_amount: 35 * 500_000,
+    system_auto_recharge: {
+      enabled: true,
+      threshold: 30 * 500_000,
+      amount: 100 * 500_000,
+      interval: 5,
+      weekly_limit: 2,
+      monthly_limit: 8,
+    },
+  })
+  expect(screen.getByText(formatQuota(35 * 500_000))).toBeInTheDocument()
 
   expect(screen.getByRole('tab', { name: 'Overview' })).toBeInTheDocument()
+  expect(screen.getByText('Current pool recharge rules')).toBeInTheDocument()
   for (const name of [
     'Members',
     'Transactions',

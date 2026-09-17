@@ -38,6 +38,7 @@ import {
 } from './quota-pool-history-filters'
 import { QuotaPoolHistoryPagination } from './quota-pool-history-pagination'
 import { PoolMembers } from './quota-pool-members'
+import { QuotaPoolRechargeRules } from './quota-pool-recharge-rules'
 
 const PoolStats = lazy(() =>
   import('./quota-pool-stats').then((module) => ({ default: module.PoolStats }))
@@ -204,6 +205,7 @@ export function QuotaPoolDetail(props: {
               </Alert>
             ) : null}
             <PoolOverview pool={props.pool} />
+            <QuotaPoolRechargeRules pool={props.pool} />
             {showNewUserNotice ? (
               <AvailableQuotaPoolDirectory pools={props.availablePools ?? []} />
             ) : null}
