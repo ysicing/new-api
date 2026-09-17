@@ -368,7 +368,7 @@ func TestListQuotaPoolOperationLogsMatchesExactPoolID(t *testing.T) {
 	}
 	require.NoError(t, logDB.Create(&logs).Error)
 
-	items, total, err := ListQuotaPoolOperationLogs(1, &common.PageInfo{Page: 1, PageSize: 10})
+	items, total, err := ListQuotaPoolOperationLogs(1, &common.PageInfo{Page: 1, PageSize: 10}, "")
 
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, total)

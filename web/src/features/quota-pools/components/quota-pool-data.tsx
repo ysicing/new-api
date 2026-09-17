@@ -176,6 +176,7 @@ export function PoolTransactions(props: {
           <TableRow>
             <TableHead>{t('Type')}</TableHead>
             <TableHead>{t('User')}</TableHead>
+            <TableHead>{t('Operator')}</TableHead>
             <TableHead className='text-right'>{t('Amount')}</TableHead>
             <TableHead>{t('Time')}</TableHead>
           </TableRow>
@@ -186,7 +187,14 @@ export function PoolTransactions(props: {
               <TableCell>
                 {t(transactionTypeLabelKeys[item.type] ?? item.type)}
               </TableCell>
-              <TableCell>{item.user_name || '—'}</TableCell>
+              <TableCell>
+                {item.user_name ||
+                  (item.user_id > 0 ? `#${item.user_id}` : '—')}
+              </TableCell>
+              <TableCell>
+                {item.operator_name ||
+                  (item.operator_id > 0 ? `#${item.operator_id}` : '—')}
+              </TableCell>
               <TableCell className='text-right'>
                 {formatQuota(item.amount)}
               </TableCell>

@@ -253,7 +253,7 @@ func GetQuotaPoolTransactions(c *gin.Context) {
 		return
 	}
 	page := common.GetPageQuery(c)
-	items, total, err := model.ListQuotaPoolTransactions(id, page)
+	items, total, err := model.ListQuotaPoolTransactions(id, page, c.Query("type"), c.Query("keyword"))
 	if err != nil {
 		writeQuotaPoolError(c, err)
 		return
@@ -267,7 +267,7 @@ func GetQuotaPoolOperationLogs(c *gin.Context) {
 		return
 	}
 	page := common.GetPageQuery(c)
-	items, total, err := model.ListQuotaPoolOperationLogs(id, page)
+	items, total, err := model.ListQuotaPoolOperationLogs(id, page, c.Query("action"))
 	if err != nil {
 		writeQuotaPoolError(c, err)
 		return

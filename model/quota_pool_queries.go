@@ -261,8 +261,22 @@ func ListQuotaPoolCandidates(keyword string, page *common.PageInfo) ([]QuotaPool
 	return items, total, nil
 }
 
-func ListQuotaPoolTransactions(poolId int, page *common.PageInfo) ([]QuotaPoolTransactionItem, int64, error) {
+func ListQuotaPoolTransactions(poolId int, page *common.PageInfo, transactionType, keyword string) ([]QuotaPoolTransactionItem, int64, error) {
 	query := DB.Model(&QuotaPoolTransaction{}).Where("pool_id = ?", poolId)
+	if transactionType = strings.TrimSpace(transactionType); transactionType != "" {
+		query = query.Where("type = ?", transactionType)
+	}
+	if keyword = strings.TrimSpace(keyword); keyword != "" {
+		like := "%" + strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(strings.ToLower(keyword)) + "%"
+		users := DB.Model(&User{}).Select("id").Where("LOWER(username) LIKE ? ESCAPE '!' OR LOWER(display_name) LIKE ? ESCAPE '!'", like, like)
+		// 在池范围内按历史交易的成员或操作人搜索，不限定用户当前所属池。
+		if userID, err := strconv.Atoi(keyword); err == nil && userID > 0 {
+			query = query.Where("(user_id IN (?) OR operator_id IN (?) OR user_id = ? OR operator_id = ?)", users, users, userID, userID)
+		} else {
+			query = query.Where("(user_id IN (?) OR operator_id IN (?))", users, users)
+		}
+	}
+
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err

@@ -105,14 +105,26 @@ export async function getQuotaPoolCandidates(
 export async function getQuotaPoolTransactions(
   poolId: number,
   self = false,
-  options: { page?: number; pageSize?: number } = {}
+  options: {
+    page?: number
+    pageSize?: number
+    type?: string
+    keyword?: string
+  } = {}
 ) {
   const endpoint = self
     ? '/api/quota_pool/self/transactions'
     : `/api/quota_pool/${poolId}/transactions`
   const response = await api.get<ApiResponse<PageData<QuotaPoolTransaction>>>(
     endpoint,
-    { params: { p: options.page ?? 1, page_size: options.pageSize ?? 10 } }
+    {
+      params: {
+        p: options.page ?? 1,
+        page_size: options.pageSize ?? 10,
+        ...(options.type ? { type: options.type } : {}),
+        ...(options.keyword ? { keyword: options.keyword } : {}),
+      },
+    }
   )
   return response.data
 }
@@ -157,14 +169,20 @@ export async function exportQuotaPoolStats(
 export async function getQuotaPoolOperationLogs(
   poolId: number,
   self = false,
-  options: { page?: number; pageSize?: number } = {}
+  options: { page?: number; pageSize?: number; action?: string } = {}
 ) {
   const endpoint = self
     ? '/api/quota_pool/self/operation_logs'
     : `/api/quota_pool/${poolId}/operation_logs`
   const response = await api.get<ApiResponse<PageData<QuotaPoolOperationLog>>>(
     endpoint,
-    { params: { p: options.page ?? 1, page_size: options.pageSize ?? 10 } }
+    {
+      params: {
+        p: options.page ?? 1,
+        page_size: options.pageSize ?? 10,
+        ...(options.action ? { action: options.action } : {}),
+      },
+    }
   )
   return response.data
 }

@@ -251,3 +251,96 @@ test('history navigation waits for the request and can go back after a failed pa
   fireEvent.click(screen.getByRole('button', { name: 'Previous page' }))
   await screen.findByText('first-member')
 })
+
+test.each([false, true])(
+  'history filters reset page and survive navigation for self=%s',
+  async (self) => {
+    vi.mocked(api.get).mockImplementation(async (url, config) => {
+      const page = config?.params?.p ?? 1
+      const item = String(url).endsWith('/operation_logs')
+        ? {
+            id: page,
+            username: 'operator',
+            user_id: 1,
+            content: `filtered-log-${page}`,
+            other: '',
+            created_at: 1,
+          }
+        : {
+            id: page,
+            user_name: `filtered-member-${page}`,
+            operator_name: 'operator',
+            amount: 10,
+            type: 'allocate_manual',
+            created_at: 1,
+          }
+      return { data: { success: true, data: { items: [item], total: 21 } } }
+    })
+    renderDetail(
+      { ...memberCapabilities, can_manage_members: true },
+      undefined,
+      self
+    )
+    const prefix = self ? '/api/quota_pool/self' : '/api/quota_pool/7'
+    fireEvent.click(screen.getByRole('tab', { name: 'Transactions' }))
+    await screen.findByText('filtered-member-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+    await screen.findByText('filtered-member-2')
+    fireEvent.change(screen.getByRole('combobox', { name: 'Type' }), {
+      target: { value: 'allocate_manual' },
+    })
+    await screen.findByText('filtered-member-1')
+    expect(api.get).toHaveBeenLastCalledWith(`${prefix}/transactions`, {
+      params: { p: 1, page_size: 10, type: 'allocate_manual' },
+    })
+    fireEvent.change(
+      screen.getByRole('textbox', {
+        name: 'Search user or operator by ID, username, or display name',
+      }),
+      { target: { value: ' alice ' } }
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    await waitFor(() =>
+      expect(api.get).toHaveBeenLastCalledWith(`${prefix}/transactions`, {
+        params: {
+          p: 1,
+          page_size: 10,
+          type: 'allocate_manual',
+          keyword: 'alice',
+        },
+      })
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Next page' })).toBeEnabled()
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+    await screen.findByText('filtered-member-2')
+    expect(api.get).toHaveBeenLastCalledWith(`${prefix}/transactions`, {
+      params: {
+        p: 2,
+        page_size: 10,
+        type: 'allocate_manual',
+        keyword: 'alice',
+      },
+    })
+    fireEvent.click(screen.getByRole('tab', { name: 'Operation logs' }))
+    await screen.findByText('filtered-log-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+    await screen.findByText('filtered-log-2')
+    fireEvent.change(screen.getByRole('combobox', { name: 'Operation' }), {
+      target: { value: 'quota_pool.member_add' },
+    })
+    await screen.findByText('filtered-log-1')
+    expect(api.get).toHaveBeenLastCalledWith(`${prefix}/operation_logs`, {
+      params: { p: 1, page_size: 10, action: 'quota_pool.member_add' },
+    })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Operation' }), {
+      target: { value: '' },
+    })
+    await waitFor(() =>
+      expect(api.get).toHaveBeenLastCalledWith(`${prefix}/operation_logs`, {
+        params: { p: 1, page_size: 10 },
+      })
+    )
+  }
+)

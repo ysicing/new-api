@@ -72,6 +72,33 @@ describe('quota pool members API', () => {
     }
   )
 
+  test.each([false, true])(
+    'sends history filters for self=%s',
+    async (self) => {
+      const prefix = self ? '/api/quota_pool/self' : '/api/quota_pool/7'
+      await getQuotaPoolTransactions(7, self, {
+        page: 2,
+        pageSize: 20,
+        type: 'allocate_manual',
+        keyword: 'alice',
+      })
+      expect(apiMocks.get).toHaveBeenCalledWith(`${prefix}/transactions`, {
+        params: {
+          p: 2,
+          page_size: 20,
+          type: 'allocate_manual',
+          keyword: 'alice',
+        },
+      })
+      await getQuotaPoolOperationLogs(7, self, {
+        action: 'quota_pool.member_add',
+      })
+      expect(apiMocks.get).toHaveBeenCalledWith(`${prefix}/operation_logs`, {
+        params: { p: 1, page_size: 10, action: 'quota_pool.member_add' },
+      })
+    }
+  )
+
   test('passes pagination and search parameters to the global endpoint', async () => {
     await getQuotaPoolMembers(7, false, {
       page: 2,

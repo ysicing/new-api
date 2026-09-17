@@ -32,6 +32,10 @@ import {
   PoolTransactions,
 } from './quota-pool-data'
 import { AvailableQuotaPoolDirectory } from './quota-pool-directory'
+import {
+  QuotaPoolTransactionFilters,
+  QuotaPoolOperationFilter,
+} from './quota-pool-history-filters'
 import { QuotaPoolHistoryPagination } from './quota-pool-history-pagination'
 import { PoolMembers } from './quota-pool-members'
 
@@ -65,6 +69,9 @@ export function QuotaPoolDetail(props: {
   const [membersKeyword, setMembersKeyword] = useState('')
   const [transactionsPage, setTransactionsPage] = useState(1)
   const [transactionsPageSize, setTransactionsPageSize] = useState(10)
+  const [transactionType, setTransactionType] = useState('')
+  const [transactionKeyword, setTransactionKeyword] = useState('')
+  const [operationAction, setOperationAction] = useState('')
   const [logsPage, setLogsPage] = useState(1)
   const [logsPageSize, setLogsPageSize] = useState(10)
   const [statsRange, setStatsRange] = useState<QuotaPoolStatsRange>(() => ({
@@ -104,11 +111,15 @@ export function QuotaPoolDetail(props: {
       props.selfMode ? 'self' : 'all',
       transactionsPage,
       transactionsPageSize,
+      transactionType,
+      transactionKeyword,
     ],
     queryFn: () =>
       getQuotaPoolTransactions(props.pool.id, props.selfMode, {
         page: transactionsPage,
         pageSize: transactionsPageSize,
+        type: transactionType,
+        keyword: transactionKeyword,
       }),
     placeholderData: keepPreviousData,
     enabled: canViewManagement && tab === 'transactions',
@@ -132,11 +143,13 @@ export function QuotaPoolDetail(props: {
       props.selfMode ? 'self' : 'all',
       logsPage,
       logsPageSize,
+      operationAction,
     ],
     queryFn: () =>
       getQuotaPoolOperationLogs(props.pool.id, props.selfMode, {
         page: logsPage,
         pageSize: logsPageSize,
+        action: operationAction,
       }),
     placeholderData: keepPreviousData,
     enabled: canViewManagement && tab === 'logs',
@@ -221,6 +234,18 @@ export function QuotaPoolDetail(props: {
                 />
               </TabsContent>
               <TabsContent value='transactions'>
+                <QuotaPoolTransactionFilters
+                  type={transactionType}
+                  keyword={transactionKeyword}
+                  onTypeChange={(value) => {
+                    setTransactionsPage(1)
+                    setTransactionType(value)
+                  }}
+                  onSearch={(value) => {
+                    setTransactionsPage(1)
+                    setTransactionKeyword(value)
+                  }}
+                />
                 <PoolTransactions query={transactions} />
                 <QuotaPoolHistoryPagination
                   page={transactionsPage}
@@ -235,6 +260,13 @@ export function QuotaPoolDetail(props: {
                 />
               </TabsContent>
               <TabsContent value='logs'>
+                <QuotaPoolOperationFilter
+                  action={operationAction}
+                  onChange={(value) => {
+                    setLogsPage(1)
+                    setOperationAction(value)
+                  }}
+                />
                 <PoolOperationLogs query={logs} />
                 <QuotaPoolHistoryPagination
                   page={logsPage}
