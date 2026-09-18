@@ -37,13 +37,16 @@ type QuotaPoolUsageStat struct {
 
 type QuotaPoolMemberStat struct {
 	QuotaPoolUsageStat
-	Active             bool    `json:"active"`
-	ActiveDays         int     `json:"active_days"`
-	LastActiveAt       int64   `json:"last_active_at"`
-	LastActiveTime     string  `json:"last_active_time"`
-	UsageShare         float64 `json:"usage_share"`
-	AverageDailyTokens float64 `json:"average_daily_tokens"`
-	AverageDailyUsage  float64 `json:"average_daily_usage"`
+	AutoRechargeCount   int64   `json:"auto_recharge_count"`
+	ManualRechargeCount int64   `json:"manual_recharge_count"`
+	RechargeAmount      int64   `json:"recharge_amount"`
+	Active              bool    `json:"active"`
+	ActiveDays          int     `json:"active_days"`
+	LastActiveAt        int64   `json:"last_active_at"`
+	LastActiveTime      string  `json:"last_active_time"`
+	UsageShare          float64 `json:"usage_share"`
+	AverageDailyTokens  float64 `json:"average_daily_tokens"`
+	AverageDailyUsage   float64 `json:"average_daily_usage"`
 }
 
 type QuotaPoolStatsGranularity string

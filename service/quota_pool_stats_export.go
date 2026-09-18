@@ -65,18 +65,18 @@ func renderQuotaPoolStatsMarkdown(poolName string, stats *model.QuotaPoolStats) 
 	}
 
 	output.WriteString("\n## 成员明细\n\n")
-	output.WriteString("| 成员 | 状态 | 活跃天数 | 最后活跃时间 | 调用次数 | Token量 | 费用 | 费用占比 | 日均Token量 | 日均费用 | 模型占比 |\n")
-	output.WriteString("| --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n")
+	output.WriteString("| 成员 | 状态 | 活跃天数 | 最后活跃时间 | 调用次数 | Token量 | 费用 | 费用占比 | 日均Token量 | 日均费用 | 模型占比 | 自动充值次数 | 手动充值次数 | 充值总额 |\n")
+	output.WriteString("| --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |\n")
 	for _, item := range stats.Members {
 		status := "未活跃"
 		if item.Active {
 			status = "活跃"
 		}
 		lastActive := formatQuotaPoolStatsTime(item.LastActiveAt)
-		fmt.Fprintf(&output, "| %s | %s | %d | %s | %d | %.2f | $%.2f | %.2f%% | %.2f | $%.2f | %s |\n",
+		fmt.Fprintf(&output, "| %s | %s | %d | %s | %d | %.2f | $%.2f | %.2f%% | %.2f | $%.2f | %s | %d | %d | $%.2f |\n",
 			markdownTableCell(item.Username), status, item.ActiveDays, lastActive, item.RequestCount,
 			float64(item.TokenUsed), quotaPoolStatsCost(item.UsedQuota), item.UsageShare,
-			item.AverageDailyTokens, quotaPoolStatsCostFloat(item.AverageDailyUsage), markdownTableCell(quotaPoolModelShareText(item.QuotaPoolUsageStat)),
+			item.AverageDailyTokens, quotaPoolStatsCostFloat(item.AverageDailyUsage), markdownTableCell(quotaPoolModelShareText(item.QuotaPoolUsageStat)), item.AutoRechargeCount, item.ManualRechargeCount, quotaPoolStatsCostFloat(float64(item.RechargeAmount)),
 		)
 	}
 
@@ -114,7 +114,7 @@ func renderQuotaPoolStatsXLSX(stats *model.QuotaPoolStats) ([]byte, error) {
 		return nil, err
 	}
 
-	memberRows := [][]any{{"成员", "状态", "活跃天数", "最后活跃时间", "调用次数", "Token量", "费用", "费用占比", "日均Token量", "日均费用", "模型占比"}}
+	memberRows := [][]any{{"成员", "状态", "活跃天数", "最后活跃时间", "调用次数", "Token量", "费用", "费用占比", "日均Token量", "日均费用", "模型占比", "自动充值次数", "手动充值次数", "充值总额"}}
 	for _, item := range stats.Members {
 		status := "未活跃"
 		if item.Active {
@@ -124,7 +124,7 @@ func renderQuotaPoolStatsXLSX(stats *model.QuotaPoolStats) ([]byte, error) {
 			excelSafeText(item.Username), status, item.ActiveDays, formatQuotaPoolStatsTime(item.LastActiveAt),
 			item.RequestCount, item.TokenUsed, quotaPoolStatsCost(item.UsedQuota), item.UsageShare / 100,
 			item.AverageDailyTokens, quotaPoolStatsCostFloat(item.AverageDailyUsage),
-			excelSafeText(quotaPoolModelShareText(item.QuotaPoolUsageStat)),
+			excelSafeText(quotaPoolModelShareText(item.QuotaPoolUsageStat)), item.AutoRechargeCount, item.ManualRechargeCount, quotaPoolStatsCostFloat(float64(item.RechargeAmount)),
 		})
 	}
 	if err := writeQuotaPoolStatsSheet(book, "成员明细", memberRows); err != nil {
@@ -172,6 +172,9 @@ func renderQuotaPoolStatsXLSX(stats *model.QuotaPoolStats) ([]byte, error) {
 		}
 	}
 	if len(stats.Members) > 0 {
+		if err := book.SetCellStyle("成员明细", "N2", fmt.Sprintf("N%d", len(stats.Members)+1), currencyStyle); err != nil {
+			return nil, err
+		}
 		if err := book.SetCellStyle("成员明细", "F2", fmt.Sprintf("F%d", len(stats.Members)+1), twoDecimalStyle); err != nil {
 			return nil, err
 		}

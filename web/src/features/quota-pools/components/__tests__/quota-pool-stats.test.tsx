@@ -10,6 +10,8 @@ import type { UseQueryResult } from '@tanstack/react-query'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 
+import { formatQuota } from '@/lib/format'
+
 import type { ApiResponse, QuotaPoolStats } from '../../types'
 import { PoolStats } from '../quota-pool-stats'
 
@@ -109,6 +111,45 @@ function statsQuery(
 }
 
 describe('quota pool statistics', () => {
+  test('shows member recharge counts and total amount alongside usage', () => {
+    const query = statsQuery()
+    const data = query.data?.data
+    if (!data) throw new Error('statistics fixture missing')
+    data.members[0].auto_recharge_count = 2
+    data.members[0].manual_recharge_count = 1
+    data.members[0].recharge_amount = 35 * 500_000
+    render(
+      <PoolStats
+        query={query}
+        range={{ preset: 'rolling_7d' }}
+        onRangeChange={vi.fn()}
+        poolId={7}
+      />
+    )
+    const card = screen
+      .getByText('Member usage details')
+      .closest<HTMLElement>('[data-slot="card"]')
+    if (!card) throw new Error('member detail card missing')
+    const rows = within(card).getAllByRole('row')
+    const labels = within(rows[0])
+      .getAllByRole('columnheader')
+      .map((cell) => cell.textContent)
+    const memberCells = within(rows[1]).getAllByRole('cell')
+    expect(
+      memberCells[labels.indexOf('Automatic recharge count')]
+    ).toHaveTextContent('2')
+    expect(
+      memberCells[labels.indexOf('Manual recharge count')]
+    ).toHaveTextContent('1')
+    expect(
+      memberCells[labels.indexOf('Total recharge amount')]
+    ).toHaveTextContent(formatQuota(35 * 500_000))
+    const inactiveCells = within(rows[2]).getAllByRole('cell')
+    expect(
+      inactiveCells[labels.indexOf('Automatic recharge count')]
+    ).toHaveTextContent('0')
+  })
+
   test('shows funding totals above usage summaries and member details', () => {
     render(
       <PoolStats

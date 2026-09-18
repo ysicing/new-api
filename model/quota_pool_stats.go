@@ -124,6 +124,10 @@ func GetQuotaPoolStatsInLocation(poolId int, startTimestamp, endTimestamp int64,
 		stats.Trend[index].ActiveRate = quotaPoolPercentage(stats.Trend[index].ActiveMembers, len(members))
 	}
 
+	memberRecharges, err := loadQuotaPoolMemberRechargeStats(poolId, ids, startTimestamp, endTimestamp, memberPoolId == QuotaPoolDefaultUserPoolId)
+	if err != nil {
+		return nil, err
+	}
 	for _, member := range members {
 		bucket := usage[member.Id]
 		activity := activities[member.Id]
@@ -134,6 +138,9 @@ func GetQuotaPoolStatsInLocation(poolId int, startTimestamp, endTimestamp int64,
 				GeminiQuota: bucket.GeminiQuota, QwenQuota: bucket.QwenQuota, OtherQuota: bucket.OtherQuota,
 			},
 			Active: activity.activeDays > 0, ActiveDays: activity.activeDays, LastActiveAt: activity.lastActive,
+			AutoRechargeCount:   memberRecharges[member.Id].AutoCount,
+			ManualRechargeCount: memberRecharges[member.Id].ManualCount,
+			RechargeAmount:      memberRecharges[member.Id].Amount,
 		}
 		if memberStat.LastActiveAt > 0 {
 			memberStat.LastActiveTime = time.Unix(memberStat.LastActiveAt, 0).In(location).Format("2006-01-02 15:04:05 -07:00 MST")

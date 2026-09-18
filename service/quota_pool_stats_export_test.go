@@ -22,7 +22,7 @@ func quotaPoolStatsExportFixture() *model.QuotaPoolStats {
 			{Label: "2026-08-04"},
 		},
 		Members: []model.QuotaPoolMemberStat{
-			{QuotaPoolUsageStat: model.QuotaPoolUsageStat{UserId: 1, Username: "alice|研发\n一组", RequestCount: 3, UsedQuota: 1_250_000, TokenUsed: 1235, GptQuota: 1_250_000}, Active: true, ActiveDays: 2, LastActiveAt: 1785686400, UsageShare: 100, AverageDailyUsage: 625_000, AverageDailyTokens: 617.5},
+			{QuotaPoolUsageStat: model.QuotaPoolUsageStat{UserId: 1, Username: "alice|研发\n一组", RequestCount: 3, UsedQuota: 1_250_000, TokenUsed: 1235, GptQuota: 1_250_000}, AutoRechargeCount: 2, ManualRechargeCount: 1, RechargeAmount: 17_500_000, Active: true, ActiveDays: 2, LastActiveAt: 1785686400, UsageShare: 100, AverageDailyUsage: 625_000, AverageDailyTokens: 617.5},
 			{QuotaPoolUsageStat: model.QuotaPoolUsageStat{UserId: 2, Username: "=cmd", RequestCount: 0}, Active: false},
 		},
 		Recharge:    []model.QuotaPoolRechargeStat{{Type: model.QuotaPoolTransactionManualRefill, Count: 1, Amount: 200}},
@@ -47,6 +47,12 @@ func TestExportQuotaPoolStatsXLSXCreatesSheetsAndNeutralizesFormulaText(t *testi
 	require.NoError(t, err)
 	assert.Equal(t, "'=cmd", value)
 	assert.Equal(t, "Token量", mustQuotaPoolStatsCellValue(t, book, "成员明细", "F1"))
+	assert.Equal(t, "自动充值次数", mustQuotaPoolStatsCellValue(t, book, "成员明细", "L1"))
+	assert.Equal(t, "手动充值次数", mustQuotaPoolStatsCellValue(t, book, "成员明细", "M1"))
+	assert.Equal(t, "充值总额", mustQuotaPoolStatsCellValue(t, book, "成员明细", "N1"))
+	assert.Equal(t, "2", mustQuotaPoolStatsCellValue(t, book, "成员明细", "L2"))
+	assert.Equal(t, "1", mustQuotaPoolStatsCellValue(t, book, "成员明细", "M2"))
+	assert.Equal(t, "$35.00", mustQuotaPoolStatsCellValue(t, book, "成员明细", "N2"))
 	assert.Equal(t, "费用", mustQuotaPoolStatsCellValue(t, book, "成员明细", "G1"))
 	assert.Equal(t, "日均Token量", mustQuotaPoolStatsCellValue(t, book, "成员明细", "I1"))
 	assert.Equal(t, "日均费用", mustQuotaPoolStatsCellValue(t, book, "成员明细", "J1"))
@@ -70,6 +76,8 @@ func TestExportQuotaPoolStatsMarkdownIncludesAllSectionsAndEscapesCells(t *testi
 	assert.Contains(t, content, "## 概览")
 	assert.Contains(t, content, "## 走势明细")
 	assert.Contains(t, content, "## 成员明细")
+	assert.Contains(t, content, "自动充值次数 | 手动充值次数 | 充值总额")
+	assert.Contains(t, content, "| 2 | 1 | $35.00 |")
 	assert.NotContains(t, content, "## 资金变动")
 	assert.Contains(t, content, "alice\\|研发<br>一组")
 	assert.Contains(t, content, "| 总Token量 | 1235.00 |")

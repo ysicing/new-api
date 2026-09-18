@@ -259,6 +259,15 @@ function PoolMemberStats(props: { items: QuotaPoolMemberStat[] }) {
               <TableHead>{t('Last active')}</TableHead>
               <TableHead className='text-right'>{t('Requests')}</TableHead>
               <TableHead className='text-right'>{t('Usage')}</TableHead>
+              <TableHead className='text-right'>
+                {t('Automatic recharge count')}
+              </TableHead>
+              <TableHead className='text-right'>
+                {t('Manual recharge count')}
+              </TableHead>
+              <TableHead className='text-right'>
+                {t('Total recharge amount')}
+              </TableHead>
               <TableHead className='text-right'>{t('Usage share')}</TableHead>
               <TableHead className='text-right'>
                 {t('Average daily usage')}
@@ -289,6 +298,15 @@ function PoolMemberStats(props: { items: QuotaPoolMemberStat[] }) {
                 </TableCell>
                 <TableCell className='text-right tabular-nums'>
                   {formatQuota(item.used_quota)}
+                </TableCell>
+                <TableCell className='text-right tabular-nums'>
+                  {(item.auto_recharge_count ?? 0).toLocaleString()}
+                </TableCell>
+                <TableCell className='text-right tabular-nums'>
+                  {(item.manual_recharge_count ?? 0).toLocaleString()}
+                </TableCell>
+                <TableCell className='text-right tabular-nums'>
+                  {formatQuota(item.recharge_amount ?? 0)}
                 </TableCell>
                 <TableCell className='text-right tabular-nums'>
                   {formatPercent(item.usage_share)}

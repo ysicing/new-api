@@ -103,6 +103,9 @@ export interface QuotaPoolUsageStat {
 }
 
 export interface QuotaPoolMemberStat extends QuotaPoolUsageStat {
+  auto_recharge_count?: number
+  manual_recharge_count?: number
+  recharge_amount?: number
   active: boolean
   active_days: number
   last_active_at: number
