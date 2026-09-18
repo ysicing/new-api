@@ -54,6 +54,7 @@ export function getChannelTypeIcon(type: number): string {
     58: 'NewAPI', // Advanced Custom
     59: 'Sub2API', // Sub2API
     60: 'NewAPI', // New API
+    64: 'TypeSafe', // TypeSafe Jev
     3: 'Azure', // Azure
 
     // Anthropic

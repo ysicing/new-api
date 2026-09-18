@@ -138,6 +138,9 @@ func SetRelayRouter(router *gin.Engine) {
 		})
 
 		// rerank related routes
+		httpRouter.POST("/systemone", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatDecisions)
+		})
 		httpRouter.POST("/rerank", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatRerank)
 		})
