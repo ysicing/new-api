@@ -16,6 +16,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
 import {
   Table,
   TableBody,
@@ -211,6 +212,19 @@ export function PoolOperationLogs(props: {
   query: UseQueryResult<ApiResponse<PageData<QuotaPoolOperationLog>>>
 }) {
   const { t } = useTranslation()
+  if (props.query.isLoading || props.query.isFetching) {
+    return (
+      <div
+        role='status'
+        aria-live='polite'
+        aria-busy='true'
+        className='text-muted-foreground flex min-h-48 flex-col items-center justify-center gap-3 rounded-lg border py-8 text-sm'
+      >
+        <Spinner aria-hidden='true' className='size-6' />
+        <p>{t('Loading...')}</p>
+      </div>
+    )
+  }
   const items = props.query.data?.data?.items ?? []
   return (
     <LoadingOrEmpty query={props.query} empty={items.length === 0}>

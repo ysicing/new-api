@@ -106,3 +106,87 @@ test('renders structured quota pool operations with readable columns', () => {
   ).toBeInTheDocument()
   expect(screen.queryByText('quota_pool.member_move')).not.toBeInTheDocument()
 })
+
+test.each([true, false])(
+  'shows explicit loading while operation logs are fetching (initial=%s)',
+  (initial) => {
+    const query = {
+      isLoading: initial,
+      isFetching: true,
+      isError: false,
+      data: initial
+        ? undefined
+        : {
+            success: true,
+            data: {
+              items: [
+                {
+                  id: 1,
+                  user_id: 8,
+                  username: 'cached-operator',
+                  content: 'cached operation',
+                  other: '',
+                  created_at: 1,
+                },
+              ],
+              total: 1,
+              page: 1,
+              page_size: 10,
+            },
+          },
+    } as unknown as UseQueryResult<ApiResponse<PageData<QuotaPoolOperationLog>>>
+    const { rerender } = render(<PoolOperationLogs query={query} />)
+    expect(screen.getByRole('status')).toHaveTextContent('Loading...')
+    expect(screen.getByRole('status')).toHaveAttribute('aria-busy', 'true')
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.queryByText('No data')).not.toBeInTheDocument()
+    rerender(
+      <PoolOperationLogs
+        query={
+          {
+            ...query,
+            isLoading: false,
+            isFetching: false,
+            isError: true,
+          } as typeof query
+        }
+      />
+    )
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.getByText('Loading failed')).toBeInTheDocument()
+  }
+)
+
+test('replaces operation log loading with the fetched rows', () => {
+  const query = {
+    isLoading: false,
+    isFetching: true,
+    isError: false,
+    data: {
+      success: true,
+      data: {
+        items: [
+          {
+            id: 1,
+            user_id: 8,
+            username: 'operator',
+            content: 'loaded operation',
+            other: '',
+            created_at: 1,
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 10,
+      },
+    },
+  } as unknown as UseQueryResult<ApiResponse<PageData<QuotaPoolOperationLog>>>
+  const { rerender } = render(<PoolOperationLogs query={query} />)
+  rerender(
+    <PoolOperationLogs
+      query={{ ...query, isFetching: false } as typeof query}
+    />
+  )
+  expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  expect(screen.getByText('loaded operation')).toBeInTheDocument()
+})
