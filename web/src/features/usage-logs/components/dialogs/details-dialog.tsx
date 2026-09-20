@@ -84,6 +84,7 @@ import {
   isTimingLogType,
 } from '../../lib/utils'
 import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
+import { ResponseModelDetails } from '../model-badge'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
 // to its i18n label key for display in the audit details.
@@ -1085,6 +1086,12 @@ export function DetailsDialog(props: DetailsDialogProps) {
               value={other.upstream_model_name}
               mono
             />
+          </DetailSection>
+        )}
+
+        {other?.response_model?.returned_model && (
+          <DetailSection label={t('Response Model')}>
+            <ResponseModelDetails observation={other.response_model} />
           </DetailSection>
         )}
 

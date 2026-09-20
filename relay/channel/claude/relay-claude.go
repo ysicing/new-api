@@ -105,6 +105,7 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		if claudeResponse.Type == "message_start" {
 			// message_start, 获取usage
 			if claudeResponse.Message != nil {
+				info.ObserveResponseModel(claudeResponse.Message.Model)
 				info.UpstreamModelName = claudeResponse.Message.Model
 			}
 		} else if claudeResponse.Type == "message_delta" {
@@ -223,6 +224,7 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	if claudeError := claudeResponse.GetClaudeError(); claudeError != nil && claudeError.Type != "" {
 		return types.WithClaudeError(*claudeError, http.StatusInternalServerError)
 	}
+	info.ObserveResponseModel(claudeResponse.Model)
 	maybeMarkClaudeRefusal(c, claudeResponse.StopReason)
 	if claudeInfo.Usage == nil {
 		claudeInfo.Usage = &dto.Usage{}
