@@ -41,3 +41,9 @@ service/relayconvert/chat_responses_live_local_test.go
 service/openaicompat/chat_responses_live_local_test.go
 go.work
 go.work.sum
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+graft/
