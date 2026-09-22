@@ -356,7 +356,9 @@ func GetQuotaPoolBudgetStats(startMonth, endMonth string, location *time.Locatio
 	for index, tag := range tags {
 		tagIndex[tag.Id] = index
 		stats.Tags[index] = QuotaPoolBudgetTagStat{
-			TagId: tag.Id, Name: tag.Name, Months: make([]QuotaPoolBudgetMonthStat, len(monthStarts)),
+			TagId: tag.Id, Name: tag.Name,
+			Months: make([]QuotaPoolBudgetMonthStat, len(monthStarts)),
+			Pools:  make([]QuotaPoolBudgetPoolStat, 0),
 		}
 		for monthIndex, month := range monthStarts {
 			stats.Tags[index].Months[monthIndex].Month = month.Format("2006-01")

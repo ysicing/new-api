@@ -125,6 +125,9 @@ export function BudgetTagsSection() {
 
   const tags = tagsQuery.data?.data ?? []
   const stats = statsQuery.data?.data
+  const statsMonths = stats?.months ?? []
+  const statsTags = stats?.tags ?? []
+  const summary = stats?.summary ?? { net_recharge: 0, net_consumption: 0 }
   const pools = poolsQuery.data?.data.items ?? []
   const isLoading = tagsQuery.isLoading || statsQuery.isLoading
   const queryFailed =
@@ -224,7 +227,7 @@ export function BudgetTagsSection() {
               {t('Net recharge')}
             </CardDescription>
             <CardTitle className='text-2xl tabular-nums'>
-              {formatQuota(stats?.summary.net_recharge ?? 0)}
+              {formatQuota(summary.net_recharge)}
             </CardTitle>
           </CardHeader>
         </Card>
@@ -235,13 +238,13 @@ export function BudgetTagsSection() {
               {t('Net consumption')}
             </CardDescription>
             <CardTitle className='text-2xl tabular-nums'>
-              {formatQuota(stats?.summary.net_consumption ?? 0)}
+              {formatQuota(summary.net_consumption)}
             </CardTitle>
           </CardHeader>
         </Card>
       </div>
 
-      {(stats?.months.length ?? 0) > 1 && (
+      {statsMonths.length > 1 && (
         <Card>
           <CardHeader>
             <CardTitle>{t('Monthly totals')}</CardTitle>
@@ -260,7 +263,7 @@ export function BudgetTagsSection() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {stats?.months.map((month) => (
+                {statsMonths.map((month) => (
                   <TableRow key={month.month}>
                     <TableCell>{month.month}</TableCell>
                     <TableCell className='text-right'>
@@ -323,7 +326,8 @@ export function BudgetTagsSection() {
 
       <div className='space-y-3'>
         {tags.map((tag) => {
-          const tagStats = stats?.tags.find((item) => item.tag_id === tag.id)
+          const tagStats = statsTags.find((item) => item.tag_id === tag.id)
+          const tagPools = tagStats?.pools ?? []
           const editing = editingTag?.id === tag.id
           return (
             <Card key={tag.id}>
@@ -425,7 +429,7 @@ export function BudgetTagsSection() {
                     </p>
                   </div>
                 </div>
-                {(tagStats?.pools.length ?? 0) > 0 && (
+                {tagPools.length > 0 && (
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -439,7 +443,7 @@ export function BudgetTagsSection() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {tagStats?.pools.map((pool) => (
+                      {tagPools.map((pool) => (
                         <TableRow key={pool.pool_id}>
                           <TableCell>{pool.pool_name}</TableCell>
                           <TableCell className='text-right'>

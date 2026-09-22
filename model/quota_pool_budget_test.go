@@ -165,3 +165,15 @@ func TestGetQuotaPoolBudgetStatsRejectsAmountsOutsideJavaScriptSafeIntegerRange(
 	_, err = GetQuotaPoolBudgetStats("2026-01", "2026-01", common.BeijingTimeLocation)
 	assert.ErrorIs(t, err, ErrQuotaPoolBudgetAmountOverflow)
 }
+
+func TestGetQuotaPoolBudgetStatsReturnsEmptyArraysForUnassignedTag(t *testing.T) {
+	setupQuotaPoolBudgetTestDB(t)
+	_, err := CreateQuotaPoolBudgetTag("暂无额度池")
+	require.NoError(t, err)
+
+	stats, err := GetQuotaPoolBudgetStats("2026-01", "2026-01", common.BeijingTimeLocation)
+	require.NoError(t, err)
+	require.Len(t, stats.Tags, 1)
+	assert.NotNil(t, stats.Tags[0].Pools)
+	assert.Empty(t, stats.Tags[0].Pools)
+}

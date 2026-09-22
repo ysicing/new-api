@@ -183,3 +183,38 @@ test('shows an explicit error instead of zero totals when statistics fail', asyn
   expect(screen.getByRole('button', { name: 'Retry' })).toBeVisible()
   expect(screen.queryByText(formatQuota(0))).not.toBeInTheDocument()
 })
+
+test('renders an unassigned tag when legacy statistics contain null arrays', async () => {
+  apiMocks.listQuotaPoolBudgetTags.mockResolvedValue({
+    success: true,
+    data: [
+      { id: 1, name: '产研中心', pool_count: 0, created_at: 1, updated_at: 1 },
+    ],
+  })
+  apiMocks.getQuotaPoolBudgetStats.mockResolvedValue({
+    success: true,
+    data: {
+      start_month: '2026-09',
+      end_month: '2026-09',
+      time_zone: 'Asia/Shanghai',
+      summary: { net_recharge: 0, net_consumption: 0 },
+      months: null,
+      tags: [
+        {
+          tag_id: 1,
+          name: '产研中心',
+          pool_count: 0,
+          net_recharge: 0,
+          net_consumption: 0,
+          months: null,
+          pools: null,
+        },
+      ],
+    },
+  })
+
+  renderSection()
+
+  expect(await screen.findByText('产研中心')).toBeVisible()
+  expect(screen.getByText('0 quota pools')).toBeVisible()
+})
