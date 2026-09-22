@@ -206,6 +206,14 @@ export async function refillQuotaPool(poolId: number, amount: number) {
   return response.data
 }
 
+export async function deductQuotaPool(poolId: number, amount: number) {
+  const response = await api.post<ApiResponse>(
+    `/api/quota_pool/${poolId}/deduct`,
+    { amount }
+  )
+  return response.data
+}
+
 export async function setQuotaPoolEnabled(poolId: number, enabled: boolean) {
   const response = await api.post<ApiResponse>(
     `/api/quota_pool/${poolId}/${enabled ? 'enable' : 'disable'}`

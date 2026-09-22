@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 )
@@ -241,6 +242,30 @@ func RefillQuotaPool(c *gin.Context) {
 		return
 	}
 	recordQuotaPoolAudit(c, id, "quota_pool.refill", map[string]any{"amount": change.Amount})
+	common.ApiSuccess(c, change)
+}
+
+func DeductQuotaPool(c *gin.Context) {
+	id, ok := parseQuotaPoolID(c)
+	if !ok || !requireQuotaPoolFeature(c) {
+		return
+	}
+	if !requireQuotaPoolCapability(c, currentQuotaPoolCapabilities(c, false), func(capabilities service.QuotaPoolCapabilities) bool {
+		return capabilities.CanRefill
+	}) {
+		return
+	}
+	var req quotaPoolAmountRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		writeQuotaPoolError(c, model.ErrQuotaPoolInvalidAmount)
+		return
+	}
+	change, err := model.DeductQuotaPoolBalance(id, quotaAmountToInternal(req.Amount), c.GetInt("id"))
+	if err != nil {
+		writeQuotaPoolError(c, err)
+		return
+	}
+	recordQuotaPoolAudit(c, id, "quota_pool.deduct", map[string]any{"amount": -change.Amount})
 	common.ApiSuccess(c, change)
 }
 

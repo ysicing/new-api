@@ -25,6 +25,7 @@ func TestQuotaPoolCompatibilityRoutesAreRegistered(t *testing.T) {
 		"DELETE /api/quota_pool/:id/members/:user_id",
 		"POST /api/quota_pool/:id/members/:user_id/recharge",
 		"POST /api/quota_pool/:id/members/:user_id/reclaim",
+		"POST /api/quota_pool/:id/deduct",
 		"GET /api/quota_pool/:id/transactions", "GET /api/quota_pool/:id/operation_logs",
 		"GET /api/quota_pool/:id/stats", "GET /api/quota_pool/:id/stats/export", "GET /api/quota_pool/candidates",
 		"GET /api/quota_pool/recharge_query/records", "POST /api/quota_pool/recharge_query/eligibility",

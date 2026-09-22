@@ -22,6 +22,7 @@ const operationTemplates: Record<string, string> = {
   'quota_pool.update': 'Updated {{fields}} settings for quota pool {{pool}}',
   'quota_pool.delete': 'Deleted quota pool {{pool}}',
   'quota_pool.refill': 'Added {{amount}} temporary quota to {{pool}}',
+  'quota_pool.deduct': 'Deducted {{amount}} available quota from {{pool}}',
   'quota_pool.self_update':
     'Updated {{fields}} auto-recharge settings for {{pool}}',
   'quota_pool.member_add': 'Added member {{user}} to {{pool}}',

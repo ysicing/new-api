@@ -374,6 +374,7 @@ func SetApiRouter(router *gin.Engine) {
 			quotaPoolRoute.POST("/:id/admins", controller.GrantQuotaPoolAdmin)
 			quotaPoolRoute.DELETE("/:id/admins/:user_id", controller.RevokeQuotaPoolAdmin)
 			quotaPoolRoute.POST("/:id/refill", controller.RefillQuotaPool)
+			quotaPoolRoute.POST("/:id/deduct", controller.DeductQuotaPool)
 			quotaPoolRoute.GET("/:id/transactions", controller.GetQuotaPoolTransactions)
 			quotaPoolRoute.GET("/:id/operation_logs", controller.GetQuotaPoolOperationLogs)
 			quotaPoolRoute.GET("/:id/stats", controller.GetQuotaPoolStats)

@@ -31,6 +31,7 @@ const (
 const (
 	QuotaPoolTransactionInitialFund    = "initial_fund"
 	QuotaPoolTransactionManualRefill   = "manual_refill"
+	QuotaPoolTransactionManualDeduct   = "manual_deduct"
 	QuotaPoolTransactionMonthlyRefill  = "monthly_refill"
 	QuotaPoolTransactionAllocateAuto   = "allocate_auto"
 	QuotaPoolTransactionAllocateManual = "allocate_manual"

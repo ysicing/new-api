@@ -59,6 +59,10 @@ test.each([
     'quota_pool.refill',
     `Added ${formatQuota(250)} temporary quota to 平台保障部`,
   ],
+  [
+    'quota_pool.deduct',
+    `Deducted ${formatQuota(250)} available quota from 平台保障部`,
+  ],
   ['quota_pool.self_update', 'Updated 3 auto-recharge settings for 平台保障部'],
   ['quota_pool.member_add', 'Added member 张三 (ID: 25) to 平台保障部'],
   ['quota_pool.member_move', 'Moved member 张三 (ID: 25) into 平台保障部'],

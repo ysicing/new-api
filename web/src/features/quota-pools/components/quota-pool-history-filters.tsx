@@ -16,6 +16,7 @@ export function QuotaPoolTransactionFilters(props: {
   const types = [
     ['initial_fund', t('Initial funding')],
     ['manual_refill', t('Temporary refill')],
+    ['manual_deduct', t('Manual deduction')],
     ['monthly_refill', t('Monthly automatic refill')],
     ['allocate_auto', t('Automatic allocation')],
     ['allocate_manual', t('Manual allocation')],
@@ -72,6 +73,7 @@ export function QuotaPoolOperationFilter(props: {
     ['quota_pool.enabled', t('Status')],
     ['quota_pool.delete', t('Delete')],
     ['quota_pool.refill', t('Refill')],
+    ['quota_pool.deduct', t('Deduct')],
     ['quota_pool.member_add', t('Add member')],
     ['quota_pool.member_move', t('Move')],
     ['quota_pool.member_remove', t('Remove member')],

@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, RefreshCw, UserPlus } from 'lucide-react'
+import { Minus, Plus, RefreshCw, UserPlus } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -22,6 +22,7 @@ import { QuotaPoolDetail } from './components/quota-pool-detail'
 import {
   CreateQuotaPoolDialog,
   AddQuotaPoolMemberDialog,
+  DeductQuotaPoolDialog,
   RefillQuotaPoolDialog,
 } from './components/quota-pool-dialogs'
 import { QuotaPoolList } from './components/quota-pool-list'
@@ -51,6 +52,7 @@ export function QuotaPools() {
   const [keyword, setKeyword] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [refillOpen, setRefillOpen] = useState(false)
+  const [deductOpen, setDeductOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const canListAll = canListAllQuotaPools(user)
   const listFirst = shouldShowQuotaPoolList(user)
@@ -257,6 +259,15 @@ export function QuotaPools() {
               {t('Refill')}
             </Button>
           )}
+          {selectedCapabilities.can_refill &&
+            selected?.enabled &&
+            !selected.is_default &&
+            selected.pool_type === 'normal' && (
+              <Button variant='outline' onClick={() => setDeductOpen(true)}>
+                <Minus data-icon='inline-start' />
+                {t('Deduct')}
+              </Button>
+            )}
           {selectedCapabilities.can_manage_members && selected && (
             <Button variant='outline' onClick={() => setAddMemberOpen(true)}>
               <UserPlus data-icon='inline-start' />
@@ -281,6 +292,12 @@ export function QuotaPools() {
         poolId={selected?.id}
         open={refillOpen}
         onOpenChange={setRefillOpen}
+        onSaved={refresh}
+      />
+      <DeductQuotaPoolDialog
+        poolId={selected?.id}
+        open={deductOpen}
+        onOpenChange={setDeductOpen}
         onSaved={refresh}
       />
       <AddQuotaPoolMemberDialog

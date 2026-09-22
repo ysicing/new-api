@@ -54,6 +54,7 @@ var auditContentTemplates = map[string]string{
 	"quota_pool.enabled":                 "Updated enabled state for quota pool ${quota_pool_name}",
 	"quota_pool.delete":                  "Deleted quota pool ${quota_pool_name}",
 	"quota_pool.refill":                  "Added ${amount} temporary quota to ${quota_pool_name}",
+	"quota_pool.deduct":                  "Deducted ${amount} available quota from ${quota_pool_name}",
 	"quota_pool.self_update":             "Updated ${fields} auto-recharge settings for ${quota_pool_name}",
 	"quota_pool.member_add":              "Added member ${user_name} (ID: ${user_id}) to ${quota_pool_name}",
 	"quota_pool.member_move":             "Moved member ${user_name} (ID: ${user_id}) into ${quota_pool_name}",

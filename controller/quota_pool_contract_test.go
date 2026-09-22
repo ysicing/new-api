@@ -41,6 +41,65 @@ func TestWriteQuotaPoolErrorReturnsStableCode(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), `"code":"QUOTA_POOL_INSUFFICIENT"`)
 }
 
+func TestDeductQuotaPoolReducesBalanceAndRecordsAudit(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Log{}, &model.QuotaPool{}, &model.QuotaPoolTransaction{}))
+	pool := model.QuotaPool{
+		Name: "deduct-handler-pool", PoolType: model.QuotaPoolTypeNormal, Enabled: true,
+		BaseQuota: quotaAmountToInternal(10), Quota: quotaAmountToInternal(10),
+	}
+	require.NoError(t, db.Create(&pool).Error)
+	previous := common.QuotaPoolEnabled
+	common.QuotaPoolEnabled = true
+	t.Cleanup(func() { common.QuotaPoolEnabled = previous })
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/quota_pool/1/deduct", strings.NewReader(`{"amount":2}`))
+	c.Params = gin.Params{{Key: "id", Value: strconv.Itoa(pool.Id)}}
+	c.Set("id", 8)
+	c.Set("username", "system-admin")
+	c.Set("role", common.RoleAdminUser)
+
+	DeductQuotaPool(c)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	require.NoError(t, db.First(&pool, pool.Id).Error)
+	assert.Equal(t, quotaAmountToInternal(8), pool.Quota)
+	assert.Equal(t, quotaAmountToInternal(10), pool.BaseQuota)
+	var audit model.Log
+	require.NoError(t, db.Order("id DESC").First(&audit).Error)
+	var other quotaPoolAuditOther
+	require.NoError(t, common.UnmarshalJsonStr(audit.Other, &other))
+	assert.Equal(t, "quota_pool.deduct", other.Op.Action)
+	assert.EqualValues(t, quotaAmountToInternal(2), other.Op.Params["amount"])
+}
+
+func TestDeductQuotaPoolRequiresRefillCapability(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Log{}, &model.QuotaPool{}, &model.QuotaPoolTransaction{}))
+	pool := model.QuotaPool{
+		Name: "deduct-permission-pool", PoolType: model.QuotaPoolTypeNormal, Enabled: true,
+		BaseQuota: 1000, Quota: 1000,
+	}
+	require.NoError(t, db.Create(&pool).Error)
+	previous := common.QuotaPoolEnabled
+	common.QuotaPoolEnabled = true
+	t.Cleanup(func() { common.QuotaPoolEnabled = previous })
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/quota_pool/1/deduct", strings.NewReader(`{"amount":1}`))
+	c.Params = gin.Params{{Key: "id", Value: strconv.Itoa(pool.Id)}}
+	c.Set("id", 8)
+	c.Set("role", common.RoleQuotaPoolSuperAdmin)
+
+	DeductQuotaPool(c)
+
+	assert.Equal(t, http.StatusForbidden, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"code":"QUOTA_POOL_PERMISSION_DENIED"`)
+	require.NoError(t, db.First(&pool, pool.Id).Error)
+	assert.Equal(t, 1000, pool.Quota)
+}
+
 func TestWriteQuotaPoolErrorReturnsCandidateValidationCode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

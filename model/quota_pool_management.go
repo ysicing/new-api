@@ -109,6 +109,44 @@ func AddQuotaPoolManualRefill(poolId, amount, operatorId int) (*QuotaPoolBalance
 	return change, nil
 }
 
+// DeductQuotaPoolBalance 手动扣减额度池的当前可用额度，不改变基础额度。
+func DeductQuotaPoolBalance(poolId, amount, operatorId int) (*QuotaPoolBalanceChange, error) {
+	if amount <= 0 {
+		return nil, ErrQuotaPoolInvalidAmount
+	}
+	change := &QuotaPoolBalanceChange{PoolId: poolId, Amount: -amount}
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var pool QuotaPool
+		if err := lockForUpdate(tx).Where("id = ?", poolId).First(&pool).Error; err != nil {
+			return mapQuotaPoolRecordError(err)
+		}
+		if pool.IsSystemPool() {
+			return ErrQuotaPoolSystemReadonly
+		}
+		if !pool.Enabled {
+			return ErrQuotaPoolDisabled
+		}
+		if pool.Quota < amount {
+			return ErrQuotaPoolInsufficientQuota
+		}
+		change.QuotaBefore = pool.Quota
+		change.QuotaAfter = pool.Quota - amount
+		if err := tx.Model(&QuotaPool{}).Where("id = ?", poolId).
+			Update("quota", gorm.Expr("quota - ?", amount)).Error; err != nil {
+			return err
+		}
+		return tx.Create(&QuotaPoolTransaction{
+			PoolId: poolId, Type: QuotaPoolTransactionManualDeduct,
+			Amount: -amount, QuotaBefore: change.QuotaBefore, QuotaAfter: change.QuotaAfter,
+			OperatorId: operatorId,
+		}).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return change, nil
+}
+
 func GrantQuotaPoolAdmin(poolId, userId int) error {
 	return DB.Transaction(func(tx *gorm.DB) error {
 		var user User

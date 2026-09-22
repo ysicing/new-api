@@ -9,6 +9,7 @@ the Free Software Foundation, either version 3 of the License, or
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 import {
+  deductQuotaPool,
   exportQuotaPoolStats,
   getQuotaPoolCandidates,
   getQuotaPoolMembers,
@@ -56,6 +57,14 @@ describe('quota pool members API', () => {
       expect(apiMocks.post).toHaveBeenCalledWith(endpoint)
     }
   )
+
+  test('deducts the requested amount from the selected pool', async () => {
+    await deductQuotaPool(7, 250)
+
+    expect(apiMocks.post).toHaveBeenCalledWith('/api/quota_pool/7/deduct', {
+      amount: 250,
+    })
+  })
 
   test.each([false, true])(
     'paginates both history endpoints for self=%s',

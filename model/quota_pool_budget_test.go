@@ -102,6 +102,7 @@ func TestGetQuotaPoolBudgetStatsAggregatesNaturalMonthsAndCurrentTags(t *testing
 	transactions := []QuotaPoolTransaction{
 		{PoolId: pools[0].Id, Type: QuotaPoolTransactionInitialFund, Amount: 1_000, CreatedAt: at(2026, time.January, 1)},
 		{PoolId: pools[0].Id, Type: QuotaPoolTransactionAdjustBase, Amount: -100, CreatedAt: at(2026, time.January, 2)},
+		{PoolId: pools[0].Id, Type: QuotaPoolTransactionManualDeduct, Amount: -150, CreatedAt: at(2026, time.January, 2)},
 		{PoolId: pools[0].Id, Type: QuotaPoolTransactionAllocateAuto, Amount: -300, CreatedAt: at(2026, time.January, 3)},
 		{PoolId: pools[0].Id, Type: QuotaPoolTransactionReclaimUser, Amount: 50, CreatedAt: at(2026, time.January, 4)},
 		{PoolId: pools[1].Id, Type: QuotaPoolTransactionManualRefill, Amount: 500, CreatedAt: at(2026, time.January, 5)},
@@ -119,14 +120,14 @@ func TestGetQuotaPoolBudgetStatsAggregatesNaturalMonthsAndCurrentTags(t *testing
 
 	stats, err := GetQuotaPoolBudgetStats("2026-01", "2026-02", beijing)
 	require.NoError(t, err)
-	assert.Equal(t, int64(2_300), stats.Summary.NetRecharge)
+	assert.Equal(t, int64(2_150), stats.Summary.NetRecharge)
 	assert.Equal(t, int64(500), stats.Summary.NetConsumption)
 	require.Len(t, stats.Months, 2)
-	assert.Equal(t, QuotaPoolBudgetMonthStat{Month: "2026-01", QuotaPoolBudgetAmounts: QuotaPoolBudgetAmounts{NetRecharge: 2_100, NetConsumption: 420}}, stats.Months[0])
+	assert.Equal(t, QuotaPoolBudgetMonthStat{Month: "2026-01", QuotaPoolBudgetAmounts: QuotaPoolBudgetAmounts{NetRecharge: 1_950, NetConsumption: 420}}, stats.Months[0])
 	assert.Equal(t, QuotaPoolBudgetMonthStat{Month: "2026-02", QuotaPoolBudgetAmounts: QuotaPoolBudgetAmounts{NetRecharge: 200, NetConsumption: 80}}, stats.Months[1])
 	require.Len(t, stats.Tags, 2)
 	assert.Equal(t, "产研中心", stats.Tags[0].Name)
-	assert.Equal(t, int64(1_600), stats.Tags[0].NetRecharge)
+	assert.Equal(t, int64(1_450), stats.Tags[0].NetRecharge)
 	assert.Equal(t, int64(430), stats.Tags[0].NetConsumption)
 	require.Len(t, stats.Tags[0].Pools, 2)
 
@@ -134,7 +135,7 @@ func TestGetQuotaPoolBudgetStatsAggregatesNaturalMonthsAndCurrentTags(t *testing
 	require.NoError(t, err)
 	reassigned, err := GetQuotaPoolBudgetStats("2026-01", "2026-02", beijing)
 	require.NoError(t, err)
-	assert.Equal(t, int64(1_100), reassigned.Tags[0].NetRecharge)
+	assert.Equal(t, int64(950), reassigned.Tags[0].NetRecharge)
 	assert.Equal(t, int64(330), reassigned.Tags[0].NetConsumption)
 	assert.Equal(t, int64(1_200), reassigned.Tags[1].NetRecharge)
 	assert.Equal(t, int64(170), reassigned.Tags[1].NetConsumption)

@@ -117,6 +117,62 @@ func TestAddQuotaPoolManualRefillEnforcesAmountAndMonthlyLimit(t *testing.T) {
 	assert.EqualValues(t, 3, transactions)
 }
 
+func TestDeductQuotaPoolBalanceReducesOnlyAvailableQuotaAndWritesTransaction(t *testing.T) {
+	db := setupQuotaPoolFundsTestDB(t)
+	pool, _ := seedQuotaPoolMember(t, db, 1000, 0)
+
+	change, err := DeductQuotaPoolBalance(pool.Id, 300, 8)
+
+	require.NoError(t, err)
+	assert.Equal(t, QuotaPoolBalanceChange{
+		PoolId: pool.Id, Amount: -300, QuotaBefore: 1000, QuotaAfter: 700,
+	}, *change)
+	require.NoError(t, db.First(&pool, pool.Id).Error)
+	assert.Equal(t, 700, pool.Quota)
+	assert.Equal(t, 1000, pool.BaseQuota)
+	var transaction QuotaPoolTransaction
+	require.NoError(t, db.Where("pool_id = ? AND type = ?", pool.Id, QuotaPoolTransactionManualDeduct).First(&transaction).Error)
+	assert.Equal(t, -300, transaction.Amount)
+	assert.Equal(t, 1000, transaction.QuotaBefore)
+	assert.Equal(t, 700, transaction.QuotaAfter)
+	assert.Equal(t, 8, transaction.OperatorId)
+}
+
+func TestDeductQuotaPoolBalanceRejectsInvalidOrUnavailableBalanceWithoutWriting(t *testing.T) {
+	tests := []struct {
+		name      string
+		amount    int
+		configure func(*QuotaPool)
+		expected  error
+	}{
+		{name: "zero amount", amount: 0, expected: ErrQuotaPoolInvalidAmount},
+		{name: "negative amount", amount: -1, expected: ErrQuotaPoolInvalidAmount},
+		{name: "insufficient balance", amount: 1001, expected: ErrQuotaPoolInsufficientQuota},
+		{name: "disabled pool", amount: 100, configure: func(pool *QuotaPool) { pool.Enabled = false }, expected: ErrQuotaPoolDisabled},
+		{name: "system pool", amount: 100, configure: func(pool *QuotaPool) { pool.PoolType = QuotaPoolTypeDefault }, expected: ErrQuotaPoolSystemReadonly},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := setupQuotaPoolFundsTestDB(t)
+			pool, _ := seedQuotaPoolMember(t, db, 1000, 0)
+			if test.configure != nil {
+				test.configure(&pool)
+				require.NoError(t, db.Save(&pool).Error)
+			}
+
+			_, err := DeductQuotaPoolBalance(pool.Id, test.amount, 8)
+
+			require.ErrorIs(t, err, test.expected)
+			require.NoError(t, db.First(&pool, pool.Id).Error)
+			assert.Equal(t, 1000, pool.Quota)
+			assert.Equal(t, 1000, pool.BaseQuota)
+			var count int64
+			require.NoError(t, db.Model(&QuotaPoolTransaction{}).Where("pool_id = ?", pool.Id).Count(&count).Error)
+			assert.Zero(t, count)
+		})
+	}
+}
+
 func TestListQuotaPoolMembersSearchesCurrentPoolUserFields(t *testing.T) {
 	db := setupQuotaPoolFundsTestDB(t)
 	pool := QuotaPool{Name: "搜索池", PoolType: QuotaPoolTypeNormal, Enabled: true}

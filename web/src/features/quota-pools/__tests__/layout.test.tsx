@@ -7,7 +7,13 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
@@ -17,6 +23,7 @@ import type { QuotaPool, QuotaPoolCapabilities } from '../types'
 
 const apiMocks = vi.hoisted(() => ({
   addQuotaPoolMember: vi.fn(),
+  deductQuotaPool: vi.fn(),
   setQuotaPoolEnabled: vi.fn(),
   getQuotaPools: vi.fn(),
   getQuotaPool: vi.fn(),
@@ -577,7 +584,7 @@ test('failed status change keeps confirmation open and allows retry', async () =
 })
 
 test.each([true, false])(
-  'pool enabled=%s controls refill while retaining member addition',
+  'pool enabled=%s controls balance changes while retaining member addition',
   async (enabled) => {
     const selectedPool = { ...pool, enabled }
     const capabilities = {
@@ -604,6 +611,9 @@ test.each([true, false])(
     expect(Boolean(screen.queryByRole('button', { name: 'Refill' }))).toBe(
       enabled
     )
+    expect(Boolean(screen.queryByRole('button', { name: 'Deduct' }))).toBe(
+      enabled
+    )
     expect(
       screen.getByRole('button', { name: 'Add member' })
     ).toBeInTheDocument()
@@ -612,3 +622,38 @@ test.each([true, false])(
     ).toBeInTheDocument()
   }
 )
+
+test('authorized operator can deduct available quota without changing base quota', async () => {
+  const capabilities = { ...viewCapabilities, can_refill: true }
+  apiMocks.getQuotaPools.mockResolvedValue({
+    success: true,
+    data: { items: [pool], total: 1, capabilities },
+  })
+  apiMocks.getQuotaPool.mockResolvedValue({
+    success: true,
+    data: { pool, capabilities },
+  })
+  apiMocks.deductQuotaPool.mockResolvedValue({ success: true })
+  renderQuotaPools({
+    id: 3,
+    username: 'admin',
+    role: 10,
+    quota_pool_enabled: true,
+  })
+  fireEvent.click(await screen.findByText(pool.name))
+  fireEvent.click(await screen.findByRole('button', { name: 'Deduct' }))
+  const dialog = screen.getByRole('dialog')
+  expect(
+    within(dialog).getByText(
+      'Deduct available quota from the selected pool without changing its base quota.'
+    )
+  ).toBeInTheDocument()
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'Amount' }), {
+    target: { value: '2' },
+  })
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Deduct' }))
+
+  await waitFor(() =>
+    expect(apiMocks.deductQuotaPool).toHaveBeenCalledWith(pool.id, 2)
+  )
+})

@@ -46,6 +46,7 @@ type QueryLike = {
 const transactionTypeLabelKeys: Record<string, string> = {
   initial_fund: 'Initial funding',
   manual_refill: 'Temporary refill',
+  manual_deduct: 'Manual deduction',
   monthly_refill: 'Monthly automatic refill',
   allocate_auto: 'Automatic allocation',
   allocate_manual: 'Manual allocation',

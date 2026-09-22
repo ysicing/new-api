@@ -15,7 +15,12 @@ import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 
-import { addQuotaPoolMember, createQuotaPool, refillQuotaPool } from '../api'
+import {
+  addQuotaPoolMember,
+  createQuotaPool,
+  deductQuotaPool,
+  refillQuotaPool,
+} from '../api'
 import type { QuotaPoolMember } from '../types'
 import { QuotaPoolCandidatePicker } from './quota-pool-candidate-picker'
 
@@ -150,6 +155,71 @@ export function RefillQuotaPoolDialog(props: {
           <Button disabled={saving} onClick={() => void save()}>
             {saving && <Spinner data-icon='inline-start' />}
             {t('Refill')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function DeductQuotaPoolDialog(props: {
+  poolId?: number
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSaved: () => Promise<void>
+}) {
+  const { t } = useTranslation()
+  const [amount, setAmount] = useState('')
+  const [saving, setSaving] = useState(false)
+  const save = async () => {
+    const value = Number(amount)
+    if (!props.poolId || !Number.isFinite(value) || value <= 0) {
+      toast.error(t('Enter a valid deduction amount.'))
+      return
+    }
+    setSaving(true)
+    try {
+      const result = await deductQuotaPool(props.poolId, value)
+      if (!result.success) {
+        return toast.error(result.message || t('Deduction failed'))
+      }
+      toast.success(t('Quota deducted'))
+      props.onOpenChange(false)
+      setAmount('')
+      await props.onSaved()
+    } finally {
+      setSaving(false)
+    }
+  }
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('Deduct quota pool')}</DialogTitle>
+          <DialogDescription>
+            {t(
+              'Deduct available quota from the selected pool without changing its base quota.'
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor='deduct-amount'>{t('Amount')}</FieldLabel>
+            <Input
+              id='deduct-amount'
+              inputMode='decimal'
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+            />
+          </Field>
+        </FieldGroup>
+        <DialogFooter>
+          <Button variant='outline' onClick={() => props.onOpenChange(false)}>
+            {t('Cancel')}
+          </Button>
+          <Button disabled={saving} onClick={() => void save()}>
+            {saving && <Spinner data-icon='inline-start' />}
+            {t('Deduct')}
           </Button>
         </DialogFooter>
       </DialogContent>

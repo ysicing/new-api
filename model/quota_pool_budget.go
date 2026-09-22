@@ -387,6 +387,7 @@ func GetQuotaPoolBudgetStats(startMonth, endMonth string, location *time.Locatio
 
 	types := []string{
 		QuotaPoolTransactionInitialFund, QuotaPoolTransactionManualRefill,
+		QuotaPoolTransactionManualDeduct,
 		QuotaPoolTransactionMonthlyRefill, QuotaPoolTransactionAdjustBase,
 		QuotaPoolTransactionAllocateAuto, QuotaPoolTransactionAllocateManual,
 		QuotaPoolTransactionReclaimUser,
@@ -414,7 +415,7 @@ func GetQuotaPoolBudgetStats(startMonth, endMonth string, location *time.Locatio
 				return nil, ErrQuotaPoolBudgetAmountOverflow
 			}
 			switch row.Type {
-			case QuotaPoolTransactionInitialFund, QuotaPoolTransactionManualRefill, QuotaPoolTransactionMonthlyRefill, QuotaPoolTransactionAdjustBase:
+			case QuotaPoolTransactionInitialFund, QuotaPoolTransactionManualRefill, QuotaPoolTransactionManualDeduct, QuotaPoolTransactionMonthlyRefill, QuotaPoolTransactionAdjustBase:
 				amounts.NetRecharge = row.Amount
 			case QuotaPoolTransactionAllocateAuto, QuotaPoolTransactionAllocateManual, QuotaPoolTransactionReclaimUser:
 				amounts.NetConsumption = -row.Amount
