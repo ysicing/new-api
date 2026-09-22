@@ -1,9 +1,9 @@
 {
   "translation": {
-    "Evaluate structured decisions with TypeSafe Jev": "TypeSafe Jev で構造化された意思決定を評価",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
+    "Evaluate structured decisions with TypeSafe Jev": "TypeSafe Jev で構造化された意思決定を評価",
     "_copy": "_copy",
     "-1 inherits the system setting; 0 disables automatic recharge.": "-1 はシステム設定を継承し、0 は自動チャージを無効にします。",
     "-1 inherits the system setting; 0 means unlimited.": "-1 はシステム設定を継承し、0 は無制限を表します。",

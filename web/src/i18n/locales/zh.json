@@ -1,9 +1,9 @@
 {
   "translation": {
-    "Evaluate structured decisions with TypeSafe Jev": "使用 TypeSafe Jev 进行结构化决策评估",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
+    "Evaluate structured decisions with TypeSafe Jev": "使用 TypeSafe Jev 进行结构化决策评估",
     "_copy": "_复制",
     "-1 inherits the system setting; 0 disables automatic recharge.": "-1 继承系统设置；0 关闭自动充值。",
     "-1 inherits the system setting; 0 means unlimited.": "-1 继承系统设置；0 表示不限制。",

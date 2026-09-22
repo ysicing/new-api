@@ -17,7 +17,9 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -54,7 +56,7 @@ func TestJevRelay(t *testing.T) {
 		{name: "unknown question type", request: strings.Replace(jevRequest, `"type":"noul"`, `"type":"chat"`, 1), expectedStatus: 400},
 		{name: "invalid choice criteria", request: strings.Replace(jevRequest, `"billing":null`, `"billing":3`, 1), expectedStatus: 400},
 		{name: "single score level", request: strings.Replace(jevRequest, `["Low","Medium","High"]`, `["Low"]`, 1), expectedStatus: 400},
-		{name: "duplicate model rejected", request: strings.Replace(jevRequest, `"model":`, `"model":"other","model":`, 1), expectedStatus: 400},
+		{name: "duplicate model does not reach upstream", request: strings.Replace(jevRequest, `"model":`, `"model":"other","model":`, 1), expectedStatus: 503},
 		{name: "upstream authentication", upstreamStatus: 401, response: `{"detail":"Unauthorized"}`, expectedStatus: 401, wantUpstream: true},
 		{name: "upstream validation", upstreamStatus: 422, response: `{"detail":"Invalid request"}`, expectedStatus: 422, wantUpstream: true},
 		{name: "upstream rate limit", upstreamStatus: 429, response: `{"detail":"Too many requests"}`, expectedStatus: 429, wantUpstream: true},
@@ -99,7 +101,12 @@ func TestJevRelay(t *testing.T) {
 			if tc.expression != "" {
 				expressions, err := common.Marshal(map[string]string{"jev-latest": tc.expression})
 				require.NoError(t, err)
-				require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"billing_setting.billing_expr": string(expressions)}))
+				modes, err := common.Marshal(map[string]string{"jev-latest": billing_setting.BillingModeTieredExpr})
+				require.NoError(t, err)
+				require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+					"billing_setting.billing_mode": string(modes),
+					"billing_setting.billing_expr": string(expressions),
+				}))
 			}
 			var calls atomic.Int32
 			var reserved atomic.Int64
@@ -182,6 +189,7 @@ func setupJevRelayTest(t *testing.T) (*model.User, *model.Token) {
 	previousDB, previousLogDB := model.DB, model.LOG_DB
 	t.Cleanup(func() { model.DB, model.LOG_DB = previousDB, previousLogDB })
 	setupRelayRouterTestDB(t)
+	ratio_setting.InitRatioSettings()
 	require.NoError(t, i18n.Init())
 	database, err := model.DB.DB()
 	require.NoError(t, err)

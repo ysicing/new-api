@@ -16,10 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  CHANNEL_TYPES,
-  CHANNEL_TYPE_TYPESAFE,
-} from '../constants'
+import { CHANNEL_TYPES, CHANNEL_TYPE_TYPESAFE } from '../constants'
 
 // ============================================================================
 // Channel Type Configuration
