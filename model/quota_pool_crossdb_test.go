@@ -44,6 +44,8 @@ func TestQuotaPoolLegacyMigrationAcrossExternalDatabases(t *testing.T) {
 			after := captureLegacyQuotaPoolSnapshot(t, db)
 			assert.Equal(t, before, after)
 			assert.True(t, db.Migrator().HasColumn(&QuotaPool{}, "monthly_refill_top_up"))
+			assert.True(t, db.Migrator().HasColumn(&QuotaPool{}, "budget_tag_id"))
+			assert.True(t, db.Migrator().HasTable(&QuotaPoolBudgetTag{}))
 		})
 	}
 }
@@ -59,5 +61,5 @@ func seedLegacyQuotaPoolFixture(t *testing.T, db *gorm.DB) {
 
 func dropQuotaPoolMigrationFixture(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	require.NoError(t, db.Migrator().DropTable("quota_pool_transactions", "quota_pool_admins", "quota_pools", "users", "options"))
+	require.NoError(t, db.Migrator().DropTable("quota_pool_transactions", "quota_pool_admins", "quota_pools", "quota_pool_budget_tags", "users", "options"))
 }

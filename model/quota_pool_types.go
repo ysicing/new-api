@@ -77,6 +77,7 @@ type QuotaPool struct {
 	LastRefillMonth      int            `json:"last_refill_month" gorm:"type:int;default:0;column:last_refill_month"`
 	CreatedAt            int64          `json:"created_at" gorm:"autoCreateTime;column:created_at"`
 	UpdatedAt            int64          `json:"updated_at" gorm:"autoUpdateTime;column:updated_at"`
+	BudgetTagId          int            `json:"budget_tag_id" gorm:"type:int;default:0;column:budget_tag_id;index"`
 	DeletedAt            gorm.DeletedAt `json:"deleted_at" gorm:"index"`
 }
 

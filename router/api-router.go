@@ -383,6 +383,13 @@ func SetApiRouter(router *gin.Engine) {
 		quotaPoolRootRoute := apiRouter.Group("/quota_pool")
 		quotaPoolRootRoute.Use(middleware.RootAuth())
 		{
+			quotaPoolRootRoute.GET("/budget_tags", controller.GetQuotaPoolBudgetTags)
+			quotaPoolRootRoute.POST("/budget_tags", controller.CreateQuotaPoolBudgetTag)
+			quotaPoolRootRoute.PUT("/budget_tags/:tag_id", controller.UpdateQuotaPoolBudgetTag)
+			quotaPoolRootRoute.DELETE("/budget_tags/:tag_id", controller.DeleteQuotaPoolBudgetTag)
+			quotaPoolRootRoute.PUT("/budget_tags/:tag_id/pools", controller.ReplaceQuotaPoolBudgetTagPools)
+			quotaPoolRootRoute.PUT("/:id/budget_tag", controller.SetQuotaPoolBudgetTag)
+			quotaPoolRootRoute.GET("/budget_stats", controller.GetQuotaPoolBudgetStats)
 			quotaPoolRootRoute.GET("/recharge_query/records", controller.GetQuotaPoolRechargeRecords)
 			quotaPoolRootRoute.POST("/recharge_query/eligibility", controller.GetQuotaPoolRechargeEligibility)
 			quotaPoolRootRoute.POST("/", controller.CreateQuotaPool)

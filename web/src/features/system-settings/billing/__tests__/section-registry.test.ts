@@ -20,6 +20,7 @@ import { expect, test } from 'vitest'
 
 import { BILLING_SECTION_IDS } from '../section-registry'
 
-test('registers recharge query in billing navigation', () => {
+test('registers operational billing tools in navigation', () => {
   expect(BILLING_SECTION_IDS).toContain('recharge-query')
+  expect(BILLING_SECTION_IDS).toContain('budget-tags')
 })

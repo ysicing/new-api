@@ -57,6 +57,29 @@ func TestQuotaPoolRechargeQueryRoutesRequireRootAuthentication(t *testing.T) {
 	}
 }
 
+func TestQuotaPoolBudgetRoutesRequireRootAuthentication(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	SetApiRouter(engine)
+	for _, endpoint := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/api/quota_pool/budget_tags"},
+		{method: http.MethodPost, path: "/api/quota_pool/budget_tags"},
+		{method: http.MethodPut, path: "/api/quota_pool/budget_tags/1"},
+		{method: http.MethodDelete, path: "/api/quota_pool/budget_tags/1"},
+		{method: http.MethodPut, path: "/api/quota_pool/budget_tags/1/pools"},
+		{method: http.MethodPut, path: "/api/quota_pool/1/budget_tag"},
+		{method: http.MethodGet, path: "/api/quota_pool/budget_stats"},
+	} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(endpoint.method, endpoint.path, nil)
+		engine.ServeHTTP(recorder, request)
+		assert.Equal(t, http.StatusUnauthorized, recorder.Code, endpoint.path)
+	}
+}
+
 func TestSelfAutoRechargeEligibilityRouteRequiresAuthentication(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()

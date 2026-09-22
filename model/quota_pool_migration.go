@@ -21,6 +21,7 @@ func migrateQuotaPoolSchema(db *gorm.DB) error {
 	if err := db.AutoMigrate(
 		&quotaPoolUserCompatibilityColumns{},
 		&QuotaPool{},
+		&QuotaPoolBudgetTag{},
 		&QuotaPoolAdmin{},
 		&QuotaPoolTransaction{},
 	); err != nil {

@@ -149,6 +149,18 @@ func writeQuotaPoolError(c *gin.Context, err error) {
 		status, code, message = http.StatusBadRequest, "QUOTA_POOL_INVALID_AMOUNT", "额度金额无效"
 	case errors.Is(err, model.ErrQuotaPoolStatsTimezoneUnsupported):
 		status, code, message = http.StatusInternalServerError, "QUOTA_POOL_STATS_TIMEZONE_UNSUPPORTED", "额度池统计要求服务时区使用整小时 UTC 偏移"
+	case errors.Is(err, model.ErrQuotaPoolBudgetTagNotFound):
+		status, code, message = http.StatusNotFound, "QUOTA_POOL_BUDGET_TAG_NOT_FOUND", "预算标签不存在"
+	case errors.Is(err, model.ErrQuotaPoolBudgetTagNameInvalid):
+		status, code, message = http.StatusBadRequest, "QUOTA_POOL_BUDGET_TAG_NAME_INVALID", "预算标签名称无效"
+	case errors.Is(err, model.ErrQuotaPoolBudgetTagNameExists):
+		status, code, message = http.StatusConflict, "QUOTA_POOL_BUDGET_TAG_NAME_EXISTS", "预算标签名称已存在"
+	case errors.Is(err, model.ErrQuotaPoolBudgetTagInUse):
+		status, code, message = http.StatusConflict, "QUOTA_POOL_BUDGET_TAG_IN_USE", "预算标签仍绑定额度池"
+	case errors.Is(err, model.ErrQuotaPoolBudgetMonthRangeInvalid):
+		status, code, message = http.StatusBadRequest, "QUOTA_POOL_BUDGET_MONTH_RANGE_INVALID", "预算统计月份范围无效"
+	case errors.Is(err, model.ErrQuotaPoolBudgetAmountOverflow):
+		status, code, message = http.StatusUnprocessableEntity, "QUOTA_POOL_BUDGET_AMOUNT_OVERFLOW", "预算统计金额超出支持范围"
 	}
 	c.AbortWithStatusJSON(status, gin.H{"success": false, "code": code, "message": message})
 }
