@@ -72,7 +72,7 @@ func (quotaPoolMaintenanceHandler) Run(ctx context.Context, task *model.SystemTa
 
 func autoRechargeSkipReason(reason string) string {
 	switch reason {
-	case "disabled", "quota_above_threshold", "quota_pool_not_found",
+	case "disabled", "quota_frozen", "quota_above_threshold", "quota_pool_not_found",
 		"new_user_pool_disabled", "quota_pool_disabled", "amount_not_configured",
 		"weekly_count_failed", "weekly_limited", "monthly_count_failed", "monthly_limited":
 		return reason

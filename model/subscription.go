@@ -1051,6 +1051,13 @@ func adminResetUserSubscriptionsByPlanTx(tx *gorm.DB, userId int, plan *Subscrip
 	if tx == nil || plan == nil {
 		return nil, errors.New("invalid reset args")
 	}
+	var frozenCount int64
+	if err := tx.Model(&User{}).Where("id = ? AND quota_frozen = ?", userId, true).Count(&frozenCount).Error; err != nil {
+		return nil, err
+	}
+	if frozenCount > 0 {
+		return nil, ErrQuotaFrozen
+	}
 	var subs []UserSubscription
 	if err := lockForUpdate(tx).
 		Where("user_id = ? AND plan_id = ? AND status = ? AND end_time > ?", userId, plan.Id, "active", now).
@@ -1076,6 +1083,7 @@ func adminResetPlanSubscriptionsTx(tx *gorm.DB, plan *SubscriptionPlan, now int6
 	var subs []UserSubscription
 	if err := lockForUpdate(tx).
 		Where("plan_id = ? AND status = ? AND end_time > ?", plan.Id, "active", now).
+		Where("user_id NOT IN (?)", tx.Model(&User{}).Select("id").Where("quota_frozen = ?", true)).
 		Order("user_id asc, end_time asc, id asc").
 		Find(&subs).Error; err != nil {
 		return nil, err
@@ -1268,6 +1276,13 @@ func maybeResetUserSubscriptionWithPlanTx(tx *gorm.DB, sub *UserSubscription, pl
 	if NormalizeResetPeriod(plan.QuotaResetPeriod) == SubscriptionResetNever {
 		return nil
 	}
+	var frozenCount int64
+	if err := tx.Model(&User{}).Where("id = ? AND quota_frozen = ?", sub.UserId, true).Count(&frozenCount).Error; err != nil {
+		return err
+	}
+	if frozenCount > 0 {
+		return nil
+	}
 	baseUnix := sub.LastResetTime
 	if baseUnix <= 0 {
 		baseUnix = sub.StartTime
@@ -1432,6 +1447,7 @@ func ResetDueSubscriptions(limit int) (int, error) {
 	now := GetDBTimestamp()
 	var subs []UserSubscription
 	if err := DB.Where("next_reset_time > 0 AND next_reset_time <= ? AND status = ?", now, "active").
+		Where("user_id NOT IN (?)", DB.Model(&User{}).Select("id").Where("quota_frozen = ?", true)).
 		Order("next_reset_time asc").
 		Limit(limit).
 		Find(&subs).Error; err != nil {
@@ -1452,6 +1468,13 @@ func ResetDueSubscriptions(limit int) (int, error) {
 			if err := lockForUpdate(tx).
 				Where("id = ? AND next_reset_time > 0 AND next_reset_time <= ?", subCopy.Id, now).
 				First(&locked).Error; err != nil {
+				return nil
+			}
+			var frozenCount int64
+			if err := tx.Model(&User{}).Where("id = ? AND quota_frozen = ?", locked.UserId, true).Count(&frozenCount).Error; err != nil {
+				return err
+			}
+			if frozenCount > 0 {
 				return nil
 			}
 			if err := maybeResetUserSubscriptionWithPlanTx(tx, &locked, plan, now); err != nil {

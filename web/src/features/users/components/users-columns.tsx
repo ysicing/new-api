@@ -127,6 +127,10 @@ export function useUsersColumns(): ColumnDef<User>[] {
       cell: ({ row }) => {
         const user = row.original
         const requestCount = user.request_count
+        const quotaFrozen =
+          !isUserDeleted(user) &&
+          user.status === USER_STATUS.ENABLED &&
+          user.quota_frozen
 
         const statusConfig = isUserDeleted(user)
           ? USER_STATUSES[USER_STATUS.DELETED]
@@ -140,8 +144,10 @@ export function useUsersColumns(): ColumnDef<User>[] {
           <Tooltip>
             <TooltipTrigger render={<div className='-ml-1.5 cursor-help' />}>
               <StatusBadge
-                label={t(statusConfig.labelKey)}
-                variant={statusConfig.variant}
+                label={
+                  quotaFrozen ? t('Quota frozen') : t(statusConfig.labelKey)
+                }
+                variant={quotaFrozen ? 'neutral' : statusConfig.variant}
                 copyable={false}
               />
             </TooltipTrigger>
@@ -166,7 +172,11 @@ export function useUsersColumns(): ColumnDef<User>[] {
       header: t('Quota'),
       cell: ({ row }) => {
         const user = row.original
-        return <UserQuotaCell used={user.used_quota} remaining={user.quota} />
+        return user.quota_frozen ? (
+          <span>{t('Quota unavailable')}</span>
+        ) : (
+          <UserQuotaCell used={user.used_quota} remaining={user.quota} />
+        )
       },
       size: 300,
       minSize: 260,

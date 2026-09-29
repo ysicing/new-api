@@ -13,6 +13,13 @@ func AllocateQuotaFromPool(poolId, userId, amount int, transactionType string, o
 		return nil, ErrQuotaPoolInvalidAmount
 	}
 	if poolId == QuotaPoolDefaultUserPoolId {
+		user, err := GetUserById(userId, false)
+		if err != nil {
+			return nil, err
+		}
+		if user.QuotaFrozen {
+			return nil, ErrQuotaFrozen
+		}
 		if err := IncreaseUserQuota(userId, amount, true); err != nil {
 			return nil, err
 		}
@@ -23,6 +30,9 @@ func AllocateQuotaFromPool(poolId, userId, amount int, transactionType string, o
 		pool, user, err := lockQuotaPoolMember(tx, poolId, userId)
 		if err != nil {
 			return err
+		}
+		if user.QuotaFrozen {
+			return ErrQuotaFrozen
 		}
 		// 禁用只阻止发放额度；回收共用的成员锁仍须允许资金退回池中。
 		if !pool.Enabled {

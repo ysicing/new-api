@@ -40,6 +40,7 @@ export interface AuthUser {
   status?: number
   group?: string
   quota?: number
+  quota_frozen?: boolean
   quota_pool_id?: number
   quota_pool_name?: string
   quota_pool_enabled?: boolean

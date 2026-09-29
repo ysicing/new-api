@@ -55,8 +55,12 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   }[] = [
     {
       label: t('Current Balance'),
-      value: formatQuota(props.user?.quota ?? 0),
-      description: t('Remaining quota'),
+      value: props.user?.quota_frozen
+        ? t('Quota unavailable')
+        : formatQuota(props.user?.quota ?? 0),
+      description: props.user?.quota_frozen
+        ? t('Already using Codex Business; iCode is currently unavailable.')
+        : t('Remaining quota'),
       icon: WalletCards,
       tone: 'success',
     },

@@ -93,8 +93,12 @@ export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
   }[] = [
     {
       label: t('Current Balance'),
-      value: formatQuota(profile.quota),
-      description: t('Remaining quota'),
+      value: profile.quota_frozen
+        ? t('Quota unavailable')
+        : formatQuota(profile.quota),
+      description: profile.quota_frozen
+        ? t('Already using Codex Business; iCode is currently unavailable.')
+        : t('Remaining quota'),
       icon: WalletCards,
       tone: 'success',
     },

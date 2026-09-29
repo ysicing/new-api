@@ -214,6 +214,15 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuItem>
         )}
 
+        <DropdownMenuItem
+          onClick={() =>
+            handleManage(user.quota_frozen ? 'unfreeze_quota' : 'freeze_quota')
+          }
+          disabled={isRoot}
+        >
+          {t(user.quota_frozen ? 'Unfreeze quota' : 'Freeze quota')}
+        </DropdownMenuItem>
+
         {isAdmin && !isRoot && (
           <DropdownMenuItem onClick={() => handleManage('demote')}>
             {t('Demote')}
@@ -232,7 +241,10 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuItem>
         )}
 
-        <DropdownMenuItem onClick={() => handleManage('recharge_auto')}>
+        <DropdownMenuItem
+          onClick={() => handleManage('recharge_auto')}
+          disabled={user.quota_frozen}
+        >
           {t('Recharge')}
           <DropdownMenuShortcut>
             <Coins size={16} />

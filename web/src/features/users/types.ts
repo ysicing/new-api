@@ -45,6 +45,7 @@ export const userSchema = z.object({
   telegram_id: z.string().optional(),
   email: z.string().optional(),
   quota: z.number(),
+  quota_frozen: z.boolean().optional(),
   quota_pool_id: z.number().optional(),
   quota_pool_name: z.string().optional(),
   used_quota: z.number(),
@@ -153,6 +154,8 @@ export type ManageUserAction =
   | 'demote'
   | 'enable'
   | 'disable'
+  | 'freeze_quota'
+  | 'unfreeze_quota'
   | 'delete'
   | 'add_quota'
   | 'set_quota_pool_super_admin'

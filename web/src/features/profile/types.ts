@@ -47,6 +47,7 @@ export interface UserProfile {
   group: string
   /** Current quota balance */
   quota: number
+  quota_frozen?: boolean
   /** Total used quota */
   used_quota: number
   /** Total request count */

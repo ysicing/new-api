@@ -48,6 +48,7 @@ import { rechargeQueryErrorMessage } from './error-message'
 import type { AutoRechargeEligibility, AutoRechargeLimitUsage } from './types'
 
 const REASON_LABELS: Record<string, string> = {
+  quota_frozen: 'Already using Codex Business; iCode is currently unavailable.',
   disabled: 'Automatic recharge is disabled globally.',
   quota_above_threshold: 'The user balance is above the recharge threshold.',
   quota_pool_not_found: 'The user quota pool no longer exists.',

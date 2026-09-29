@@ -76,6 +76,22 @@ func TestAllocateQuotaFromPoolRejectsInsufficientBalanceWithoutPartialWrites(t *
 	assert.Zero(t, count)
 }
 
+func TestAllocateQuotaFromPoolRejectsFrozenUserWithoutDebitingPool(t *testing.T) {
+	db := setupQuotaPoolFundsTestDB(t)
+	pool, user := seedQuotaPoolMember(t, db, 100, 10)
+	require.NoError(t, db.Model(&User{}).Where("id = ?", user.Id).Update("quota_frozen", true).Error)
+
+	_, err := AllocateQuotaFromPool(pool.Id, user.Id, 40, QuotaPoolTransactionAllocateManual, 9)
+	require.ErrorContains(t, err, QuotaFrozenMessage)
+	require.NoError(t, db.First(&pool, pool.Id).Error)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, 100, pool.Quota)
+	assert.Equal(t, 10, user.Quota)
+	var count int64
+	require.NoError(t, db.Model(&QuotaPoolTransaction{}).Count(&count).Error)
+	assert.Zero(t, count)
+}
+
 func TestMoveUserQuotaPoolReclaimsBalanceAndRevokesOldAdmin(t *testing.T) {
 	db := setupQuotaPoolFundsTestDB(t)
 	oldPool, user := seedQuotaPoolMember(t, db, 100, 35)

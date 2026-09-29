@@ -83,6 +83,31 @@ func TestManageUserSetsAndUnsetsQuotaPoolSuperAdmin(t *testing.T) {
 	assert.Equal(t, common.RoleCommonUser, user.Role)
 }
 
+func TestManageUserFreezeQuotaKeepsAccountEnabledAndRejectsRecharge(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	user := model.User{Username: "freeze-user", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AuthVersion: 1}
+	require.NoError(t, db.Create(&user).Error)
+
+	recorder := performManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"freeze_quota"}`, user.Id))
+	require.Contains(t, recorder.Body.String(), `"success":true`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.True(t, user.QuotaFrozen)
+	assert.Equal(t, common.UserStatusEnabled, user.Status)
+	assert.EqualValues(t, 1, user.AuthVersion)
+
+	recorder = performManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"recharge_auto"}`, user.Id))
+	assert.Contains(t, recorder.Body.String(), model.QuotaFrozenMessage)
+	recorder = performManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"add_quota","mode":"override","value":100}`, user.Id))
+	assert.Contains(t, recorder.Body.String(), model.QuotaFrozenMessage)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Zero(t, user.Quota)
+
+	recorder = performManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"unfreeze_quota"}`, user.Id))
+	require.Contains(t, recorder.Body.String(), `"success":true`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.False(t, user.QuotaFrozen)
+}
+
 func TestManageUserAdminCanRechargeHigherRoleButCannotDirectlyAdjustQuota(t *testing.T) {
 	db := setupManageUserTestDB(t)
 	previousAmount := operation_setting.GetAutoRechargeSetting().Amount

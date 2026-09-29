@@ -545,6 +545,7 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"telegram_id":             user.TelegramId,
 		"group":                   user.Group,
 		"quota":                   user.Quota,
+		"quota_frozen":            user.QuotaFrozen,
 		"quota_pool_id":           user.QuotaPoolId,
 		"quota_pool_name":         user.QuotaPoolName,
 		"quota_pool_enabled":      common.QuotaPoolEnabled,
@@ -1141,6 +1142,21 @@ func ManageUser(c *gin.Context) {
 		}
 	case "enable":
 		user.Status = common.UserStatusEnabled
+	case "freeze_quota", "unfreeze_quota":
+		if user.Role == common.RoleRootUser {
+			common.ApiErrorI18n(c, i18n.MsgUserCannotDisableRootUser)
+			return
+		}
+		frozen := req.Action == "freeze_quota"
+		if err := model.SetUserQuotaFrozen(user.Id, frozen); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		recordManageAuditFor(c, user.Id, "user.manage", map[string]interface{}{
+			"action": req.Action, "username": user.Username, "id": user.Id,
+		})
+		common.ApiSuccess(c, gin.H{"quota_frozen": frozen})
+		return
 	case "delete":
 		if user.Role == common.RoleRootUser {
 			common.ApiErrorI18n(c, i18n.MsgUserCannotDeleteRootUser)
@@ -1201,6 +1217,10 @@ func ManageUser(c *gin.Context) {
 		}
 		user.Role = common.RoleCommonUser
 	case "add_quota":
+		if user.QuotaFrozen {
+			common.ApiErrorMsg(c, model.QuotaFrozenMessage)
+			return
+		}
 		if myRole != common.RoleRootUser || user.QuotaPoolId != model.QuotaPoolDefaultUserPoolId {
 			common.ApiErrorI18n(c, i18n.MsgAuthInsufficientPrivilege)
 			return
@@ -1250,6 +1270,10 @@ func ManageUser(c *gin.Context) {
 		})
 		return
 	case "recharge_auto":
+		if user.QuotaFrozen {
+			common.ApiErrorMsg(c, model.QuotaFrozenMessage)
+			return
+		}
 		amount := int(float64(operation_setting.GetAutoRechargeSetting().Amount) * common.QuotaPerUnit)
 		if amount <= 0 {
 			writeQuotaPoolError(c, model.ErrQuotaPoolInvalidAmount)

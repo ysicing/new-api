@@ -411,3 +411,14 @@ func TestWriteQuotaPoolRefillErrorExplainsSpecificLimit(t *testing.T) {
 		})
 	}
 }
+
+func TestWriteQuotaPoolErrorExplainsFrozenUser(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	writeQuotaPoolError(c, model.ErrQuotaFrozen)
+	assert.Equal(t, http.StatusConflict, recorder.Code)
+	var response map[string]any
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.Equal(t, "USER_QUOTA_FROZEN", response["code"])
+	assert.Equal(t, model.QuotaFrozenMessage, response["message"])
+}

@@ -40,6 +40,17 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
 		}
+		if userID := c.GetInt("id"); shouldSelectChannel && userID > 0 {
+			user, err := model.GetUserCache(userID)
+			if err != nil {
+				abortWithOpenAiMessage(c, http.StatusInternalServerError, "读取用户状态失败")
+				return
+			}
+			if user.QuotaFrozen {
+				abortWithOpenAiMessage(c, http.StatusForbidden, model.QuotaFrozenMessage)
+				return
+			}
+		}
 		if ok {
 			id, err := strconv.Atoi(channelId.(string))
 			if err != nil {

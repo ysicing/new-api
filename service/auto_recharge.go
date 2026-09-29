@@ -146,6 +146,8 @@ func GetSelfAutoRechargeEligibility(userId int, now time.Time) (*SelfAutoRecharg
 		self.Status = SelfAutoRechargeStatusEligible
 	case result.Reason == "quota_above_threshold":
 		self.Status = SelfAutoRechargeStatusNotNeeded
+	case result.Reason == "quota_frozen":
+		self.Status = SelfAutoRechargeStatusBlocked
 	default:
 		self.Status = SelfAutoRechargeStatusBlocked
 		if pool == nil {
@@ -226,6 +228,10 @@ func evaluateAutoRechargeUser(user *model.User, now time.Time, collectDetails bo
 	}
 	result.UserId, result.Username, result.Email = user.Id, user.Username, user.Email
 	result.UserQuota, result.PoolId = user.Quota, user.QuotaPoolId
+	if user.QuotaFrozen {
+		result.Reason = "quota_frozen"
+		return result, nil
+	}
 	if !common.QuotaPoolEnabled {
 		result.PoolId = model.QuotaPoolDefaultUserPoolId
 	} else if user.QuotaPoolId == model.QuotaPoolDefaultUserPoolId {

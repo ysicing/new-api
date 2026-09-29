@@ -44,6 +44,10 @@ import type {
 } from '../types'
 
 const AUTO_RECHARGE_REASON_KEYS = new Map<string, string>([
+  [
+    'quota_frozen',
+    'Already using Codex Business; iCode is currently unavailable.',
+  ],
   ['disabled', 'Automatic recharge is disabled globally.'],
   [
     'quota_above_threshold',

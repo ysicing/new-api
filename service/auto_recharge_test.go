@@ -461,6 +461,21 @@ func TestGetAutoRechargeEligibilityBlocksDisabledUserFromMaintenance(t *testing.
 	assert.Greater(t, result.Amount, 0)
 }
 
+func TestFrozenUserIsIneligibleForAutoRecharge(t *testing.T) {
+	db := setupAutoRechargeTest(t)
+	user := model.User{Username: "frozen-auto-recharge", Password: "password", AffCode: "frozen-auto-recharge", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaFrozen: true}
+	require.NoError(t, db.Create(&user).Error)
+
+	result, err := GetAutoRechargeEligibility(user.Username, time.Now())
+	require.NoError(t, err)
+	assert.False(t, result.Eligible)
+	assert.Equal(t, "quota_frozen", result.Reason)
+	self, err := GetSelfAutoRechargeEligibility(user.Id, time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, SelfAutoRechargeStatusBlocked, self.Status)
+	assert.Empty(t, self.Guidance)
+}
+
 func TestRefillMonthlyQuotaPoolsTopUpIsIdempotent(t *testing.T) {
 	db := setupAutoRechargeTest(t)
 	now := time.Date(2026, time.August, 21, 12, 0, 0, 0, time.Local)

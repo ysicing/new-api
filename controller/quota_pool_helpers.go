@@ -121,6 +121,8 @@ func requireSelfQuotaPoolMemberRemoval(c *gin.Context, admin *model.QuotaPoolAdm
 func writeQuotaPoolError(c *gin.Context, err error) {
 	status, code, message := http.StatusInternalServerError, "QUOTA_POOL_INTERNAL", "额度池操作失败"
 	switch {
+	case errors.Is(err, model.ErrQuotaFrozen):
+		status, code, message = http.StatusConflict, "USER_QUOTA_FROZEN", model.QuotaFrozenMessage
 	case errors.Is(err, model.ErrQuotaPoolFeatureDisabled):
 		status, code, message = http.StatusConflict, "QUOTA_POOL_DISABLED", "额度池功能未启用"
 	case errors.Is(err, model.ErrQuotaPoolNotFound):

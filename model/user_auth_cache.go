@@ -79,6 +79,9 @@ redis.call('HSET', KEYS[1],
   'Id', ARGV[2], 'Group', ARGV[3], 'Email', ARGV[4],
   'Status', ARGV[5], 'Role', ARGV[6], 'Username', ARGV[7],
   'Setting', ARGV[8], 'AuthVersion', ARGV[1], 'CacheSchema', ARGV[9])
+-- Same-version profile snapshots can be stale; only an explicit freeze update
+-- may replace an existing QuotaFrozen value.
+redis.call('HSETNX', KEYS[1], 'QuotaFrozen', ARGV[13])
 if ARGV[10] == '1' and redis.call('HEXISTS', KEYS[1], 'Quota') == 0 then
   redis.call('HSET', KEYS[1], 'Quota', ARGV[11])
 end
@@ -87,7 +90,7 @@ return 1`
 	result, err := common.RDB.Eval(context.Background(), script,
 		[]string{getUserCacheKey(user.Id), getUserAuthFenceKey(user.Id), getUserAuthVersionKey(user.Id)},
 		user.AuthVersion, user.Id, user.Group, user.Email, user.Status, user.Role,
-		user.Username, user.Setting, user.CacheSchema, includeQuotaArg, user.Quota, ttl,
+		user.Username, user.Setting, user.CacheSchema, includeQuotaArg, user.Quota, ttl, strconv.FormatBool(user.QuotaFrozen),
 	).Int()
 	if err != nil {
 		return err
@@ -232,6 +235,22 @@ func PublishUserAuthCache(userId int) error {
 		return err
 	}
 	return updateUserCache(*user)
+}
+
+// SetUserQuotaFrozen changes quota availability without changing account access.
+// The explicit cache field write cannot be undone by a stale profile snapshot.
+func SetUserQuotaFrozen(userId int, frozen bool) error {
+	if err := DB.Model(&User{}).Where("id = ?", userId).Update("quota_frozen", frozen).Error; err != nil {
+		return err
+	}
+	user, err := GetUserById(userId, false)
+	if err != nil {
+		return err
+	}
+	if err := updateUserCache(*user); err != nil {
+		return err
+	}
+	return updateUserCacheFieldAtVersion(userId, "QuotaFrozen", strconv.FormatBool(user.QuotaFrozen), user.AuthVersion)
 }
 
 // InitializeUserAuthVersions must run after AutoMigrate when upgrading an
