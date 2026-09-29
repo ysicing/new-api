@@ -442,6 +442,9 @@ func GetAllUsers(pageInfo *common.PageInfo, sortOptions ...UserSortOptions) (use
 	return users, total, nil
 }
 
+// 冻结只是列表筛选状态，不写入 users.status。
+const userStatusQuotaFrozenFilter = 3
+
 func SearchUsers(keyword string, group string, role *int, status *int, quotaPoolId *int, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
 	var users []*User
 	var total int64
@@ -483,8 +486,13 @@ func SearchUsers(keyword string, group string, role *int, status *int, quotaPool
 	if status != nil {
 		if *status == -1 {
 			query = query.Where("deleted_at IS NOT NULL")
+		} else if *status == userStatusQuotaFrozenFilter {
+			query = query.Where("deleted_at IS NULL AND status = ? AND quota_frozen = ?", common.UserStatusEnabled, true)
 		} else {
 			query = query.Where("deleted_at IS NULL").Where("status = ?", *status)
+			if *status == common.UserStatusEnabled {
+				query = query.Where("quota_frozen = ?", false)
+			}
 		}
 	}
 	if quotaPoolId != nil {

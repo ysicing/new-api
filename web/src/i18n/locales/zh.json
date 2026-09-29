@@ -3920,7 +3920,7 @@
     "Quota consumed before charging users": "向用户收费前消耗的配额",
     "Quota deducted": "额度扣减成功",
     "Quota Distribution": "消耗分布",
-    "Quota frozen": "额度已冻结",
+    "Quota frozen": "已冻结",
     "Quota given to invited users": "授予被邀请用户的配额",
     "Quota given to invited users ({{formattedQuota}})": "授予被邀请用户的配额（{{formattedQuota}}）",
     "Quota given to users who invite others": "授予邀请其他用户的配额",

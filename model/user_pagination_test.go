@@ -78,6 +78,32 @@ func TestSearchUsersFiltersByQuotaPool(t *testing.T) {
 	assert.Equal(t, []int{2, 4}, collectUserIDs(users))
 }
 
+func TestSearchUsersStatusSeparatesFrozenFromEnabled(t *testing.T) {
+	truncateTables(t)
+	insertUsersForPaginationTest(t, 4)
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", 2).Update("quota_frozen", true).Error)
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", 3).Updates(map[string]interface{}{"status": common.UserStatusDisabled, "quota_frozen": true}).Error)
+	require.NoError(t, DB.Delete(&User{}, 4).Error)
+
+	for _, tc := range []struct {
+		name   string
+		status int
+		ids    []int
+	}{
+		{name: "enabled", status: common.UserStatusEnabled, ids: []int{1}},
+		{name: "frozen", status: 3, ids: []int{2}},
+		{name: "disabled", status: common.UserStatusDisabled, ids: []int{3}},
+		{name: "deleted", status: -1, ids: []int{4}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			users, total, err := SearchUsers("user", "", nil, &tc.status, nil, 0, 20, NewUserSortOptions("id", "asc"))
+			require.NoError(t, err)
+			assert.EqualValues(t, len(tc.ids), total)
+			assert.Equal(t, tc.ids, collectUserIDs(users))
+		})
+	}
+}
+
 func TestDefaultPoolUsersUseTheSystemPoolRecordName(t *testing.T) {
 	truncateTables(t)
 	require.NoError(t, DB.AutoMigrate(&QuotaPool{}))
