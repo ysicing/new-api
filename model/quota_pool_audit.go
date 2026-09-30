@@ -12,9 +12,19 @@ func ListQuotaPoolOperationLogs(poolId int, page *common.PageInfo, action string
 	objectMore := fmt.Sprintf(`%%{"quota_pool_id":%d,%%`, poolId)
 	fieldEnd := fmt.Sprintf(`%%,"quota_pool_id":%d}%%`, poolId)
 	fieldMore := fmt.Sprintf(`%%,"quota_pool_id":%d,%%`, poolId)
+	poolScope := "(other LIKE ? OR other LIKE ? OR other LIKE ? OR other LIKE ?)"
+	poolArgs := []any{objectEnd, objectMore, fieldEnd, fieldMore}
+	pool, err := GetQuotaPoolById(poolId)
+	if err == nil && pool.LegacyDefault {
+		// 存量池历史充值日志使用兼容成员标识 0，和真实池 ID 一并查询。
+		poolScope += " OR (other LIKE ? OR other LIKE ? OR other LIKE ? OR other LIKE ?)"
+		poolArgs = append(poolArgs, `%{"quota_pool_id":0}%`, `%{"quota_pool_id":0,%`, `%,"quota_pool_id":0}%`, `%,"quota_pool_id":0,%`)
+	} else if err != nil && !IsQuotaPoolNotFound(err) {
+		return nil, 0, err
+	}
 	query := LOG_DB.Model(&Log{}).
 		Where("type IN ?", []int{LogTypeManage, LogTypeTopup}).
-		Where("(other LIKE ? OR other LIKE ? OR other LIKE ? OR other LIKE ?)", objectEnd, objectMore, fieldEnd, fieldMore)
+		Where("("+poolScope+")", poolArgs...)
 
 	if action = strings.TrimSpace(action); action != "" {
 		encoded, err := common.Marshal(action)

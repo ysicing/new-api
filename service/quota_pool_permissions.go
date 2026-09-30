@@ -20,7 +20,7 @@ func ResolveQuotaPoolCapabilities(role int, poolAdmin bool) QuotaPoolCapabilitie
 	case common.RoleRootUser:
 		return QuotaPoolCapabilities{CanView: true, CanEdit: true, CanEditMonthlyRefill: true, CanRefill: true, CanManageMembers: true, CanRemoveMembers: true, CanManageAdmins: true, CanDelete: true}
 	case common.RoleAdminUser:
-		return QuotaPoolCapabilities{CanView: true, CanRefill: true, CanManageMembers: true, CanRemoveMembers: true, CanManageAdmins: true}
+		return QuotaPoolCapabilities{CanView: true, CanEdit: true, CanRefill: true, CanManageMembers: true, CanRemoveMembers: true, CanManageAdmins: true}
 	case common.RoleQuotaPoolSuperAdmin:
 		return QuotaPoolCapabilities{CanView: true, CanEdit: true, CanManageMembers: true, CanRemoveMembers: true, CanManageAdmins: true}
 	}

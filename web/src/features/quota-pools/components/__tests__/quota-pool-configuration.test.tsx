@@ -127,6 +127,9 @@ test('pool policy editor cannot edit root-only monthly refill settings', () => {
     screen.getByRole('spinbutton', { name: 'Recharge amount' })
   ).toBeInTheDocument()
   expect(
+    screen.queryByRole('spinbutton', { name: 'Base quota' })
+  ).not.toBeInTheDocument()
+  expect(
     screen.queryByRole('switch', { name: 'Monthly refill' })
   ).not.toBeInTheDocument()
 })
@@ -142,4 +145,118 @@ test('read-only configuration renders zero recharge amount as disabled', () => {
   )
 
   expect(screen.getByText('Disabled')).toBeInTheDocument()
+})
+
+test('root can fund a zero-balance migrated pool and configure monthly refill', async () => {
+  renderConfiguration(rootCapabilities, {
+    ...pool,
+    pool_type: 'normal',
+    is_default: false,
+    base_quota: 0,
+    quota: 0,
+  })
+  expect(
+    screen.getByRole('switch', { name: 'Monthly refill' })
+  ).toBeInTheDocument()
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Base quota' }), {
+    target: { value: '100' },
+  })
+  fireEvent.click(screen.getByRole('switch', { name: 'Monthly refill' }))
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Weekly limit' }), {
+    target: { value: '2' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => {
+    expect(apiMocks.updateQuotaPool).toHaveBeenCalledWith(
+      7,
+      {
+        base_quota: 100,
+        auto_recharge_amount: -1,
+        weekly_limit: 2,
+        monthly_limit: 0,
+        monthly_refill_enabled: true,
+        monthly_refill_top_up: false,
+        monthly_refill_amount: 200,
+        monthly_refill_day: 1,
+      },
+      undefined
+    )
+  })
+})
+
+test('root can save recharge rules without changing a migrated zero base quota', async () => {
+  renderConfiguration(rootCapabilities, { ...pool, base_quota: 0, quota: 0 })
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Weekly limit' }), {
+    target: { value: '2' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(apiMocks.updateQuotaPool).toHaveBeenCalled())
+  const values = apiMocks.updateQuotaPool.mock.calls[0]?.[1]
+  expect(values).toMatchObject({ weekly_limit: 2 })
+  expect(values).not.toHaveProperty('base_quota')
+})
+
+test('saving recharge rules after a pool refresh does not submit a stale base quota', async () => {
+  const queryClient = new QueryClient()
+  const { rerender } = render(
+    <QueryClientProvider client={queryClient}>
+      <PoolConfiguration pool={pool} capabilities={rootCapabilities} />
+    </QueryClientProvider>
+  )
+  rerender(
+    <QueryClientProvider client={queryClient}>
+      <PoolConfiguration
+        pool={{ ...pool, base_quota: 600_000_000 }}
+        capabilities={rootCapabilities}
+      />
+    </QueryClientProvider>
+  )
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Weekly limit' }), {
+    target: { value: '2' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+  await waitFor(() => expect(apiMocks.updateQuotaPool).toHaveBeenCalled())
+  expect(apiMocks.updateQuotaPool.mock.calls[0]?.[1]).not.toHaveProperty(
+    'base_quota'
+  )
+  expect(screen.getByRole('spinbutton', { name: 'Base quota' })).toHaveValue(
+    1200
+  )
+})
+
+test('a saved base quota edit is not resubmitted after another refill', async () => {
+  const queryClient = new QueryClient()
+  const { rerender } = render(
+    <QueryClientProvider client={queryClient}>
+      <PoolConfiguration pool={pool} capabilities={rootCapabilities} />
+    </QueryClientProvider>
+  )
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Base quota' }), {
+    target: { value: '1100' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => {
+    expect(apiMocks.updateQuotaPool.mock.calls[0]?.[1]).toHaveProperty(
+      'base_quota',
+      1100
+    )
+    expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled()
+  })
+  rerender(
+    <QueryClientProvider client={queryClient}>
+      <PoolConfiguration
+        pool={{ ...pool, base_quota: 600_000_000 }}
+        capabilities={rootCapabilities}
+      />
+    </QueryClientProvider>
+  )
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Weekly limit' }), {
+    target: { value: '2' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(apiMocks.updateQuotaPool).toHaveBeenCalledTimes(2))
+  expect(apiMocks.updateQuotaPool.mock.calls[1]?.[1]).not.toHaveProperty(
+    'base_quota'
+  )
 })

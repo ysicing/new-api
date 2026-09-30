@@ -86,7 +86,7 @@ func TestGetSelfAutoRechargeEligibilityClassifiesBlockedUsersWithoutMutating(t *
 	}{
 		{name: "quota pool member", user: users[0], guidance: AutoRechargeGuidanceQuotaPoolAdmin, poolType: model.QuotaPoolTypeNormal},
 		{name: "new user pool member", user: users[1], guidance: AutoRechargeGuidanceDepartmentQuotaPoolAdmin, poolType: model.QuotaPoolTypeNewUser},
-		{name: "unassigned member", user: users[2], guidance: AutoRechargeGuidanceOperationsOA, poolType: model.QuotaPoolTypeDefault},
+		{name: "unassigned member", user: users[2], guidance: AutoRechargeGuidanceOperationsOA, poolType: model.QuotaPoolTypeNormal},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -172,6 +172,35 @@ func TestTryAutoRechargeUserUsesPoolAndHonorsWeeklyLimit(t *testing.T) {
 	var transactionCount int64
 	require.NoError(t, db.Model(&model.QuotaPoolTransaction{}).Where("type = ?", model.QuotaPoolTransactionAllocateAuto).Count(&transactionCount).Error)
 	assert.EqualValues(t, 1, transactionCount)
+}
+
+func TestLegacyPoolRechargeUsesCustomPolicyAndRecordsTransactions(t *testing.T) {
+	db := setupAutoRechargeTest(t)
+	amount := int(2 * common.QuotaPerUnit)
+	pool := model.QuotaPool{Name: model.QuotaPoolDefaultName, PoolType: model.QuotaPoolTypeNormal, LegacyDefault: true, Enabled: true, BaseQuota: amount, Quota: amount, AutoRechargeAmount: -1}
+	require.NoError(t, db.Create(&pool).Error)
+	_, _, err := model.UpdateQuotaPoolConfig(pool.Id, map[string]any{"auto_recharge_amount": amount, "weekly_limit": 0, "monthly_limit": 1}, 1)
+	require.NoError(t, err)
+	user := model.User{Username: "legacy-policy", Password: "password", AffCode: "legacy-policy", Status: common.UserStatusEnabled, QuotaPoolId: pool.Id}
+	require.NoError(t, db.Create(&user).Error)
+	result, err := GetAutoRechargeEligibility(user.Username, time.Now())
+	require.NoError(t, err)
+	assert.True(t, result.Eligible)
+	assert.Equal(t, amount, result.Amount)
+	assert.Zero(t, result.Weekly.Limit)
+	assert.Equal(t, 1, result.Monthly.Limit)
+	assert.True(t, TryAutoRechargeUserById(user.Id).Recharged)
+	assert.Equal(t, "monthly_limited", TryAutoRechargeUserById(user.Id).Reason)
+	items, total, err := model.ListQuotaPoolTransactions(pool.Id, &common.PageInfo{Page: 1, PageSize: 10}, "", "")
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	require.Len(t, items, 1)
+	assert.Equal(t, -amount, items[0].Amount)
+	assert.Zero(t, items[0].QuotaAfter)
+	logs, _, err := model.ListQuotaPoolOperationLogs(pool.Id, &common.PageInfo{Page: 1, PageSize: 10}, "")
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+	assert.Equal(t, user.Id, logs[0].UserId)
 }
 
 func TestGetAutoRechargeEligibilityExplainsLimitWithoutMutatingBalances(t *testing.T) {
@@ -273,21 +302,31 @@ func TestGetAutoRechargeEligibilityIncludesDisabledPoolDetails(t *testing.T) {
 	assert.Equal(t, pool.Quota, *result.PoolQuota)
 }
 
-func TestGetAutoRechargeEligibilityLabelsSystemDefaultPool(t *testing.T) {
+func TestMigratedPoolRequiresFundingBeforeAutomaticRecharge(t *testing.T) {
 	db := setupAutoRechargeTest(t)
 	config := operation_setting.GetAutoRechargeSetting()
-	config.WeeklyLimit = 0
-	config.MonthlyLimit = 0
-	user := model.User{Username: "default-pool-user", Password: "password", AffCode: "default-pool-user-aff", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: model.QuotaPoolDefaultUserPoolId}
+	config.WeeklyLimit, config.MonthlyLimit = 0, 0
+	pool := model.QuotaPool{Name: model.QuotaPoolDefaultName, PoolType: model.QuotaPoolTypeDefault, IsDefault: true, Enabled: true, BaseQuota: -1, Quota: -1, AutoRechargeAmount: -1}
+	require.NoError(t, db.Create(&pool).Error)
+	user := model.User{Username: "default-pool-user", Password: "password", AffCode: "default-pool-user-aff", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
 	require.NoError(t, db.Create(&user).Error)
-
+	require.NoError(t, model.SyncSystemQuotaPools())
+	require.NoError(t, db.First(&user, user.Id).Error)
 	result, err := GetAutoRechargeEligibility(user.Username, time.Now())
-
 	require.NoError(t, err)
-	assert.True(t, result.Eligible)
-	assert.Equal(t, model.QuotaPoolDefaultUserPoolId, result.PoolId)
-	assert.Equal(t, model.QuotaPoolDefaultName, result.PoolName)
-	assert.Nil(t, result.PoolQuota)
+	assert.False(t, result.Eligible)
+	assert.Equal(t, "quota_pool_insufficient", result.Reason)
+	assert.Equal(t, pool.Id, result.PoolId)
+	require.NotNil(t, result.PoolQuota)
+	assert.Zero(t, *result.PoolQuota)
+	assert.False(t, TryAutoRechargeUserById(user.Id).Recharged)
+	amount := common.QuotaFromFloat(common.QuotaPerUnit)
+	_, _, err = model.UpdateQuotaPoolConfig(pool.Id, map[string]any{"base_quota": amount}, 1)
+	require.NoError(t, err)
+	assert.True(t, TryAutoRechargeUserById(user.Id).Recharged)
+	require.NoError(t, db.First(&pool, pool.Id).Error)
+	assert.Zero(t, pool.Quota)
+	assert.False(t, pool.IsSystemPool())
 }
 
 func TestGetAutoRechargeEligibilityKeepsPolicyDetailsWhenBalanceIsAboveThreshold(t *testing.T) {
@@ -324,7 +363,9 @@ func TestGetAutoRechargeEligibilityCountsUsageWhenLimitsAreUnlimited(t *testing.
 	config := operation_setting.GetAutoRechargeSetting()
 	config.WeeklyLimit = 0
 	config.MonthlyLimit = 0
-	user := model.User{Username: "unlimited-count-user", Password: "password", AffCode: "unlimited-count-user-aff", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
+	pool := model.QuotaPool{Name: "unlimited-limits", PoolType: model.QuotaPoolTypeNormal, Enabled: true, Quota: common.QuotaFromFloat(common.QuotaPerUnit), AutoRechargeAmount: -1}
+	require.NoError(t, db.Create(&pool).Error)
+	user := model.User{Username: "unlimited-count-user", Password: "password", AffCode: "unlimited-count-user-aff", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id}
 	require.NoError(t, db.Create(&user).Error)
 	require.NoError(t, db.Create(&model.Log{
 		UserId: user.Id, Username: user.Username, Type: model.LogTypeTopup,
@@ -579,12 +620,12 @@ func TestQuotaPoolMaintenanceResultIncludesSkipReasons(t *testing.T) {
 	}, result.SkipReasons)
 }
 
-func TestDisabledSystemDefaultPoolBlocksAutoRechargeUntilRestored(t *testing.T) {
+func TestDisabledMigratedPoolBlocksAutoRechargeUntilRestored(t *testing.T) {
 	db := setupAutoRechargeTest(t)
-	require.NoError(t, model.SyncSystemQuotaPools())
-	pool, err := model.GetDefaultQuotaPool()
-	require.NoError(t, err)
-	user := model.User{Username: "disabled-default-member", AffCode: "disabled-default-member", Status: common.UserStatusEnabled}
+	amount := common.QuotaFromFloat(common.QuotaPerUnit)
+	pool := model.QuotaPool{Name: model.QuotaPoolDefaultName, PoolType: model.QuotaPoolTypeNormal, LegacyDefault: true, Enabled: true, BaseQuota: amount, Quota: amount, AutoRechargeAmount: -1}
+	require.NoError(t, db.Create(&pool).Error)
+	user := model.User{Username: "disabled-default-member", AffCode: "disabled-default-member", Status: common.UserStatusEnabled, QuotaPoolId: pool.Id}
 	require.NoError(t, db.Create(&user).Error)
 	require.NoError(t, model.SetQuotaPoolEnabled(pool.Id, false))
 	result := tryAutoRechargeUser(&user, time.Now())

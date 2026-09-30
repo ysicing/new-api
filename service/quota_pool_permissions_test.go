@@ -20,7 +20,7 @@ func TestQuotaPoolCapabilitiesByRoleAndPoolAdminStatus(t *testing.T) {
 		},
 		{
 			name: "system admin manages funds and members", role: common.RoleAdminUser,
-			want: QuotaPoolCapabilities{CanView: true, CanRefill: true, CanManageMembers: true, CanRemoveMembers: true, CanManageAdmins: true},
+			want: QuotaPoolCapabilities{CanView: true, CanEdit: true, CanRefill: true, CanManageMembers: true, CanRemoveMembers: true, CanManageAdmins: true},
 		},
 		{
 			name: "pool super admin edits policy and manages members", role: common.RoleQuotaPoolSuperAdmin,

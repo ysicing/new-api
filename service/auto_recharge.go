@@ -85,7 +85,7 @@ func resolveAutoRechargePolicy(config *operation_setting.AutoRechargeSetting, po
 		WeeklyLimit:  config.WeeklyLimit,
 		MonthlyLimit: config.MonthlyLimit,
 	}
-	if pool == nil || pool.PoolType == model.QuotaPoolTypeDefault {
+	if pool == nil {
 		return policy
 	}
 	if pool.AutoRechargeAmount >= 0 {
@@ -134,7 +134,7 @@ func GetSelfAutoRechargeEligibility(userId int, now time.Time) (*SelfAutoRecharg
 		Threshold: result.Threshold,
 		Amount:    result.Amount,
 		PoolName:  result.PoolName,
-		PoolType:  model.QuotaPoolTypeDefault,
+		PoolType:  model.QuotaPoolTypeNormal,
 		Weekly:    result.Weekly,
 		Monthly:   result.Monthly,
 	}
@@ -234,8 +234,6 @@ func evaluateAutoRechargeUser(user *model.User, now time.Time, collectDetails bo
 	}
 	if !common.QuotaPoolEnabled {
 		result.PoolId = model.QuotaPoolDefaultUserPoolId
-	} else if user.QuotaPoolId == model.QuotaPoolDefaultUserPoolId {
-		result.PoolName = model.QuotaPoolDefaultName
 	}
 	if !config.Enabled {
 		result.Reason = "disabled"
@@ -294,17 +292,6 @@ func evaluateAutoRechargeUser(user *model.User, now time.Time, collectDetails bo
 
 func autoRechargePool(user *model.User) (*model.QuotaPool, string) {
 	if !common.QuotaPoolEnabled {
-		return nil, ""
-	}
-	if user.QuotaPoolId == model.QuotaPoolDefaultUserPoolId {
-		// 存量用户以 0 标识系统池，仍走原有充值记账，但不能绕过池的禁用状态。
-		pool, err := model.GetDefaultQuotaPool()
-		if err != nil {
-			return nil, "quota_pool_not_found"
-		}
-		if !pool.Enabled {
-			return nil, "quota_pool_disabled"
-		}
 		return nil, ""
 	}
 	pool, err := model.GetQuotaPoolById(user.QuotaPoolId)

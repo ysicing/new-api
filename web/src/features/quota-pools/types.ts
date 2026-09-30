@@ -12,7 +12,7 @@ export interface QuotaPoolCapabilities {
 export interface QuotaPool {
   id: number
   name: string
-  pool_type: 'normal' | 'default' | 'new_user'
+  pool_type: 'normal' | 'new_user'
   enabled: boolean
   is_default: boolean
   base_quota: number

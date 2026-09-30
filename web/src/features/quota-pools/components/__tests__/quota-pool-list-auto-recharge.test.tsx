@@ -115,8 +115,8 @@ test('explains system, pool, default-pool and new-user-pool states', () => {
       ...basePool,
       id: 7,
       name: '系统默认池',
-      pool_type: 'default',
-      is_default: true,
+      pool_type: 'normal',
+      is_default: false,
     },
     {
       ...basePool,
@@ -132,7 +132,9 @@ test('explains system, pool, default-pool and new-user-pool states', () => {
     row('系统关闭池').getByText('Partially customized')
   ).toBeInTheDocument()
   expect(row('额度池停用').getByText('Pool disabled')).toBeInTheDocument()
-  expect(row('系统默认池').getByText('System setting')).toBeInTheDocument()
+  expect(row('系统默认池').getByText('All inherited')).toBeInTheDocument()
+  expect(row('系统默认池').getByText('Managed pool')).toBeInTheDocument()
+  expect(row('新用户池').getByText('System pool')).toBeInTheDocument()
   expect(
     row('新用户池').getByRole('cell', {
       name: 'Automatic recharge: Not applicable',

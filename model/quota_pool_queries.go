@@ -1,13 +1,11 @@
 package model
 
 import (
-	"errors"
 	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-	"gorm.io/gorm"
 )
 
 func ListQuotaPoolItems() ([]QuotaPoolListItem, error) {
@@ -47,7 +45,7 @@ func ListQuotaPoolItemsPage(keyword string, page *common.PageInfo) ([]QuotaPoolL
 		query = query.Offset(page.GetStartIdx()).Limit(page.GetPageSize())
 	}
 	var pools []QuotaPool
-	if err := query.Order("is_default DESC, id ASC").Find(&pools).Error; err != nil {
+	if err := query.Order("id ASC").Find(&pools).Error; err != nil {
 		return nil, 0, err
 	}
 	items := make([]QuotaPoolListItem, 0, len(pools))
@@ -79,17 +77,6 @@ func GetNewUserQuotaPool() (*QuotaPool, error) {
 	return &pool, nil
 }
 
-// GetDefaultQuotaPool 返回 quota_pool_id=0 对应的系统默认池记录。
-// 用户表保留 0 作为兼容标识，因此不能按额度池主键直接查询。
-func GetDefaultQuotaPool() (*QuotaPool, error) {
-	var pool QuotaPool
-	if err := DB.Where("pool_type = ? OR is_default = ?", QuotaPoolTypeDefault, true).
-		Order("id ASC").First(&pool).Error; err != nil {
-		return nil, mapQuotaPoolRecordError(err)
-	}
-	return &pool, nil
-}
-
 func GetQuotaPoolAuditName(poolId int) (string, error) {
 	var pool QuotaPool
 	if err := DB.Unscoped().Select("name").Where("id = ?", poolId).
@@ -110,11 +97,7 @@ func buildQuotaPoolListItem(pool QuotaPool) (QuotaPoolListItem, error) {
 			WeeklyLimit: config.WeeklyLimit, MonthlyLimit: config.MonthlyLimit,
 		},
 	}
-	queryPoolId := pool.Id
-	if pool.PoolType == QuotaPoolTypeDefault {
-		queryPoolId = QuotaPoolDefaultUserPoolId
-	}
-	if err := DB.Model(&User{}).Where("quota_pool_id = ?", queryPoolId).Count(&item.MemberCount).Error; err != nil {
+	if err := DB.Model(&User{}).Where("quota_pool_id = ?", pool.Id).Count(&item.MemberCount).Error; err != nil {
 		return item, err
 	}
 	if err := DB.Model(&QuotaPoolAdmin{}).Where("pool_id = ?", pool.Id).Count(&item.AdminCount).Error; err != nil {
@@ -124,11 +107,7 @@ func buildQuotaPoolListItem(pool QuotaPool) (QuotaPoolListItem, error) {
 }
 
 func ListQuotaPoolMembers(poolId int, keyword string, page *common.PageInfo) ([]QuotaPoolMember, int64, error) {
-	queryPoolId := poolId
-	if pool, err := GetQuotaPoolById(poolId); err == nil && pool.PoolType == QuotaPoolTypeDefault {
-		queryPoolId = QuotaPoolDefaultUserPoolId
-	}
-	query := DB.Model(&User{}).Where("quota_pool_id = ?", queryPoolId)
+	query := DB.Model(&User{}).Where("quota_pool_id = ?", poolId)
 	keyword = strings.TrimSpace(keyword)
 	if keyword != "" {
 		escapedKeyword := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(strings.ToLower(keyword))
@@ -221,18 +200,13 @@ func ListAvailableQuotaPoolDirectory() ([]QuotaPoolDirectoryItem, error) {
 }
 
 func ListQuotaPoolCandidates(keyword string, page *common.PageInfo) ([]QuotaPoolMember, int64, error) {
-	sourcePoolIds := []int{QuotaPoolDefaultUserPoolId}
 	var newUserPool QuotaPool
-	if err := DB.Where("pool_type = ?", QuotaPoolTypeNewUser).First(&newUserPool).Error; errors.Is(err, gorm.ErrRecordNotFound) {
-		// 历史存量用户使用 quota_pool_id=0，即使新用户池缺失也应允许迁入普通池。
-	} else if err != nil {
-		return nil, 0, err
-	} else {
-		sourcePoolIds = append(sourcePoolIds, newUserPool.Id)
+	if err := DB.Where("pool_type = ?", QuotaPoolTypeNewUser).First(&newUserPool).Error; err != nil {
+		return nil, 0, mapQuotaPoolRecordError(err)
 	}
 	query := DB.Model(&User{}).Where(
-		"quota_pool_id IN ? AND role IN ? AND status = ?",
-		sourcePoolIds,
+		"quota_pool_id = ? AND role IN ? AND status = ?",
+		newUserPool.Id,
 		[]int{common.RoleCommonUser, common.RoleQuotaPoolSuperAdmin, common.RoleAdminUser},
 		common.UserStatusEnabled,
 	)

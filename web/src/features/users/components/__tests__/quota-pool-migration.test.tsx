@@ -50,9 +50,9 @@ beforeEach(() => {
         {
           id: 1,
           name: '默认额度池',
-          pool_type: 'default',
+          pool_type: 'normal',
           enabled: true,
-          is_default: true,
+          is_default: false,
         },
         {
           id: 7,
@@ -131,7 +131,7 @@ test('system admin moves a user to another enabled quota pool', async () => {
   )
 })
 
-test('maps the displayed default pool to the backend default pool ID', async () => {
+test('moves into the migrated pool using its real ID', async () => {
   const user = userEvent.setup()
   renderRowActions()
 
@@ -143,7 +143,7 @@ test('maps the displayed default pool to the backend default pool ID', async () 
   await user.click(screen.getByRole('button', { name: 'Confirm move' }))
 
   await waitFor(() =>
-    expect(quotaPoolApiMocks.moveUserQuotaPool).toHaveBeenCalledWith(12, 0)
+    expect(quotaPoolApiMocks.moveUserQuotaPool).toHaveBeenCalledWith(12, 1)
   )
 })
 

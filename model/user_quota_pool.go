@@ -25,16 +25,8 @@ func fillUserQuotaPoolNames(tx *gorm.DB, users []*User) error {
 	}
 	ids := make([]int, 0, len(users))
 	seen := make(map[int]struct{})
-	needsDefaultPool := false
 	for _, user := range users {
-		if user == nil {
-			continue
-		}
-		if user.QuotaPoolId == QuotaPoolDefaultUserPoolId {
-			needsDefaultPool = true
-			continue
-		}
-		if user.QuotaPoolId < 0 {
+		if user == nil || user.QuotaPoolId <= 0 {
 			continue
 		}
 		if _, ok := seen[user.QuotaPoolId]; ok {
@@ -43,31 +35,16 @@ func fillUserQuotaPoolNames(tx *gorm.DB, users []*User) error {
 		seen[user.QuotaPoolId] = struct{}{}
 		ids = append(ids, user.QuotaPoolId)
 	}
-	if len(ids) == 0 && !needsDefaultPool {
+	if len(ids) == 0 {
 		return nil
 	}
 	var pools []QuotaPool
-	query := tx.Select("id", "name", "pool_type", "is_default")
-	if len(ids) > 0 && needsDefaultPool {
-		query = query.Where(
-			"id IN ? OR pool_type = ? OR is_default = ?",
-			ids, QuotaPoolTypeDefault, true,
-		)
-	} else if len(ids) > 0 {
-		query = query.Where("id IN ?", ids)
-	} else {
-		query = query.Where("pool_type = ? OR is_default = ?", QuotaPoolTypeDefault, true)
-	}
-	if err := query.Order("id ASC").Find(&pools).Error; err != nil {
+	if err := tx.Select("id", "name").Where("id IN ?", ids).Find(&pools).Error; err != nil {
 		return err
 	}
-	names := make(map[int]string, len(pools)+1)
+	names := make(map[int]string, len(pools))
 	for _, pool := range pools {
 		names[pool.Id] = pool.Name
-		if names[QuotaPoolDefaultUserPoolId] == "" &&
-			(pool.PoolType == QuotaPoolTypeDefault || pool.IsDefault) {
-			names[QuotaPoolDefaultUserPoolId] = pool.Name
-		}
 	}
 	for _, user := range users {
 		if user != nil {

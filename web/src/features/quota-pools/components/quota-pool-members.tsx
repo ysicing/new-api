@@ -65,7 +65,7 @@ export function PoolMembers(props: {
       : DEFAULT_CURRENCY_CONFIG.quotaPerUnit
   const minimumRechargeAmount = Math.round(10 * quotaPerUnit)
   const defaultRechargeAmount =
-    props.pool.pool_type === 'default' || props.pool.auto_recharge_amount < 0
+    props.pool.auto_recharge_amount < 0
       ? (props.pool.system_auto_recharge?.amount ?? 0)
       : props.pool.auto_recharge_amount
   const maximumRechargeAmount =

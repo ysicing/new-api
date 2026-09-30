@@ -46,6 +46,23 @@ func TestQuotaPoolLegacyMigrationAcrossExternalDatabases(t *testing.T) {
 			assert.True(t, db.Migrator().HasColumn(&QuotaPool{}, "monthly_refill_top_up"))
 			assert.True(t, db.Migrator().HasColumn(&QuotaPool{}, "budget_tag_id"))
 			assert.True(t, db.Migrator().HasTable(&QuotaPoolBudgetTag{}))
+			// 显式 fixture ID 不会推进 PostgreSQL sequence；迁移新增池时让 GORM 生成新 ID。
+			if test.dbType == common.DatabaseTypePostgreSQL {
+				require.NoError(t, db.Exec("SELECT setval(pg_get_serial_sequence('quota_pools', 'id'), (SELECT MAX(id) FROM quota_pools))").Error)
+			}
+			require.NoError(t, syncSystemQuotaPools(db))
+			require.NoError(t, syncSystemQuotaPools(db))
+			var pool QuotaPool
+			require.NoError(t, db.First(&pool, 1).Error)
+			assert.Equal(t, QuotaPoolTypeNormal, pool.PoolType)
+			assert.False(t, pool.IsDefault)
+			assert.Zero(t, pool.BaseQuota)
+			assert.Zero(t, pool.Quota)
+			var user legacyQuotaPoolUser
+			require.NoError(t, db.First(&user, 1).Error)
+			assert.Equal(t, pool.Id, user.QuotaPoolId)
+			assert.Equal(t, 500, user.Quota)
+
 		})
 	}
 }

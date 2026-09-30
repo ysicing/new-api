@@ -185,7 +185,7 @@ func DeleteQuotaPool(poolId int) error {
 
 func ListQuotaPools() ([]QuotaPool, error) {
 	var pools []QuotaPool
-	err := DB.Order("is_default DESC, id ASC").Find(&pools).Error
+	err := DB.Order("id ASC").Find(&pools).Error
 	return pools, err
 }
 

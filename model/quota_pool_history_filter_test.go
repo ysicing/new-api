@@ -85,3 +85,26 @@ func TestQuotaPoolOperationFilterUsesExactActionAndPoolInLogDatabase(t *testing.
 	assert.EqualValues(t, 5, total)
 	assert.Len(t, items, 5)
 }
+
+func TestLegacyPoolOperationLogsIncludeOldZeroIdentifier(t *testing.T) {
+	db := setupQuotaPoolFundsTestDB(t)
+	require.NoError(t, db.AutoMigrate(&Log{}))
+	previous := LOG_DB
+	LOG_DB = db
+	t.Cleanup(func() { LOG_DB = previous })
+	pool := QuotaPool{Name: QuotaPoolDefaultName, PoolType: QuotaPoolTypeNormal, LegacyDefault: true, Enabled: true}
+	require.NoError(t, db.Create(&pool).Error)
+	require.NoError(t, db.Create(&[]Log{
+		{Type: LogTypeTopup, Other: `{"quota_pool_id":0,"recharge_source":"auto"}`},
+		{Type: LogTypeManage, Other: fmt.Sprintf(`{"quota_pool_id":%d,"op":{"action":"quota_pool.update"}}`, pool.Id)},
+		{Type: LogTypeTopup, Other: `{"quota_pool_id":10}`},
+	}).Error)
+	items, total, err := ListQuotaPoolOperationLogs(pool.Id, &common.PageInfo{Page: 1, PageSize: 10}, "")
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, total)
+	assert.Len(t, items, 2)
+	items, total, err = ListQuotaPoolOperationLogs(pool.Id, &common.PageInfo{Page: 1, PageSize: 10}, "quota_pool.update")
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	assert.Len(t, items, 1)
+}

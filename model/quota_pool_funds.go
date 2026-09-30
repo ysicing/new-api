@@ -12,19 +12,6 @@ func AllocateQuotaFromPool(poolId, userId, amount int, transactionType string, o
 	if amount <= 0 {
 		return nil, ErrQuotaPoolInvalidAmount
 	}
-	if poolId == QuotaPoolDefaultUserPoolId {
-		user, err := GetUserById(userId, false)
-		if err != nil {
-			return nil, err
-		}
-		if user.QuotaFrozen {
-			return nil, ErrQuotaFrozen
-		}
-		if err := IncreaseUserQuota(userId, amount, true); err != nil {
-			return nil, err
-		}
-		return &QuotaPoolBalanceChange{}, nil
-	}
 	change := &QuotaPoolBalanceChange{PoolId: poolId, Amount: -amount}
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		pool, user, err := lockQuotaPoolMember(tx, poolId, userId)
@@ -195,7 +182,7 @@ func prepareQuotaPoolMove(tx *gorm.DB, context *quotaPoolMoveContext) (*User, ma
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := validateMoveTarget(pools[context.targetPoolId], context.targetPoolId, context.options); err != nil {
+	if err := validateMoveTarget(pools[context.targetPoolId], context.options); err != nil {
 		return nil, nil, err
 	}
 	if err := context.validateMoveSource(tx, pools[user.QuotaPoolId], &user); err != nil {
@@ -206,7 +193,7 @@ func prepareQuotaPoolMove(tx *gorm.DB, context *quotaPoolMoveContext) (*User, ma
 }
 
 func (context *quotaPoolMoveContext) validateMoveSource(tx *gorm.DB, source *QuotaPool, user *User) error {
-	if context.options.requireCandidateSource && user.QuotaPoolId != QuotaPoolDefaultUserPoolId && (source == nil || !source.IsNewUserPool()) {
+	if context.options.requireCandidateSource && (source == nil || !source.IsNewUserPool()) {
 		return ErrQuotaPoolCandidateInvalid
 	}
 	if context.options.requireNormalSource && (source == nil || source.PoolType != QuotaPoolTypeNormal) {
@@ -253,10 +240,7 @@ func lockMovePools(tx *gorm.DB, oldPoolId, targetPoolId int) (map[int]*QuotaPool
 	return result, nil
 }
 
-func validateMoveTarget(target *QuotaPool, targetPoolId int, options quotaPoolMoveOptions) error {
-	if targetPoolId == QuotaPoolDefaultUserPoolId {
-		return nil
-	}
+func validateMoveTarget(target *QuotaPool, options quotaPoolMoveOptions) error {
 	if target == nil {
 		return ErrQuotaPoolNotFound
 	}

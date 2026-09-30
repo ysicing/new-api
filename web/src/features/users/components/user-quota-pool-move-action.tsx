@@ -71,8 +71,8 @@ export function UserQuotaPoolMoveAction(props: {
       (query.data?.data?.items ?? [])
         .map((pool) => ({
           label: pool.name || t('Default pool'),
-          value: pool.is_default ? 0 : pool.id,
-          available: pool.is_default || pool.enabled,
+          value: pool.id,
+          available: pool.enabled,
         }))
         .filter((pool) => pool.available && pool.value !== currentPoolId),
     [currentPoolId, query.data?.data?.items, t]
@@ -91,7 +91,7 @@ export function UserQuotaPoolMoveAction(props: {
   }
   const move = async () => {
     const poolId = Number(targetPoolId)
-    if (!Number.isInteger(poolId) || poolId < 0) return
+    if (!Number.isInteger(poolId) || poolId <= 0) return
     setSaving(true)
     try {
       const result = await moveUserQuotaPool(props.user.id, poolId)

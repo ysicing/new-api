@@ -149,7 +149,7 @@ func TestDeductQuotaPoolBalanceRejectsInvalidOrUnavailableBalanceWithoutWriting(
 		{name: "negative amount", amount: -1, expected: ErrQuotaPoolInvalidAmount},
 		{name: "insufficient balance", amount: 1001, expected: ErrQuotaPoolInsufficientQuota},
 		{name: "disabled pool", amount: 100, configure: func(pool *QuotaPool) { pool.Enabled = false }, expected: ErrQuotaPoolDisabled},
-		{name: "system pool", amount: 100, configure: func(pool *QuotaPool) { pool.PoolType = QuotaPoolTypeDefault }, expected: ErrQuotaPoolSystemReadonly},
+		{name: "system pool", amount: 100, configure: func(pool *QuotaPool) { pool.PoolType = QuotaPoolTypeNewUser }, expected: ErrQuotaPoolSystemReadonly},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -265,9 +265,9 @@ func TestListQuotaPoolCandidatesFiltersEligibilityAndSearchesByID(t *testing.T) 
 	items, total, err := ListQuotaPoolCandidates("", &common.PageInfo{Page: 1, PageSize: 20})
 
 	require.NoError(t, err)
-	assert.EqualValues(t, 3, total)
-	require.Len(t, items, 3)
-	assert.ElementsMatch(t, []int{users[0].Id, users[4].Id, users[5].Id}, []int{items[0].Id, items[1].Id, items[2].Id})
+	assert.EqualValues(t, 2, total)
+	require.Len(t, items, 2)
+	assert.ElementsMatch(t, []int{users[0].Id, users[5].Id}, []int{items[0].Id, items[1].Id})
 
 	items, total, err = ListQuotaPoolCandidates(strconv.Itoa(users[0].Id), &common.PageInfo{Page: 1, PageSize: 20})
 	require.NoError(t, err)
@@ -277,9 +277,8 @@ func TestListQuotaPoolCandidatesFiltersEligibilityAndSearchesByID(t *testing.T) 
 
 	items, total, err = ListQuotaPoolCandidates("legacy-default", &common.PageInfo{Page: 1, PageSize: 20})
 	require.NoError(t, err)
-	assert.EqualValues(t, 1, total)
-	require.Len(t, items, 1)
-	assert.Equal(t, users[4].Id, items[0].Id)
+	assert.Zero(t, total)
+	assert.Empty(t, items)
 }
 
 func TestUpdateQuotaPoolConfigAdjustsAvailableQuotaWithBaseQuota(t *testing.T) {
@@ -296,6 +295,26 @@ func TestUpdateQuotaPoolConfigAdjustsAvailableQuotaWithBaseQuota(t *testing.T) {
 	assert.Equal(t, 1200, pool.BaseQuota)
 	assert.Equal(t, 600, pool.Quota)
 	assert.Equal(t, 3, pool.WeeklyLimit)
+}
+
+func TestMigratedLegacyPoolAllowsOrdinaryFundingAndPolicy(t *testing.T) {
+	db := setupQuotaPoolFundsTestDB(t)
+	pool := QuotaPool{Name: QuotaPoolDefaultName, PoolType: QuotaPoolTypeNormal, LegacyDefault: true, Enabled: true, BaseQuota: 0, Quota: 0}
+	require.NoError(t, db.Create(&pool).Error)
+	change, changes, err := UpdateQuotaPoolConfig(pool.Id, map[string]any{"auto_recharge_amount": 100, "weekly_limit": 0, "monthly_limit": 2}, 7)
+	require.NoError(t, err)
+	assert.Nil(t, change)
+	assert.Len(t, changes, 3)
+	_, _, err = UpdateQuotaPoolConfig(pool.Id, map[string]any{"base_quota": 1000}, 7)
+	require.NoError(t, err)
+	require.NoError(t, db.First(&pool, pool.Id).Error)
+	assert.Equal(t, 1000, pool.Quota)
+	assert.Equal(t, 1000, pool.BaseQuota)
+	assert.Equal(t, 100, pool.AutoRechargeAmount)
+	newUser := QuotaPool{Name: QuotaPoolNewUserName, PoolType: QuotaPoolTypeNewUser, Enabled: true}
+	require.NoError(t, db.Create(&newUser).Error)
+	_, _, err = UpdateQuotaPoolConfig(newUser.Id, map[string]any{"weekly_limit": 2}, 7)
+	assert.ErrorIs(t, err, ErrQuotaPoolSystemReadonly)
 }
 
 func TestUpdateQuotaPoolConfigValidatesSpecialValuesAndMonthlyPolicy(t *testing.T) {

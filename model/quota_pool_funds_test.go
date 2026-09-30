@@ -60,6 +60,22 @@ func TestAllocateQuotaFromPoolUpdatesBalancesAndWritesTransactionAtomically(t *t
 	assert.Equal(t, QuotaPoolTransactionAllocateManual, transaction.Type)
 }
 
+func TestLegacyAllocationRollsBackWhenItsTransactionCannotBeRecorded(t *testing.T) {
+	db := setupQuotaPoolFundsTestDB(t)
+	previous := common.QuotaPoolEnabled
+	common.QuotaPoolEnabled = true
+	t.Cleanup(func() { common.QuotaPoolEnabled = previous })
+	pool := QuotaPool{Name: QuotaPoolDefaultName, PoolType: QuotaPoolTypeNormal, LegacyDefault: true, Enabled: true, Quota: 100, BaseQuota: 100}
+	require.NoError(t, db.Create(&pool).Error)
+	user := User{Username: "legacy-rollback", AffCode: "legacy-rollback", Quota: 10, QuotaPoolId: pool.Id}
+	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, db.Migrator().DropTable(&QuotaPoolTransaction{}))
+	_, err := AllocateQuotaFromPool(pool.Id, user.Id, 40, QuotaPoolTransactionAllocateAuto, 0)
+	require.Error(t, err)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, 10, user.Quota)
+}
+
 func TestAllocateQuotaFromPoolRejectsInsufficientBalanceWithoutPartialWrites(t *testing.T) {
 	db := setupQuotaPoolFundsTestDB(t)
 	pool, user := seedQuotaPoolMember(t, db, 30, 10)
@@ -122,7 +138,9 @@ func TestMoveUserQuotaPoolClearsNegativeBalanceWithoutCreditingOldPool(t *testin
 	db := setupQuotaPoolFundsTestDB(t)
 	oldPool, user := seedQuotaPoolMember(t, db, 100, -25)
 
-	result, err := MoveUserBetweenQuotaPools(user.Id, QuotaPoolDefaultUserPoolId, true, 7)
+	target := QuotaPool{Name: "target-negative", PoolType: QuotaPoolTypeNormal, Enabled: true}
+	require.NoError(t, db.Create(&target).Error)
+	result, err := MoveUserBetweenQuotaPools(user.Id, target.Id, true, 7)
 
 	require.NoError(t, err)
 	assert.False(t, result.Reclaimed)
@@ -130,7 +148,7 @@ func TestMoveUserQuotaPoolClearsNegativeBalanceWithoutCreditingOldPool(t *testin
 	require.NoError(t, db.First(&user, user.Id).Error)
 	assert.Equal(t, 100, oldPool.Quota)
 	assert.Zero(t, user.Quota)
-	assert.Zero(t, user.QuotaPoolId)
+	assert.Equal(t, target.Id, user.QuotaPoolId)
 }
 
 func TestMoveUserQuotaPoolRejectsRootUser(t *testing.T) {
@@ -179,7 +197,7 @@ func TestAddUserToQuotaPoolRejectsIneligibleCandidates(t *testing.T) {
 	}
 }
 
-func TestAddUserToQuotaPoolAcceptsNewUserAndLegacyDefaultSources(t *testing.T) {
+func TestAddUserToQuotaPoolOnlyAcceptsNewUserPoolSources(t *testing.T) {
 	db := setupQuotaPoolFundsTestDB(t)
 	target := QuotaPool{Name: "目标池", PoolType: QuotaPoolTypeNormal, Enabled: true, BaseQuota: 100, Quota: 100}
 	newUserPool := QuotaPool{Name: QuotaPoolNewUserName, PoolType: QuotaPoolTypeNewUser, Enabled: true, BaseQuota: -1, Quota: -1}
@@ -194,15 +212,8 @@ func TestAddUserToQuotaPoolAcceptsNewUserAndLegacyDefaultSources(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&users).Error)
 
-	legacyResult, err := AddUserToQuotaPool(users[1].Id, target.Id, 7)
-	require.NoError(t, err)
-	assert.Equal(t, QuotaPoolDefaultUserPoolId, legacyResult.OldPoolId)
-	assert.Equal(t, target.Id, legacyResult.NewPoolId)
-	var legacyUser User
-	require.NoError(t, db.First(&legacyUser, users[1].Id).Error)
-	assert.Equal(t, target.Id, legacyUser.QuotaPoolId)
-	assert.Zero(t, legacyUser.Quota)
-
+	_, err := AddUserToQuotaPool(users[1].Id, target.Id, 7)
+	assert.ErrorIs(t, err, ErrQuotaPoolCandidateInvalid)
 	_, err = AddUserToQuotaPool(users[2].Id, target.Id, 7)
 	assert.ErrorIs(t, err, ErrQuotaPoolCandidateInvalid)
 	result, err := AddUserToQuotaPool(users[0].Id, target.Id, 7)

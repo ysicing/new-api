@@ -1221,7 +1221,7 @@ func ManageUser(c *gin.Context) {
 			common.ApiErrorMsg(c, model.QuotaFrozenMessage)
 			return
 		}
-		if myRole != common.RoleRootUser || user.QuotaPoolId != model.QuotaPoolDefaultUserPoolId {
+		if myRole != common.RoleRootUser || common.QuotaPoolEnabled || user.QuotaPoolId != model.QuotaPoolDefaultUserPoolId {
 			common.ApiErrorI18n(c, i18n.MsgAuthInsufficientPrivilege)
 			return
 		}
@@ -1274,29 +1274,34 @@ func ManageUser(c *gin.Context) {
 			common.ApiErrorMsg(c, model.QuotaFrozenMessage)
 			return
 		}
-		amount := int(float64(operation_setting.GetAutoRechargeSetting().Amount) * common.QuotaPerUnit)
-		if amount <= 0 {
-			writeQuotaPoolError(c, model.ErrQuotaPoolInvalidAmount)
-			return
-		}
-		if common.QuotaPoolEnabled && user.QuotaPoolId != model.QuotaPoolDefaultUserPoolId {
+		amount := common.QuotaFromFloat(float64(operation_setting.GetAutoRechargeSetting().Amount) * common.QuotaPerUnit)
+		rechargePoolID := user.QuotaPoolId
+		if common.QuotaPoolEnabled {
 			pool, err := model.GetQuotaPoolById(user.QuotaPoolId)
 			if err != nil {
 				writeQuotaPoolError(c, err)
 				return
 			}
 			amount = quotaPoolRechargeAmount(pool)
-			if _, err := model.AllocateQuotaFromPool(pool.Id, user.Id, amount, model.QuotaPoolTransactionAllocateManual, c.GetInt("id")); err != nil {
+			rechargePoolID = pool.Id
+			if _, err := model.AllocateQuotaFromPool(user.QuotaPoolId, user.Id, amount, model.QuotaPoolTransactionAllocateManual, c.GetInt("id")); err != nil {
 				writeQuotaPoolError(c, err)
 				return
 			}
-		} else if err := model.IncreaseUserQuota(user.Id, amount, true); err != nil {
-			common.ApiError(c, err)
-			return
+		} else {
+			if amount <= 0 {
+				writeQuotaPoolError(c, model.ErrQuotaPoolInvalidAmount)
+				return
+			}
+			if err := model.IncreaseUserQuota(user.Id, amount, true); err != nil {
+				common.ApiError(c, err)
+				return
+			}
 		}
 		recordTopupAuditFor(c, user.Id, "user.quota_pool_recharge", map[string]interface{}{
-			"username": user.Username,
-			"quota":    logger.LogQuota(amount),
+			"username":      user.Username,
+			"quota":         logger.LogQuota(amount),
+			"quota_pool_id": rechargePoolID,
 		})
 		newQuota, err := model.GetUserQuota(user.Id, true)
 		if err != nil {

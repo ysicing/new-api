@@ -127,7 +127,7 @@ func UpdateQuotaPool(c *gin.Context) {
 func buildQuotaPoolUpdates(req quotaPoolUpdateRequest, role int) (map[string]any, error) {
 	updates := map[string]any{}
 	root := role == common.RoleRootUser
-	policyEditor := root || role == common.RoleQuotaPoolSuperAdmin
+	policyEditor := root || role == common.RoleAdminUser || role == common.RoleQuotaPoolSuperAdmin
 	if req.Name != nil || req.BaseQuota != nil || req.MonthlyRefillEnabled != nil || req.MonthlyRefillTopUp != nil || req.MonthlyRefillAmount != nil || req.MonthlyRefillDay != nil {
 		if !root {
 			return nil, model.ErrQuotaPoolPermissionDenied
@@ -270,8 +270,8 @@ func DeductQuotaPool(c *gin.Context) {
 }
 
 func quotaPoolRechargeAmount(pool *model.QuotaPool) int {
-	amount := int(float64(operation_setting.GetAutoRechargeSetting().Amount) * common.QuotaPerUnit)
-	if pool != nil && pool.PoolType != model.QuotaPoolTypeDefault && pool.AutoRechargeAmount >= 0 {
+	amount := common.QuotaFromFloat(float64(operation_setting.GetAutoRechargeSetting().Amount) * common.QuotaPerUnit)
+	if pool != nil && pool.AutoRechargeAmount >= 0 {
 		amount = pool.AutoRechargeAmount
 	}
 	return amount

@@ -105,18 +105,18 @@ test('ordinary pool member only sees the overview tab', () => {
   expect(screen.getByText('alice@example.com')).toBeInTheDocument()
 })
 
-test('default pool member does not see pool administrator contacts', () => {
+test('migrated pool member sees ordinary pool administrator contacts', () => {
   renderDetail(memberCapabilities, {
     name: '产研中心默认额度池(存量)',
-    pool_type: 'default',
-    is_default: true,
-    base_quota: -1,
-    quota: -1,
+    pool_type: 'normal',
+    is_default: false,
+    base_quota: 0,
+    quota: 0,
   })
 
   expect(screen.getByRole('tab', { name: 'Overview' })).toBeInTheDocument()
-  expect(screen.queryByText('Pool administrators')).not.toBeInTheDocument()
-  expect(screen.queryByText('Alice Chen')).not.toBeInTheDocument()
+  expect(screen.getByText('Pool administrators')).toBeInTheDocument()
+  expect(screen.getByText('Alice Chen')).toBeInTheDocument()
 })
 
 test('pool manager keeps all management tabs', () => {
@@ -164,7 +164,7 @@ test.each([false, true])(
     })
     renderDetail(
       { ...memberCapabilities, can_manage_members: true },
-      undefined,
+      self ? undefined : { pool_type: 'normal', is_default: false },
       self
     )
     fireEvent.click(screen.getByRole('tab', { name: 'Transactions' }))

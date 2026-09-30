@@ -30,6 +30,52 @@ func TestBuildQuotaPoolUpdatesPreservesAutoRechargeSentinels(t *testing.T) {
 	assert.ErrorIs(t, err, model.ErrQuotaPoolInvalidAmount)
 }
 
+func TestSystemAdminCanEditRechargePolicyButNotPoolFunding(t *testing.T) {
+	weekly := 2
+	updates, err := buildQuotaPoolUpdates(quotaPoolUpdateRequest{WeeklyLimit: &weekly}, common.RoleAdminUser)
+	require.NoError(t, err)
+	assert.Equal(t, 2, updates["weekly_limit"])
+	base := float64(100)
+	_, err = buildQuotaPoolUpdates(quotaPoolUpdateRequest{BaseQuota: &base}, common.RoleAdminUser)
+	assert.ErrorIs(t, err, model.ErrQuotaPoolPermissionDenied)
+}
+
+func TestSystemAdminUpdatesLegacyPoolPolicyAndCanReadAudit(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Log{}, &model.QuotaPool{}, &model.QuotaPoolAdmin{}, &model.QuotaPoolTransaction{}))
+	pool := model.QuotaPool{Name: model.QuotaPoolDefaultName, PoolType: model.QuotaPoolTypeNormal, LegacyDefault: true, Enabled: true, BaseQuota: 0, Quota: 0}
+	require.NoError(t, db.Create(&pool).Error)
+	previous := common.QuotaPoolEnabled
+	common.QuotaPoolEnabled = true
+	t.Cleanup(func() { common.QuotaPoolEnabled = previous })
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/quota_pool/1", strings.NewReader(`{"weekly_limit":2}`))
+	c.Params = gin.Params{{Key: "id", Value: strconv.Itoa(pool.Id)}}
+	c.Set("id", 8)
+	c.Set("role", common.RoleAdminUser)
+	UpdateQuotaPool(c)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+	require.NoError(t, db.First(&pool, pool.Id).Error)
+	assert.Equal(t, 2, pool.WeeklyLimit)
+	logs, total, err := model.ListQuotaPoolOperationLogs(pool.Id, &common.PageInfo{Page: 1, PageSize: 10}, "quota_pool.update")
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	require.Len(t, logs, 1)
+	other := lastQuotaPoolAudit(t, db)
+	assert.Equal(t, "quota_pool.update", other.Op.Action)
+
+	recorder = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/quota_pool/1", nil)
+	c.Params = gin.Params{{Key: "id", Value: strconv.Itoa(pool.Id)}}
+	c.Set("role", common.RoleAdminUser)
+	GetQuotaPool(c)
+	assert.Contains(t, recorder.Body.String(), `"can_edit":true`)
+	assert.Contains(t, recorder.Body.String(), `"can_edit_monthly_refill":false`)
+}
+
 func TestWriteQuotaPoolErrorReturnsStableCode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

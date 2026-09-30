@@ -53,12 +53,8 @@ func GetQuotaPoolStatsInLocation(poolId int, startTimestamp, endTimestamp int64,
 	if err != nil {
 		return nil, err
 	}
-	memberPoolId := poolId
-	if pool.IsDefault || pool.PoolType == QuotaPoolTypeDefault {
-		memberPoolId = QuotaPoolDefaultUserPoolId
-	}
 	var members []User
-	if err := DB.Select("id", "username").Where("quota_pool_id = ?", memberPoolId).Find(&members).Error; err != nil {
+	if err := DB.Select("id", "username").Where("quota_pool_id = ?", poolId).Find(&members).Error; err != nil {
 		return nil, err
 	}
 	ids := make([]int, 0, len(members))
@@ -124,7 +120,7 @@ func GetQuotaPoolStatsInLocation(poolId int, startTimestamp, endTimestamp int64,
 		stats.Trend[index].ActiveRate = quotaPoolPercentage(stats.Trend[index].ActiveMembers, len(members))
 	}
 
-	memberRecharges, err := loadQuotaPoolMemberRechargeStats(poolId, ids, startTimestamp, endTimestamp, memberPoolId == QuotaPoolDefaultUserPoolId)
+	memberRecharges, err := loadQuotaPoolMemberRechargeStats(poolId, ids, startTimestamp, endTimestamp, pool.LegacyDefault)
 	if err != nil {
 		return nil, err
 	}

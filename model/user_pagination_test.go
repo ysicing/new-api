@@ -104,7 +104,7 @@ func TestSearchUsersStatusSeparatesFrozenFromEnabled(t *testing.T) {
 	}
 }
 
-func TestDefaultPoolUsersUseTheSystemPoolRecordName(t *testing.T) {
+func TestMigratedPoolUsersUseTheRealPoolRecordName(t *testing.T) {
 	truncateTables(t)
 	require.NoError(t, DB.AutoMigrate(&QuotaPool{}))
 	require.NoError(t, DB.Exec("DELETE FROM quota_pools").Error)
@@ -112,14 +112,12 @@ func TestDefaultPoolUsersUseTheSystemPoolRecordName(t *testing.T) {
 		require.NoError(t, DB.Exec("DELETE FROM quota_pools").Error)
 	})
 
-	require.NoError(t, DB.Create(&QuotaPool{
-		Name: QuotaPoolDefaultName, PoolType: QuotaPoolTypeDefault,
-		Enabled: true, IsDefault: true, BaseQuota: -1, Quota: -1,
-	}).Error)
+	pool := QuotaPool{Name: QuotaPoolDefaultName, PoolType: QuotaPoolTypeNormal, LegacyDefault: true, Enabled: true}
+	require.NoError(t, DB.Create(&pool).Error)
 	user := &User{
 		Username: "default-pool-user", Password: "password",
 		AffCode: "default-pool-user-aff", Role: common.RoleCommonUser,
-		Status: common.UserStatusEnabled, QuotaPoolId: QuotaPoolDefaultUserPoolId,
+		Status: common.UserStatusEnabled, QuotaPoolId: pool.Id,
 	}
 	require.NoError(t, DB.Create(user).Error)
 

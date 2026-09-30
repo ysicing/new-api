@@ -62,6 +62,8 @@ export function PoolConfiguration(props: {
   )
   const toAmount = (quota: number) =>
     quota > 0 && quotaPerUnit > 0 ? quota / quotaPerUnit : quota
+  const [editedBaseQuota, setEditedBaseQuota] = useState<number>()
+  const baseQuota = editedBaseQuota ?? toAmount(props.pool.base_quota)
   const [autoRechargeAmount, setAutoRechargeAmount] = useState(
     toAmount(props.pool.auto_recharge_amount)
   )
@@ -82,11 +84,21 @@ export function PoolConfiguration(props: {
   const [saving, setSaving] = useState(false)
   const canEditPolicy = props.capabilities.can_edit
   const canEditMonthlyRefill =
-    props.capabilities.can_edit_monthly_refill && !props.selfMode
+    props.capabilities.can_edit_monthly_refill &&
+    !props.selfMode &&
+    props.pool.pool_type === 'normal'
   const save = async () => {
     setSaving(true)
     try {
       const values: Record<string, number | boolean> = {}
+      // 仅提交明确编辑的基础额度，避免后台充值刷新后误用旧值调减资金。
+      if (
+        canEditMonthlyRefill &&
+        editedBaseQuota !== undefined &&
+        editedBaseQuota !== toAmount(props.pool.base_quota)
+      ) {
+        values.base_quota = editedBaseQuota
+      }
       if (canEditPolicy) {
         values.auto_recharge_amount = autoRechargeAmount
         values.weekly_limit = weeklyLimit
@@ -118,6 +130,7 @@ export function PoolConfiguration(props: {
           queryKey: ['quota-pool', props.pool.id],
         }),
       ])
+      setEditedBaseQuota(undefined)
     } finally {
       setSaving(false)
     }
@@ -166,6 +179,15 @@ export function PoolConfiguration(props: {
       ) : null}
       {canEditPolicy || canEditMonthlyRefill ? (
         <FieldGroup>
+          {canEditMonthlyRefill ? (
+            <QuotaPoolNumberField
+              id='pool-base-quota'
+              label={t('Base quota')}
+              value={baseQuota}
+              min={0}
+              onChange={setEditedBaseQuota}
+            />
+          ) : null}
           {canEditPolicy ? (
             <div className='grid gap-4 sm:grid-cols-2'>
               <QuotaPoolNumberField

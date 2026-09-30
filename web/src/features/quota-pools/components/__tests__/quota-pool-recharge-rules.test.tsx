@@ -82,24 +82,26 @@ test('normal pools can inherit amount while overriding unlimited weekly and fini
   expect(rule('Monthly limit').getByText('4')).toBeInTheDocument()
 })
 
-test('system default pools use all system rules and unlimited pool balance', () => {
+test('migrated pools preserve custom rules but cannot recharge with zero funds', () => {
   render(
     <QuotaPoolRechargeRules
       pool={{
         ...pool,
-        pool_type: 'default',
-        quota: -1,
+        pool_type: 'normal',
+        quota: 0,
         weekly_limit: 0,
         monthly_limit: 4,
       }}
     />
   )
   expect(
-    rule('Recharge amount').getByText(formatQuota(100 * unit))
+    rule('Recharge amount').getByText(formatQuota(35 * unit))
   ).toBeInTheDocument()
-  expect(rule('Weekly limit').getByText('2')).toBeInTheDocument()
-  expect(rule('Monthly limit').getByText('8')).toBeInTheDocument()
-  expect(screen.getByText('Enabled')).toBeInTheDocument()
+  expect(rule('Weekly limit').getByText('Unlimited')).toBeInTheDocument()
+  expect(rule('Monthly limit').getByText('4')).toBeInTheDocument()
+  expect(
+    screen.getByText('Pool quota is insufficient for one recharge.')
+  ).toBeInTheDocument()
 })
 
 test.each([

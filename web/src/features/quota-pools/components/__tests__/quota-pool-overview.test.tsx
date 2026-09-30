@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import { render, screen } from '@testing-library/react'
 import { expect, test } from 'vitest'
 
+import { formatQuota } from '@/lib/format'
+
 import type { QuotaPool } from '../../types'
 import { PoolOverview } from '../quota-pool-data'
 
@@ -47,13 +49,19 @@ test('new-user pool marks pool-level quota values as not applicable', () => {
   expect(screen.queryByText('Unlimited')).not.toBeInTheDocument()
 })
 
-test('default pool keeps unlimited pool-level quota values', () => {
+test('migrated pool shows finite initial balances', () => {
   render(
     <PoolOverview
-      pool={{ ...systemPool, pool_type: 'default', is_default: true }}
+      pool={{ ...systemPool, pool_type: 'normal', base_quota: 0, quota: 0 }}
     />
   )
 
-  expect(screen.getAllByText('Unlimited')).toHaveLength(2)
+  expect(screen.queryByText('Unlimited')).not.toBeInTheDocument()
   expect(screen.queryByText('Not applicable')).not.toBeInTheDocument()
+  expect(
+    screen.getByText('Available quota').closest('[data-slot="card"]')
+  ).toHaveTextContent(formatQuota(0))
+  expect(
+    screen.getByText('Base quota').closest('[data-slot="card"]')
+  ).toHaveTextContent(formatQuota(0))
 })

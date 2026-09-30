@@ -36,7 +36,7 @@ type selfQuotaPoolDirectoryResponse struct {
 	} `json:"data"`
 }
 
-func TestGetSelfQuotaPoolAllowsDefaultPoolMemberReadOnly(t *testing.T) {
+func TestGetSelfQuotaPoolAllowsMigratedPoolMemberReadOnly(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&model.Log{},
@@ -45,14 +45,14 @@ func TestGetSelfQuotaPoolAllowsDefaultPoolMemberReadOnly(t *testing.T) {
 		&model.QuotaPoolTransaction{},
 	))
 	defaultPool := model.QuotaPool{
-		Name: model.QuotaPoolDefaultName, PoolType: model.QuotaPoolTypeDefault,
-		Enabled: true, IsDefault: true, BaseQuota: -1, Quota: -1,
+		Name: model.QuotaPoolDefaultName, PoolType: model.QuotaPoolTypeNormal,
+		Enabled: true, LegacyDefault: true, BaseQuota: 0, Quota: 0,
 	}
 	require.NoError(t, db.Create(&defaultPool).Error)
 	user := model.User{
 		Username: "default-member", Password: "password", AffCode: "default-member-aff",
 		Role: common.RoleCommonUser, Status: common.UserStatusEnabled,
-		QuotaPoolId: model.QuotaPoolDefaultUserPoolId,
+		QuotaPoolId: defaultPool.Id,
 	}
 	require.NoError(t, db.Create(&user).Error)
 
@@ -74,7 +74,7 @@ func TestGetSelfQuotaPoolAllowsDefaultPoolMemberReadOnly(t *testing.T) {
 	assert.True(t, response.Success)
 	assert.Equal(t, defaultPool.Id, response.Data.Pool.Id)
 	assert.Equal(t, model.QuotaPoolDefaultName, response.Data.Pool.Name)
-	assert.Equal(t, model.QuotaPoolTypeDefault, response.Data.Pool.PoolType)
+	assert.Equal(t, model.QuotaPoolTypeNormal, response.Data.Pool.PoolType)
 	assert.True(t, response.Data.Capabilities.CanView)
 	assert.False(t, response.Data.Capabilities.CanEdit)
 	assert.False(t, response.Data.Capabilities.CanRefill)
@@ -105,8 +105,8 @@ func TestGetSelfQuotaPoolLimitsAvailableDirectoryToNewUserMembers(t *testing.T) 
 		Enabled: true, BaseQuota: 100, Quota: 100,
 	}
 	defaultPool := model.QuotaPool{
-		Name: "默认额度池", PoolType: model.QuotaPoolTypeDefault,
-		Enabled: true, IsDefault: true, BaseQuota: -1, Quota: -1,
+		Name: "默认额度池", PoolType: model.QuotaPoolTypeNormal,
+		Enabled: true, LegacyDefault: true, BaseQuota: 0, Quota: 0,
 	}
 	for _, pool := range []*model.QuotaPool{
 		&newUserPool, &enabledPool, &disabledPool, &defaultPool,
@@ -157,7 +157,7 @@ func TestGetSelfQuotaPoolLimitsAvailableDirectoryToNewUserMembers(t *testing.T) 
 
 	newUserRecorder, newUserResponse := requestDirectory(newUser.Id)
 	assert.Equal(t, http.StatusOK, newUserRecorder.Code)
-	require.Len(t, newUserResponse.Data.AvailablePools, 1)
+	require.Len(t, newUserResponse.Data.AvailablePools, 2)
 	assert.Equal(t, enabledPool.Id, newUserResponse.Data.AvailablePools[0].Id)
 	assert.Equal(t, "研发部额度池", newUserResponse.Data.AvailablePools[0].Name)
 	require.Len(t, newUserResponse.Data.AvailablePools[0].AdminContacts, 1)
@@ -165,7 +165,7 @@ func TestGetSelfQuotaPoolLimitsAvailableDirectoryToNewUserMembers(t *testing.T) 
 	assert.Equal(t, "rd@example.com", newUserResponse.Data.AvailablePools[0].AdminContacts[0].Email)
 	assert.NotContains(t, newUserRecorder.Body.String(), "must-not-leak")
 	assert.NotContains(t, newUserRecorder.Body.String(), "停用额度池")
-	assert.NotContains(t, newUserRecorder.Body.String(), "默认额度池")
+	assert.Equal(t, defaultPool.Id, newUserResponse.Data.AvailablePools[1].Id)
 
 	normalUserRecorder, normalUserResponse := requestDirectory(normalUser.Id)
 	assert.Equal(t, http.StatusOK, normalUserRecorder.Code)

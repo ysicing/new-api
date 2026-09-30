@@ -33,20 +33,6 @@ function summarizeAutoRecharge(pool: QuotaPool): AutoRechargeSummary {
     return { statusKey: 'Not applicable', sourceKey: 'New-user pool' }
   }
 
-  if (pool.pool_type === 'default') {
-    const amount = system?.amount ?? 0
-    let reasonKey: string | undefined
-    if (!pool.enabled) reasonKey = 'Pool disabled'
-    else if (!system?.enabled) reasonKey = 'System disabled'
-    else if (amount <= 0) reasonKey = 'Amount not configured'
-    return {
-      statusKey: reasonKey ? 'Disabled' : 'Enabled',
-      sourceKey: 'System setting',
-      reasonKey,
-      amount: amount > 0 ? amount : undefined,
-    }
-  }
-
   if (pool.auto_recharge_amount === 0) {
     return { statusKey: 'Disabled', sourceKey: 'Pool-level disabled' }
   }
@@ -239,9 +225,9 @@ export function QuotaPoolList({
                         </span>
                         <span className='text-muted-foreground text-xs'>
                           {t(
-                            pool.pool_type === 'normal'
-                              ? 'Managed pool'
-                              : 'System pool'
+                            pool.pool_type === 'new_user'
+                              ? 'System pool'
+                              : 'Managed pool'
                           )}
                         </span>
                       </div>

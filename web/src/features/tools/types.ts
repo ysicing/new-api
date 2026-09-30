@@ -29,7 +29,7 @@ export type SelfAutoRechargeEligibility = {
   threshold: number
   amount: number
   pool_name: string
-  pool_type: 'default' | 'normal' | 'new_user'
+  pool_type: 'normal' | 'new_user'
   weekly: AutoRechargeLimitUsage
   monthly: AutoRechargeLimitUsage
   guidance?:

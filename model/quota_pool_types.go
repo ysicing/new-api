@@ -61,10 +61,12 @@ var (
 )
 
 type QuotaPool struct {
-	Id                   int            `json:"id"`
-	Name                 string         `json:"name" gorm:"type:varchar(64);index"`
-	PoolType             string         `json:"pool_type" gorm:"type:varchar(32);default:'normal';column:pool_type;index"`
-	Enabled              bool           `json:"enabled" gorm:"default:true"`
+	Id       int    `json:"id"`
+	Name     string `json:"name" gorm:"type:varchar(64);index"`
+	PoolType string `json:"pool_type" gorm:"type:varchar(32);default:'normal';column:pool_type;index"`
+	Enabled  bool   `json:"enabled" gorm:"default:true"`
+	// LegacyDefault 仅用于归集迁移前使用池 ID 0 的日志，不参与权限和资金判断。
+	LegacyDefault        bool           `json:"-" gorm:"default:false;column:legacy_default"`
 	IsDefault            bool           `json:"is_default" gorm:"default:false;index"`
 	BaseQuota            int            `json:"base_quota" gorm:"type:int;default:0;column:base_quota"`
 	Quota                int            `json:"quota" gorm:"type:int;default:0"`
@@ -87,7 +89,7 @@ func (pool *QuotaPool) IsNewUserPool() bool {
 }
 
 func (pool *QuotaPool) IsSystemPool() bool {
-	return pool != nil && (pool.IsDefault || pool.PoolType == QuotaPoolTypeDefault || pool.PoolType == QuotaPoolTypeNewUser)
+	return pool.IsNewUserPool()
 }
 
 type QuotaPoolAdmin struct {

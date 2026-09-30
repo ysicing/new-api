@@ -7,13 +7,13 @@ type quotaPoolMemberRechargeStat struct {
 	Amount      int64
 }
 
-// 普通池只统计成功拨付流水，不再叠加对应充值日志；存量默认池没有池拨付流水，改读日志库。
+// 所有普通池统计成功拨付流水；迁移的存量池另加旧池 ID 0 的日志，新日志不重复计数。
 // 分批按当前成员 ID 聚合，避免跨库关联和超出数据库参数上限。
-func loadQuotaPoolMemberRechargeStats(poolID int, memberIDs []int, start, end int64, systemDefault bool) (map[int]quotaPoolMemberRechargeStat, error) {
+func loadQuotaPoolMemberRechargeStats(poolID int, memberIDs []int, start, end int64, legacyDefault bool) (map[int]quotaPoolMemberRechargeStat, error) {
 	result := make(map[int]quotaPoolMemberRechargeStat, len(memberIDs))
 	for offset := 0; offset < len(memberIDs); offset += quotaPoolStatsMemberBatchSize {
 		ids := memberIDs[offset:min(offset+quotaPoolStatsMemberBatchSize, len(memberIDs))]
-		if systemDefault {
+		if legacyDefault {
 			var rows []struct {
 				UserId int
 				Count  int64
@@ -31,7 +31,6 @@ func loadQuotaPoolMemberRechargeStats(poolID int, memberIDs []int, start, end in
 			for _, row := range rows {
 				result[row.UserId] = quotaPoolMemberRechargeStat{AutoCount: row.Count, Amount: row.Amount}
 			}
-			continue
 		}
 		var rows []struct {
 			UserId int

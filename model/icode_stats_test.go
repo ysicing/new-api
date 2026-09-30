@@ -146,11 +146,11 @@ func TestGetQuotaPoolStatsDoesNotAggregateUnrelatedLogsForEmptyPool(t *testing.T
 	assert.Equal(t, 300, stats.TotalRefill)
 }
 
-func TestGetQuotaPoolStatsMapsDefaultPoolMembersToVirtualPoolID(t *testing.T) {
+func TestGetQuotaPoolStatsUsesMigratedMembersRealPoolID(t *testing.T) {
 	mainDB, _ := setupICodeStatsTest(t)
-	pool := QuotaPool{Name: QuotaPoolDefaultName, PoolType: QuotaPoolTypeDefault, IsDefault: true, Enabled: true}
+	pool := QuotaPool{Name: QuotaPoolDefaultName, PoolType: QuotaPoolTypeNormal, LegacyDefault: true, Enabled: true}
 	require.NoError(t, mainDB.Create(&pool).Error)
-	user := User{Username: "default-pool-user", Password: "password", AffCode: "default-pool-stats", QuotaPoolId: QuotaPoolDefaultUserPoolId}
+	user := User{Username: "default-pool-user", Password: "password", AffCode: "default-pool-stats", QuotaPoolId: pool.Id}
 	require.NoError(t, mainDB.Create(&user).Error)
 	require.NoError(t, mainDB.Create(&QuotaData{
 		UserID: user.Id, Username: user.Username, CreatedAt: 100, ModelName: "claude-4", Quota: 45,

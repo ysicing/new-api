@@ -261,7 +261,6 @@ export function QuotaPools() {
           )}
           {selectedCapabilities.can_refill &&
             selected?.enabled &&
-            !selected.is_default &&
             selected.pool_type === 'normal' && (
               <Button variant='outline' onClick={() => setDeductOpen(true)}>
                 <Minus data-icon='inline-start' />

@@ -108,6 +108,32 @@ func TestManageUserFreezeQuotaKeepsAccountEnabledAndRejectsRecharge(t *testing.T
 	assert.False(t, user.QuotaFrozen)
 }
 
+func TestManageUserLegacyRechargeUsesPoolPolicyAndWritesHistory(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	previous := common.QuotaPoolEnabled
+	common.QuotaPoolEnabled = true
+	t.Cleanup(func() { common.QuotaPoolEnabled = previous })
+	amount := quotaAmountToInternal(50)
+	pool := model.QuotaPool{Name: model.QuotaPoolDefaultName, PoolType: model.QuotaPoolTypeNormal, LegacyDefault: true, Enabled: true, Quota: amount, AutoRechargeAmount: amount}
+	require.NoError(t, db.Create(&pool).Error)
+	user := model.User{Username: "legacy-manual", AffCode: "legacy-manual", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id}
+	require.NoError(t, db.Create(&user).Error)
+	recorder := performManageUserRequestAs(t, fmt.Sprintf(`{"id":%d,"action":"recharge_auto"}`, user.Id), common.RoleAdminUser)
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, amount, user.Quota)
+	items, total, err := model.ListQuotaPoolTransactions(pool.Id, &common.PageInfo{Page: 1, PageSize: 10}, "", "")
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	require.Len(t, items, 1)
+	assert.Equal(t, -amount, items[0].Amount)
+	assert.Zero(t, items[0].QuotaAfter)
+	logs, total, err := model.ListQuotaPoolOperationLogs(pool.Id, &common.PageInfo{Page: 1, PageSize: 10}, "user.quota_pool_recharge")
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	assert.Len(t, logs, 1)
+}
+
 func TestManageUserAdminCanRechargeHigherRoleButCannotDirectlyAdjustQuota(t *testing.T) {
 	db := setupManageUserTestDB(t)
 	previousAmount := operation_setting.GetAutoRechargeSetting().Amount

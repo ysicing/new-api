@@ -32,11 +32,9 @@ export function QuotaPoolRechargeRules(props: { pool: QuotaPool }) {
     )
   }
 
-  // 与后端 resolveAutoRechargePolicy 一致：存量默认池全部使用系统配置。
-  const systemPool = pool.pool_type === 'default'
-  const inheritAmount = systemPool || pool.auto_recharge_amount < 0
-  const inheritWeekly = systemPool || pool.weekly_limit < 0
-  const inheritMonthly = systemPool || pool.monthly_limit < 0
+  const inheritAmount = pool.auto_recharge_amount < 0
+  const inheritWeekly = pool.weekly_limit < 0
+  const inheritMonthly = pool.monthly_limit < 0
   const amount = inheritAmount ? system.amount : pool.auto_recharge_amount
   const weekly = inheritWeekly ? system.weekly_limit : pool.weekly_limit
   const monthly = inheritMonthly ? system.monthly_limit : pool.monthly_limit
@@ -48,7 +46,7 @@ export function QuotaPoolRechargeRules(props: { pool: QuotaPool }) {
       ? t('Amount not configured')
       : t('Pool-level disabled')
   }
-  const insufficient = !reason && !systemPool && pool.quota < amount
+  const insufficient = !reason && pool.quota < amount
   let status = reason ? t('Disabled') : t('Enabled')
   if (insufficient) {
     status = t('Temporarily unavailable')
