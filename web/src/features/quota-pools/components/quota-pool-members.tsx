@@ -225,6 +225,9 @@ export function PoolMembers(props: {
                           {t('Pool administrator')}
                         </Badge>
                       ) : null}
+                      {member.quota_frozen ? (
+                        <Badge variant='outline'>{t('Quota frozen')}</Badge>
+                      ) : null}
                     </div>
                   </TableCell>
                   <TableCell>{member.department || '—'}</TableCell>

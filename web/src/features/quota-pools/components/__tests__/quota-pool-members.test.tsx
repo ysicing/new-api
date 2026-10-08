@@ -80,7 +80,8 @@ function membersQuery(
   memberRole = 1,
   quota = 100,
   usedQuota = 20,
-  reclaimAmounts: number[] = [500, 250]
+  reclaimAmounts: number[] = [500, 250],
+  quotaFrozen = false
 ): UseQueryResult<ApiResponse<PageData<QuotaPoolMember>>> {
   return {
     isLoading: false,
@@ -97,6 +98,7 @@ function membersQuery(
             department: '研发一部',
             role: memberRole,
             status: 1,
+            quota_frozen: quotaFrozen,
             quota,
             used_quota: usedQuota,
             quota_pool_id: 7,
@@ -120,6 +122,7 @@ function renderMembers(
     quota?: number
     usedQuota?: number
     reclaimAmounts?: number[]
+    quotaFrozen?: boolean
     pool?: Partial<QuotaPool>
   }
 ) {
@@ -135,7 +138,8 @@ function renderMembers(
           options?.memberRole,
           options?.quota,
           options?.usedQuota,
-          options?.reclaimAmounts
+          options?.reclaimAmounts,
+          options?.quotaFrozen
         )}
         page={1}
         pageSize={10}
@@ -195,6 +199,19 @@ test('quota pool members support server search and pagination controls', () => {
     target: { value: '20' },
   })
   expect(onPageSizeChange).toHaveBeenCalledWith(20)
+})
+
+test('frozen pool members show a freeze badge alongside their administrator badge', () => {
+  renderMembers(capabilities, { quotaFrozen: true, memberAdmin: true })
+
+  expect(screen.getByText('Quota frozen')).toBeInTheDocument()
+  expect(screen.getByText('Pool administrator')).toBeInTheDocument()
+})
+
+test('unfrozen pool members do not show a freeze badge', () => {
+  renderMembers()
+
+  expect(screen.queryByText('Quota frozen')).not.toBeInTheDocument()
 })
 
 test('member quota shows available and total amounts with available progress', () => {

@@ -135,7 +135,8 @@ func ListQuotaPoolMembers(poolId int, keyword string, page *common.PageInfo) ([]
 		items = append(items, QuotaPoolMember{
 			Id: user.Id, Username: user.Username, DisplayName: user.DisplayName,
 			Email: user.Email, Department: user.Department, Role: user.Role, Status: user.Status,
-			Quota: user.Quota, UsedQuota: user.UsedQuota, QuotaPoolId: user.QuotaPoolId,
+			QuotaFrozen: user.QuotaFrozen,
+			Quota:       user.Quota, UsedQuota: user.UsedQuota, QuotaPoolId: user.QuotaPoolId,
 			QuotaPoolAdmin: administrators[user.Id],
 		})
 	}
@@ -230,7 +231,7 @@ func ListQuotaPoolCandidates(keyword string, page *common.PageInfo) ([]QuotaPool
 	}
 	items := make([]QuotaPoolMember, 0, len(users))
 	for _, user := range users {
-		items = append(items, QuotaPoolMember{Id: user.Id, Username: user.Username, DisplayName: user.DisplayName, Email: user.Email, Department: user.Department, Role: user.Role, Status: user.Status, Quota: user.Quota, UsedQuota: user.UsedQuota, QuotaPoolId: user.QuotaPoolId})
+		items = append(items, QuotaPoolMember{Id: user.Id, Username: user.Username, DisplayName: user.DisplayName, Email: user.Email, Department: user.Department, Role: user.Role, Status: user.Status, QuotaFrozen: user.QuotaFrozen, Quota: user.Quota, UsedQuota: user.UsedQuota, QuotaPoolId: user.QuotaPoolId})
 	}
 	return items, total, nil
 }

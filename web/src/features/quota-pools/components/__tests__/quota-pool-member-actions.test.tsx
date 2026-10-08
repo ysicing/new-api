@@ -53,6 +53,7 @@ const member: QuotaPoolMember = {
   department: '研发一部',
   role: 1,
   status: 1,
+  quota_frozen: false,
   quota: 100,
   used_quota: 20,
   quota_pool_id: 7,

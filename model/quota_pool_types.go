@@ -157,6 +157,7 @@ type QuotaPoolMember struct {
 	Department     string `json:"department"`
 	Role           int    `json:"role"`
 	Status         int    `json:"status"`
+	QuotaFrozen    bool   `json:"quota_frozen"`
 	Quota          int    `json:"quota"`
 	UsedQuota      int    `json:"used_quota"`
 	QuotaPoolId    int    `json:"quota_pool_id"`

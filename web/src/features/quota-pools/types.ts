@@ -45,6 +45,7 @@ export interface QuotaPoolMember {
   department: string
   role: number
   status: number
+  quota_frozen: boolean
   quota: number
   used_quota: number
   quota_pool_id: number
