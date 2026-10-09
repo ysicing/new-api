@@ -14,6 +14,7 @@ import {
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, test, vi } from 'vitest'
 
+import { USER_STATUS } from '@/features/users/constants'
 import { formatQuota } from '@/lib/format'
 import { ROLE } from '@/lib/roles'
 
@@ -81,7 +82,8 @@ function membersQuery(
   quota = 100,
   usedQuota = 20,
   reclaimAmounts: number[] = [500, 250],
-  quotaFrozen = false
+  quotaFrozen = false,
+  memberStatus: number = USER_STATUS.ENABLED
 ): UseQueryResult<ApiResponse<PageData<QuotaPoolMember>>> {
   return {
     isLoading: false,
@@ -97,7 +99,7 @@ function membersQuery(
             email: 'alice@example.com',
             department: '研发一部',
             role: memberRole,
-            status: 1,
+            status: memberStatus,
             quota_frozen: quotaFrozen,
             quota,
             used_quota: usedQuota,
@@ -119,6 +121,7 @@ function renderMembers(
   options?: {
     memberAdmin?: boolean
     memberRole?: number
+    memberStatus?: number
     quota?: number
     usedQuota?: number
     reclaimAmounts?: number[]
@@ -139,7 +142,8 @@ function renderMembers(
           options?.quota,
           options?.usedQuota,
           options?.reclaimAmounts,
-          options?.quotaFrozen
+          options?.quotaFrozen,
+          options?.memberStatus
         )}
         page={1}
         pageSize={10}
@@ -212,6 +216,24 @@ test('unfrozen pool members do not show a freeze badge', () => {
   renderMembers()
 
   expect(screen.queryByText('Quota frozen')).not.toBeInTheDocument()
+})
+
+test('disabled pool members show a disabled badge alongside freeze and administrator badges', () => {
+  renderMembers(capabilities, {
+    memberStatus: USER_STATUS.DISABLED,
+    quotaFrozen: true,
+    memberAdmin: true,
+  })
+
+  expect(screen.getByText('Disabled')).toBeInTheDocument()
+  expect(screen.getByText('Quota frozen')).toBeInTheDocument()
+  expect(screen.getByText('Pool administrator')).toBeInTheDocument()
+})
+
+test('enabled pool members do not show a disabled badge', () => {
+  renderMembers()
+
+  expect(screen.queryByText('Disabled')).not.toBeInTheDocument()
 })
 
 test('member quota shows available and total amounts with available progress', () => {

@@ -17,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { USER_STATUS } from '@/features/users/constants'
 import { formatQuota } from '@/lib/format'
 import {
   DEFAULT_CURRENCY_CONFIG,
@@ -224,6 +225,9 @@ export function PoolMembers(props: {
                         <Badge variant='secondary'>
                           {t('Pool administrator')}
                         </Badge>
+                      ) : null}
+                      {member.status === USER_STATUS.DISABLED ? (
+                        <Badge variant='secondary'>{t('Disabled')}</Badge>
                       ) : null}
                       {member.quota_frozen ? (
                         <Badge variant='outline'>{t('Quota frozen')}</Badge>
