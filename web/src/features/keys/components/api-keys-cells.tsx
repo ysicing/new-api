@@ -24,7 +24,18 @@ import { toast } from 'sonner'
 import { IconMagpie } from '@/assets/brand-icons/icon-magpie'
 import { BadgeCell } from '@/components/data-table'
 import { StatusBadge } from '@/components/status-badge'
-import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import { Button, buttonVariants } from '@/components/ui/button'
 import {
   Popover,
   PopoverContent,
@@ -54,6 +65,7 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
     markKeyCopied,
   } = useApiKeys()
   const [popoverOpen, setPopoverOpen] = useState(false)
+  const [magpieDialogOpen, setMagpieDialogOpen] = useState(false)
   const { serverAddress } = useChatPresets()
 
   const isLoading = !!loadingKeys[apiKey.id]
@@ -79,33 +91,38 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
     if (ok) markKeyCopied(apiKey.id)
   }, [resolvedFullKey, resolveRealKey, apiKey.id, markKeyCopied])
 
-  const handleAddToMagpie = async () => {
-    // 在用户点击时先打开窗口，避免等待完整密钥后被浏览器拦截。
-    const target = window.open('about:blank', '_blank')
-    if (!target) {
-      toast.error(t('Pop-up blocked. Please allow pop-ups and try again.'))
-      return
-    }
-    target.opener = null
-    const realKey = resolvedFullKey || (await resolveRealKey(apiKey.id))
-    if (!realKey) {
-      target.close()
+  const handleMagpieDialogOpen = (open: boolean) => {
+    setMagpieDialogOpen(open)
+    if (open && !resolvedFullKey) void resolveRealKey(apiKey.id)
+  }
+
+  const handleAddToMagpie = () => {
+    if (!resolvedFullKey) {
+      void resolveRealKey(apiKey.id)
       return
     }
     const url = buildMagpieImportUrl({
       name: getSystemName(),
       serverAddress,
-      apiKey: realKey,
+      apiKey: resolvedFullKey,
       modelLimits: apiKey.model_limits_enabled
         ? (apiKey.model_limits ?? undefined)
         : undefined,
     })
     if (!url) {
-      target.close()
       toast.error(t('Invalid API address. Please contact your administrator.'))
       return
     }
-    if (!target.closed) target.location.replace(url)
+    // 弹窗期间已加载密钥；确认时同步唤起本机协议，保留用户点击手势。
+    window.open(url, '_self')
+    setMagpieDialogOpen(false)
+  }
+
+  let magpieActionLabel = t('Retry')
+  if (isLoading) {
+    magpieActionLabel = t('Loading...')
+  } else if (resolvedFullKey) {
+    magpieActionLabel = t('Continue import')
   }
 
   let copyIcon = <Copy className='size-3.5' />
@@ -173,23 +190,54 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
         </TooltipTrigger>
         <TooltipContent>{copyTooltip}</TooltipContent>
       </Tooltip>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant='ghost'
-              size='icon'
-              className='size-7 shrink-0'
-              aria-label={t('Add to Magpie')}
-              onClick={handleAddToMagpie}
-              disabled={isLoading}
-            />
-          }
-        >
-          <IconMagpie className='size-4' aria-hidden='true' />
-        </TooltipTrigger>
-        <TooltipContent>{t('Add to Magpie')}</TooltipContent>
-      </Tooltip>
+      <AlertDialog
+        open={magpieDialogOpen}
+        onOpenChange={handleMagpieDialogOpen}
+      >
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <AlertDialogTrigger
+                render={
+                  <Button
+                    variant='ghost'
+                    size='icon'
+                    className='size-7 shrink-0'
+                    aria-label={t('Add to Magpie')}
+                  />
+                }
+              />
+            }
+          >
+            <IconMagpie className='size-4' aria-hidden='true' />
+          </TooltipTrigger>
+          <TooltipContent>{t('Add to Magpie')}</TooltipContent>
+        </Tooltip>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('Add to Magpie')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                'If Magpie is already installed, continue to open it and import this API key. Otherwise, install Magpie first, then return here to continue.'
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className='sm:flex-wrap'>
+            <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
+            <a
+              className={buttonVariants({ variant: 'outline' })}
+              href='https://usemagpie.ai/zh/'
+              target='_blank'
+              rel='noopener noreferrer'
+            >
+              {t('Install Magpie')}
+            </a>
+            <AlertDialogAction onClick={handleAddToMagpie} disabled={isLoading}>
+              {magpieActionLabel}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
