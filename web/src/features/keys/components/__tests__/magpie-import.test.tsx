@@ -116,8 +116,10 @@ test('the key cell exposes a Magpie icon without fetching the full key until cli
   expect(window.open).toHaveBeenCalledWith('about:blank', '_blank')
   expect(target.opener).toBeNull()
   const url = new URL(target.location.replace.mock.calls[0]?.[0] as string)
-  expect(url.search).toBe('')
-  const params = new URLSearchParams(url.hash.slice(1))
+  expect(url.protocol).toBe('magpie:')
+  expect(url.host).toBe('import')
+  expect(url.hash).toBe('')
+  const params = url.searchParams
   expect(params.get('name')).toBe('iCode')
   expect(params.get('key')).toBe('sk-full-key')
   expect(params.get('chat')).toBe('https://relay.example/v1')
@@ -148,7 +150,7 @@ test('import opens a window before awaiting the key and disables repeated clicks
   })
   expect(action).toBeEnabled()
   const url = new URL(target.location.replace.mock.calls[0]?.[0] as string)
-  expect(new URLSearchParams(url.hash.slice(1)).has('models')).toBe(false)
+  expect(url.searchParams.has('models')).toBe(false)
 })
 
 test('a failed key lookup closes the temporary window and allows retry', async () => {

@@ -58,6 +58,6 @@ export function buildMagpieImportUrl(options: {
     ),
   ]
   if (models.length > 0) params.set('models', models.join(','))
-  // 密钥只放在 fragment 中，避免进入 Magpie 网站的请求和访问日志。
-  return `https://usemagpie.ai/import#${params.toString()}`
+  // 直接交给本机 Magpie，避免导入流程依赖官网可访问。
+  return `magpie://import?${params.toString()}`
 }

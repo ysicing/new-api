@@ -35,9 +35,10 @@ test.each([
     })
     expect(result).not.toBeNull()
     const url = new URL(result ?? '')
-    expect(url.origin + url.pathname).toBe('https://usemagpie.ai/import')
-    expect(url.search).toBe('')
-    const params = new URLSearchParams(url.hash.slice(1))
+    expect(url.protocol).toBe('magpie:')
+    expect(url.host).toBe('import')
+    expect(url.hash).toBe('')
+    const params = url.searchParams
     expect(params.get('chat')).toBe(`${base}/v1`)
     expect(params.get('responses')).toBe(`${base}/v1`)
     expect(params.get('anthropic')).toBe(base)
@@ -46,7 +47,7 @@ test.each([
   }
 )
 
-test('special characters stay in the fragment and model restrictions are deduplicated', () => {
+test('native import encodes special characters without injecting parameters or fragments', () => {
   const key = 'sk-test&name=other?#密钥'
   const result = buildMagpieImportUrl({
     name: '研发 & 测试',
@@ -55,9 +56,10 @@ test('special characters stay in the fragment and model restrictions are dedupli
     modelLimits: 'gpt-6-sol, claude-sonnet-5, gpt-6-sol,',
   })
   const url = new URL(result ?? '')
-  const params = new URLSearchParams(url.hash.slice(1))
-  expect(url.search).toBe('')
-  expect(url.href.split('#')[0]).not.toContain(key)
+  const params = url.searchParams
+  expect(url.protocol).toBe('magpie:')
+  expect(url.host).toBe('import')
+  expect(url.hash).toBe('')
   expect(params.get('key')).toBe(key)
   expect(params.get('name')).toBe('研发 & 测试')
   expect(params.get('models')).toBe('gpt-6-sol,claude-sonnet-5')
@@ -69,7 +71,7 @@ test('an unprefixed key is normalized and provider names respect the 80-characte
     serverAddress: 'https://relay.example',
     apiKey: 'example',
   })
-  const params = new URLSearchParams(new URL(result ?? '').hash.slice(1))
+  const params = new URL(result ?? '').searchParams
   expect(params.get('key')).toBe('sk-example')
   expect(params.get('name')).toBe('a'.repeat(80))
 })
