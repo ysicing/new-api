@@ -19,7 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 import { Check, Copy, Loader2 } from 'lucide-react'
 import { useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
+import { IconMagpie } from '@/assets/brand-icons/icon-magpie'
 import { BadgeCell } from '@/components/data-table'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
@@ -33,9 +35,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useChatPresets } from '@/features/chat/hooks/use-chat-presets'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
 import { formatQuota } from '@/lib/format'
+import { getSystemName } from '@/stores/system-config-store'
 
+import { buildMagpieImportUrl } from '../lib/magpie-import'
 import type { ApiKey } from '../types'
 import { useApiKeys } from './api-keys-provider'
 
@@ -49,6 +54,7 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
     markKeyCopied,
   } = useApiKeys()
   const [popoverOpen, setPopoverOpen] = useState(false)
+  const { serverAddress } = useChatPresets()
 
   const isLoading = !!loadingKeys[apiKey.id]
   const resolvedFullKey = resolvedKeys[apiKey.id]
@@ -72,6 +78,35 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
     const ok = await copyToClipboard(realKey)
     if (ok) markKeyCopied(apiKey.id)
   }, [resolvedFullKey, resolveRealKey, apiKey.id, markKeyCopied])
+
+  const handleAddToMagpie = async () => {
+    // 在用户点击时先打开窗口，避免等待完整密钥后被浏览器拦截。
+    const target = window.open('about:blank', '_blank')
+    if (!target) {
+      toast.error(t('Pop-up blocked. Please allow pop-ups and try again.'))
+      return
+    }
+    target.opener = null
+    const realKey = resolvedFullKey || (await resolveRealKey(apiKey.id))
+    if (!realKey) {
+      target.close()
+      return
+    }
+    const url = buildMagpieImportUrl({
+      name: getSystemName(),
+      serverAddress,
+      apiKey: realKey,
+      modelLimits: apiKey.model_limits_enabled
+        ? (apiKey.model_limits ?? undefined)
+        : undefined,
+    })
+    if (!url) {
+      target.close()
+      toast.error(t('Invalid API address. Please contact your administrator.'))
+      return
+    }
+    if (!target.closed) target.location.replace(url)
+  }
 
   let copyIcon = <Copy className='size-3.5' />
   let copyTooltip = t('Copy API key')
@@ -137,6 +172,23 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
           {copyIcon}
         </TooltipTrigger>
         <TooltipContent>{copyTooltip}</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant='ghost'
+              size='icon'
+              className='size-7 shrink-0'
+              aria-label={t('Add to Magpie')}
+              onClick={handleAddToMagpie}
+              disabled={isLoading}
+            />
+          }
+        >
+          <IconMagpie className='size-4' aria-hidden='true' />
+        </TooltipTrigger>
+        <TooltipContent>{t('Add to Magpie')}</TooltipContent>
       </Tooltip>
     </div>
   )
