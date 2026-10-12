@@ -46,7 +46,7 @@ export function ChannelMagpieSetting(props: {
             <FormLabel>{t('Magpie channel')}</FormLabel>
             <FormDescription>
               {t(
-                'Check Codex accounts on this Magpie using the channel URL and key every minute. Disable when none are available and restore when available. Query failures and manual disabling preserve the current status.'
+                'Check Codex accounts on this Magpie using the channel URL and key every 2 minutes from 09:00 to 22:00 Beijing time, and every 30 minutes overnight. Disable when none are available and restore when available. Query failures and manual disabling preserve the current status.'
               )}
             </FormDescription>
             <FormMessage />

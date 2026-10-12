@@ -51,6 +51,18 @@ export const STATIC_I18N_KEYS = [
   'Master instances run scheduled background tasks.',
   'Worker instances do not run master-only background tasks.',
   'Drawing task polling',
+  'Magpie channel monitor',
+  'Channels checked: {{count}}',
+  'Channels enabled: {{count}}',
+  'Channels disabled: {{count}}',
+  'Channels unchanged: {{count}}',
+  'Channel checks failed: {{count}}',
+  'Notifications failed: {{count}}',
+  'Automatically enabled',
+  'Automatically disabled',
+  'Channel status preserved',
+  'Availability query failed',
+  'Channel status update failed',
 
   // Automatic recharge eligibility reasons
   'Automatic recharge is disabled globally.',

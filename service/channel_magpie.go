@@ -69,6 +69,7 @@ func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (
 		return false, errors.New("Magpie gateway key is empty")
 	}
 	unknown := false
+	var lastRequestErr error
 	queried := false
 	for index, key := range keys {
 		if channel.ChannelInfo.IsMultiKey {
@@ -81,6 +82,7 @@ func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (
 		quotas, err := requestMagpieQuotas(ctx, &queryClient, http.MethodGet, base.String(), key)
 		if err != nil {
 			unknown = true
+			lastRequestErr = err
 			continue
 		}
 		expectedAccounts := make(map[string]bool)
@@ -100,6 +102,7 @@ func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (
 		cards, err := requestMagpieQuotas(ctx, &queryClient, http.MethodPost, refresh.String(), key)
 		if err != nil {
 			unknown = true
+			lastRequestErr = err
 			continue
 		}
 		for _, card := range cards.Data {
@@ -131,6 +134,9 @@ func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (
 	}
 	// 有一个确定可用的账号即可启用；只有所有账号均确定不可用时才禁用。
 	if unknown || !queried {
+		if lastRequestErr != nil {
+			return false, fmt.Errorf("Magpie Codex account availability is unknown; channel status preserved: %w", lastRequestErr)
+		}
 		return false, errors.New("Magpie Codex account availability is unknown; channel status preserved")
 	}
 	return false, nil
@@ -210,14 +216,36 @@ func notifyMagpieChannelStatus(ctx context.Context, channel *model.Channel, tran
 	return err
 }
 
-func syncMagpieChannels(ctx context.Context) (int, error) {
+type magpieChannelMonitorResult struct {
+	Checked            int                         `json:"checked"`
+	Changed            int                         `json:"changed"`
+	Enabled            int                         `json:"enabled"`
+	Disabled           int                         `json:"disabled"`
+	Unchanged          int                         `json:"unchanged"`
+	Failed             int                         `json:"failed"`
+	NotificationFailed int                         `json:"notification_failed"`
+	Channels           []magpieChannelMonitorEntry `json:"channels"`
+}
+
+type magpieChannelMonitorEntry struct {
+	ChannelID         int    `json:"channel_id"`
+	ChannelName       string `json:"channel_name"`
+	Available         *bool  `json:"available,omitempty"`
+	Action            string `json:"action"`
+	Error             string `json:"error,omitempty"`
+	NotificationError string `json:"notification_error,omitempty"`
+}
+
+func syncMagpieChannels(ctx context.Context) (magpieChannelMonitorResult, error) {
+	result := magpieChannelMonitorResult{Channels: make([]magpieChannelMonitorEntry, 0)}
 	channels, err := model.ListMagpieChannels(ctx)
 	if err != nil {
-		return 0, err
+		return result, err
 	}
 	type notice struct {
 		channel      *model.Channel
 		transitionAt int64
+		resultIndex  int
 	}
 	notices := make([]notice, 0)
 	for index := range channels {
@@ -226,22 +254,51 @@ func syncMagpieChannels(ctx context.Context) (int, error) {
 			break
 		}
 		channel := &channels[index]
+		resultIndex := len(result.Channels)
+		result.Channels = append(result.Channels, magpieChannelMonitorEntry{ChannelID: channel.Id, ChannelName: channel.Name})
+		entry := &result.Channels[resultIndex]
+		result.Checked++
 		available, queryErr := queryMagpieCodexAvailability(ctx, channel)
 		if queryErr != nil {
+			entry.Action, entry.Error = "query_failed", queryErr.Error()
+			result.Failed++
 			common.SysError(fmt.Sprintf("query Magpie channel #%d: %v", channel.Id, queryErr))
 			continue
 		}
+		entry.Available = &available
 		changed, updateErr := model.SyncMagpieChannelStatus(ctx, channel, available)
 		if updateErr != nil {
+			entry.Action, entry.Error = "update_failed", updateErr.Error()
+			result.Failed++
 			err = updateErr
 			break
 		}
-		if changed != nil {
+		if changed == nil {
+			entry.Action = "unchanged"
+			result.Unchanged++
+		} else {
+			result.Changed++
+			if available {
+				entry.Action = "enabled"
+				result.Enabled++
+			} else {
+				entry.Action = "disabled"
+				result.Disabled++
+			}
 			transitionAt := changed.MagpieAutoDisabledAt
 			if available {
 				transitionAt = channel.MagpieAutoDisabledAt
 			}
-			notices = append(notices, notice{changed, transitionAt})
+			reason := "Magpie 无可用 Codex 账号，自动禁用"
+			if available {
+				reason = "Magpie 已有可用 Codex 账号，自动启用"
+			}
+			// 仅记录已提交的状态切换，独立于后续钉钉发送结果；系统任务无操作用户。
+			model.RecordLogWithAdminInfo(0, model.LogTypeSystem, fmt.Sprintf("渠道「%s」（#%d）：%s", changed.Name, changed.Id, reason), map[string]interface{}{
+				"channel_id": changed.Id, "channel_name": changed.Name,
+				"status": changed.Status, "reason": reason, "transition_at": transitionAt,
+			})
+			notices = append(notices, notice{changed, transitionAt, resultIndex})
 		}
 	}
 	// 先完成状态切换，再发送通知；外部通知失败不会回滚渠道状态。
@@ -249,10 +306,12 @@ func syncMagpieChannels(ctx context.Context) (int, error) {
 	defer cancel()
 	for _, notice := range notices {
 		if err := notifyMagpieChannelStatus(notificationCtx, notice.channel, notice.transitionAt, notice.channel.Status == common.ChannelStatusEnabled); err != nil {
+			result.NotificationFailed++
+			result.Channels[notice.resultIndex].NotificationError = err.Error()
 			common.SysError(fmt.Sprintf("notify Magpie channel #%d: %v", notice.channel.Id, err))
 		}
 	}
-	return len(notices), err
+	return result, err
 }
 
 type magpieChannelMonitorHandler struct{}
@@ -265,15 +324,30 @@ func (magpieChannelMonitorHandler) Enabled() bool {
 	}
 	return err == nil && len(channels) > 0
 }
-func (magpieChannelMonitorHandler) Interval() time.Duration { return time.Minute }
-func (magpieChannelMonitorHandler) NewPayload() any         { return struct{}{} }
-func (magpieChannelMonitorHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
-	changed, err := syncMagpieChannels(ctx)
-	if err != nil {
-		failSystemTask(task, runnerID, err)
-		return
+func (magpieChannelMonitorHandler) Interval() time.Duration {
+	return magpieChannelMonitorInterval(time.Now())
+}
+
+// 固定按北京时间选择间隔，不受部署机器时区影响；调度器每轮重新判断，
+// 09:00 起恢复白天频率，22:00 起降低夜间查询频率。
+func magpieChannelMonitorInterval(now time.Time) time.Duration {
+	hour := now.UTC().Add(8 * time.Hour).Hour()
+	if hour >= 22 || hour < 9 {
+		return 30 * time.Minute
 	}
-	if err := model.FinishSystemTask(task.TaskID, runnerID, model.SystemTaskStatusSucceeded, map[string]int{"changed": changed}, ""); err != nil {
+	return 2 * time.Minute
+}
+
+func (magpieChannelMonitorHandler) NewPayload() any { return struct{}{} }
+func (magpieChannelMonitorHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	result, err := syncMagpieChannels(ctx)
+	status, errorText := model.SystemTaskStatusSucceeded, ""
+	if err != nil {
+		status, errorText = model.SystemTaskStatusFailed, err.Error()
+		common.SysError(fmt.Sprintf("system task %s failed: %v", task.TaskID, err))
+	}
+	// 失败任务也保存已经完成的查询和切换，方便排查部分执行结果。
+	if err := model.FinishSystemTask(task.TaskID, runnerID, status, result, errorText); err != nil {
 		logSystemTaskLockError(ctx, task, err)
 	}
 }

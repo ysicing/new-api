@@ -23,6 +23,11 @@ import { useTranslation } from 'react-i18next'
 import { ErrorState } from '@/components/error-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -85,6 +90,24 @@ const TYPE_LABEL: Record<string, string> = {
   midjourney_poll: 'Drawing task polling',
   async_task_poll: 'Async task polling',
   quota_pool_maintenance: 'Quota pool recharge maintenance',
+  magpie_channel_monitor: 'Magpie channel monitor',
+}
+
+const MAGPIE_COUNTER_LABELS: Record<string, string> = {
+  checked: 'Channels checked: {{count}}',
+  enabled: 'Channels enabled: {{count}}',
+  disabled: 'Channels disabled: {{count}}',
+  unchanged: 'Channels unchanged: {{count}}',
+  failed: 'Channel checks failed: {{count}}',
+  notification_failed: 'Notifications failed: {{count}}',
+}
+
+const MAGPIE_ACTION_LABELS: Record<string, string> = {
+  enabled: 'Automatically enabled',
+  disabled: 'Automatically disabled',
+  unchanged: 'Channel status preserved',
+  query_failed: 'Availability query failed',
+  update_failed: 'Channel status update failed',
 }
 
 const TYPE_DISPLAY_ID: Record<string, string> = {
@@ -139,6 +162,14 @@ function getProgress(task: SystemTask): number | null {
 type TaskDetail = {
   summary: string
   reasons?: string
+  channels?: {
+    channelID: number
+    channelName: string
+    available?: boolean
+    action: string
+    error?: string
+    notificationError?: string
+  }[]
 }
 
 // Renders a succeeded task's main counters separately from skip reasons so
@@ -146,8 +177,57 @@ type TaskDetail = {
 function useTaskDetail() {
   const { t } = useTranslation()
   return (task: SystemTask): TaskDetail | null => {
-    if (task.error) return { summary: task.error }
     const result = task.result as Record<string, unknown> | undefined
+    if (
+      task.type === 'magpie_channel_monitor' &&
+      (task.status === 'succeeded' || task.status === 'failed') &&
+      result
+    ) {
+      const parts: string[] = []
+      for (const [key, label] of Object.entries(MAGPIE_COUNTER_LABELS)) {
+        if (typeof result[key] === 'number') {
+          parts.push(t(label, { count: result[key] }))
+        }
+      }
+      // 旧任务仅保存 changed，不能补造当时的渠道查询详情。
+      if (parts.length === 0 && typeof result.changed === 'number') {
+        parts.push(t('Channels changed: {{count}}', { count: result.changed }))
+      }
+      const channels: NonNullable<TaskDetail['channels']> = []
+      if (Array.isArray(result.channels)) {
+        for (const value of result.channels) {
+          if (!value || typeof value !== 'object') continue
+          const entry = value as Record<string, unknown>
+          if (
+            typeof entry.channel_id !== 'number' ||
+            typeof entry.channel_name !== 'string' ||
+            typeof entry.action !== 'string'
+          ) {
+            continue
+          }
+          channels.push({
+            channelID: entry.channel_id,
+            channelName: entry.channel_name,
+            action: entry.action,
+            available:
+              typeof entry.available === 'boolean'
+                ? entry.available
+                : undefined,
+            error: typeof entry.error === 'string' ? entry.error : undefined,
+            notificationError:
+              typeof entry.notification_error === 'string'
+                ? entry.notification_error
+                : undefined,
+          })
+        }
+      }
+      return {
+        summary: task.error || parts.join(' · ') || '-',
+        reasons: task.error && parts.length > 0 ? parts.join(' · ') : undefined,
+        channels,
+      }
+    }
+    if (task.error) return { summary: task.error }
     if (task.status !== 'succeeded' || !result) return null
     const summaryParts: string[] = []
     const reasonParts: string[] = []
@@ -208,12 +288,50 @@ function useTaskDetail() {
 }
 
 function TaskDetailContent({ detail }: { detail: TaskDetail | null }) {
+  const { t } = useTranslation()
   if (!detail) return '-'
   return (
     <div className='space-y-0.5'>
       <div>{detail.summary}</div>
       {detail.reasons ? (
         <div className='text-muted-foreground/80'>{detail.reasons}</div>
+      ) : null}
+      {detail.channels && detail.channels.length > 0 ? (
+        <Collapsible>
+          <CollapsibleTrigger className='text-foreground cursor-pointer text-xs underline underline-offset-4'>
+            {t('Channel results')}
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <ul className='mt-2 max-h-64 space-y-2 overflow-y-auto'>
+              {detail.channels.map((channel) => (
+                <li key={channel.channelID} className='break-words'>
+                  <div className='text-foreground font-medium'>
+                    {channel.channelName} (#{channel.channelID})
+                  </div>
+                  <div>
+                    {t(MAGPIE_ACTION_LABELS[channel.action] ?? channel.action)}
+                    {channel.available === true
+                      ? ` · ${t('Codex accounts available')}`
+                      : null}
+                    {channel.available === false
+                      ? ` · ${t('No available Codex accounts')}`
+                      : null}
+                  </div>
+                  {channel.error ? (
+                    <div className='text-destructive'>{channel.error}</div>
+                  ) : null}
+                  {channel.notificationError ? (
+                    <div className='text-destructive'>
+                      {t('Notification failed: {{error}}', {
+                        error: channel.notificationError,
+                      })}
+                    </div>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </CollapsibleContent>
+        </Collapsible>
       ) : null}
     </div>
   )
@@ -415,11 +533,12 @@ export function SystemTasksPanel() {
       <div aria-busy={tasksQuery.isFetching}>
         {loading ? (
           <div className='space-y-2 p-4 sm:p-5'>
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className='h-9 w-full rounded-md' />
+            {['type', 'status', 'progress', 'detail'].map((key) => (
+              <Skeleton key={key} className='h-9 w-full rounded-md' />
             ))}
           </div>
-        ) : tasksQuery.isError ? (
+        ) : null}
+        {!loading && tasksQuery.isError ? (
           <ErrorState
             title={t('We could not load system tasks.')}
             description={
@@ -432,7 +551,8 @@ export function SystemTasksPanel() {
             }}
             className='min-h-[260px]'
           />
-        ) : tasks.length === 0 ? (
+        ) : null}
+        {!loading && !tasksQuery.isError && tasks.length === 0 ? (
           <div className='px-4 py-10 text-center sm:px-5'>
             <div className='bg-muted mx-auto mb-3 flex size-10 items-center justify-center rounded-lg'>
               <ListChecks
@@ -444,7 +564,8 @@ export function SystemTasksPanel() {
               {t('No system tasks yet.')}
             </p>
           </div>
-        ) : (
+        ) : null}
+        {!loading && !tasksQuery.isError && tasks.length > 0 ? (
           <div className='space-y-4 p-4 sm:p-5'>
             <div>
               <div className='mb-2 flex items-center justify-between gap-3'>
@@ -484,7 +605,7 @@ export function SystemTasksPanel() {
               )}
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </section>
   )

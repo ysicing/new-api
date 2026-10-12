@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -69,6 +71,27 @@ func TestMagpieCodexAvailability(t *testing.T) {
 	}
 }
 
+func TestMagpieMonitorIntervalUsesBeijingTime(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		instant  string
+		interval time.Duration
+	}{
+		{"before morning boundary", "2026-10-12T08:59:59+08:00", 30 * time.Minute},
+		{"morning boundary in UTC", "2026-10-12T01:00:00Z", 2 * time.Minute},
+		{"before evening boundary", "2026-10-12T21:59:59+08:00", 2 * time.Minute},
+		{"evening boundary in UTC", "2026-10-12T14:00:00Z", 30 * time.Minute},
+		{"after midnight", "2026-10-13T00:00:00+08:00", 30 * time.Minute},
+		{"daytime with other timezone", "2026-10-11T18:00:00-07:00", 2 * time.Minute},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			now, err := time.Parse(time.RFC3339, test.instant)
+			require.NoError(t, err)
+			assert.Equal(t, test.interval, magpieChannelMonitorInterval(now))
+		})
+	}
+}
+
 func TestMagpieQueryFailuresPreserveStatus(t *testing.T) {
 	for _, test := range []struct {
 		name, body string
@@ -111,7 +134,10 @@ func TestMagpieQueryRefusesCredentialRedirect(t *testing.T) {
 
 func TestMagpieMonitorNotifiesOnlyTransitions(t *testing.T) {
 	setupAnnouncementGroupNotificationTest(t)
-	require.NoError(t, model.DB.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	previousLogDB := model.LOG_DB
+	model.LOG_DB = model.DB
+	t.Cleanup(func() { model.LOG_DB = previousLogDB })
+	require.NoError(t, model.DB.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Log{}, &model.User{}))
 	previousCache := common.MemoryCacheEnabled
 	common.MemoryCacheEnabled = false
 	t.Cleanup(func() { common.MemoryCacheEnabled = previousCache })
@@ -135,37 +161,136 @@ func TestMagpieMonitorNotifiesOnlyTransitions(t *testing.T) {
 		assert.Equal(t, "cid-announcement", recipient)
 		assert.NotContains(t, content, channel.Key)
 		titles = append(titles, title)
+		if title == "Magpie 渠道已自动启用" {
+			return errors.New("notification unavailable")
+		}
 		return nil
 	}
 	t.Cleanup(func() { sendMagpieChannelGroupMessage = previousSend })
-	changed, err := syncMagpieChannels(context.Background())
+	result, err := syncMagpieChannels(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, 1, changed)
-	changed, err = syncMagpieChannels(context.Background())
+	assert.Equal(t, 1, result.Checked)
+	assert.Equal(t, 1, result.Changed)
+	assert.Equal(t, 1, result.Disabled)
+	require.Len(t, result.Channels, 1)
+	assert.Equal(t, channel.Id, result.Channels[0].ChannelID)
+	assert.Equal(t, channel.Name, result.Channels[0].ChannelName)
+	require.NotNil(t, result.Channels[0].Available)
+	assert.False(t, *result.Channels[0].Available)
+	assert.Equal(t, "disabled", result.Channels[0].Action)
+	result, err = syncMagpieChannels(context.Background())
 	require.NoError(t, err)
-	assert.Zero(t, changed)
+	assert.Zero(t, result.Changed)
+	assert.Equal(t, 1, result.Unchanged)
+	assert.Equal(t, "unchanged", result.Channels[0].Action)
 	fail = true
-	changed, err = syncMagpieChannels(context.Background())
+	result, err = syncMagpieChannels(context.Background())
 	require.NoError(t, err)
-	assert.Zero(t, changed)
+	assert.Zero(t, result.Changed)
+	assert.Equal(t, 1, result.Failed)
+	assert.Nil(t, result.Channels[0].Available)
+	assert.Equal(t, "query_failed", result.Channels[0].Action)
+	assert.Contains(t, result.Channels[0].Error, "HTTP 503")
 	stored, err := model.GetChannelById(channel.Id, true)
 	require.NoError(t, err)
 	assert.Equal(t, common.ChannelStatusAutoDisabled, stored.Status)
 	fail, held = false, false
-	changed, err = syncMagpieChannels(context.Background())
+	result, err = syncMagpieChannels(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, 1, changed)
-	changed, err = syncMagpieChannels(context.Background())
+	assert.Equal(t, 1, result.Changed)
+	assert.Equal(t, 1, result.Enabled)
+	assert.Zero(t, result.Disabled)
+	assert.Equal(t, 1, result.NotificationFailed)
+	assert.Equal(t, "enabled", result.Channels[0].Action)
+	assert.Equal(t, "notification unavailable", result.Channels[0].NotificationError)
+	serialized, err := common.Marshal(result)
 	require.NoError(t, err)
-	assert.Zero(t, changed)
+	assert.NotContains(t, string(serialized), channel.Key)
+	result, err = syncMagpieChannels(context.Background())
+	require.NoError(t, err)
+	assert.Zero(t, result.Changed)
 	assert.Equal(t, []string{"Magpie 渠道已自动禁用", "Magpie 渠道已自动启用"}, titles)
 	var records []model.DingTalkNotification
 	require.NoError(t, model.DB.Find(&records).Error)
-	assert.Len(t, records, 2)
+	require.Len(t, records, 2)
+	assert.Equal(t, model.DingTalkNotificationStatusSucceeded, records[0].Status)
+	assert.Equal(t, model.DingTalkNotificationStatusFailed, records[1].Status)
 	require.True(t, model.UpdateChannelStatus(channel.Id, "", common.ChannelStatusManuallyDisabled, "manual"))
-	changed, err = syncMagpieChannels(context.Background())
+	result, err = syncMagpieChannels(context.Background())
 	require.NoError(t, err)
-	assert.Zero(t, changed)
+	assert.Zero(t, result.Checked)
+	assert.Zero(t, result.Changed)
+	assert.Empty(t, result.Channels)
+	var logs []model.Log
+	require.NoError(t, model.LOG_DB.Where("type = ?", model.LogTypeSystem).Order("id ASC").Find(&logs).Error)
+	require.Len(t, logs, 2)
+	assert.Equal(t, fmt.Sprintf("渠道「%s」（#%d）：Magpie 无可用 Codex 账号，自动禁用", channel.Name, channel.Id), logs[0].Content)
+	assert.Equal(t, fmt.Sprintf("渠道「%s」（#%d）：Magpie 已有可用 Codex 账号，自动启用", channel.Name, channel.Id), logs[1].Content)
+	for index, log := range logs {
+		assert.Zero(t, log.UserId)
+		assert.Positive(t, log.CreatedAt)
+		assert.NotContains(t, log.Content+log.Other, channel.Key)
+		var metadata struct {
+			AdminInfo struct {
+				ChannelID   int    `json:"channel_id"`
+				ChannelName string `json:"channel_name"`
+				Status      int    `json:"status"`
+			} `json:"admin_info"`
+		}
+		require.NoError(t, common.UnmarshalJsonStr(log.Other, &metadata))
+		assert.Equal(t, channel.Id, metadata.AdminInfo.ChannelID)
+		assert.Equal(t, channel.Name, metadata.AdminInfo.ChannelName)
+		assert.Equal(t, []int{common.ChannelStatusAutoDisabled, common.ChannelStatusEnabled}[index], metadata.AdminInfo.Status)
+	}
+}
+
+func TestMagpieMonitorPersistsPartialResultsOnCancellation(t *testing.T) {
+	setupAnnouncementGroupNotificationTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	previousCache := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() { common.MemoryCacheEnabled = previousCache })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		if requests == 3 {
+			// 第一个渠道完成后，在第二个渠道查询期间取消任务。
+			cancel()
+			return
+		}
+		body, err := common.Marshal(map[string]any{"object": "list", "data": []any{map[string]any{"provider": "codex", "kind": "subscription", "readAt": time.Now().UTC(), "windows": []any{map[string]any{"used": 10}}}}})
+		require.NoError(t, err)
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+	for index := 0; index < 3; index++ {
+		channel := model.Channel{Name: fmt.Sprintf("pool-%d", index), Key: "private-gateway-key", BaseURL: common.GetPointer(server.URL), Models: "model", Group: "default", OtherSettings: `{"magpie_enabled":true}`}
+		require.NoError(t, channel.Insert())
+	}
+	task, err := model.CreateSystemTask(model.SystemTaskTypeMagpieChannelMonitor, nil, nil)
+	require.NoError(t, err)
+	claimedTask, claimed, err := model.ClaimSystemTask(task.ID, task.Type, "runner-magpie", common.GetTimestamp()+60)
+	require.NoError(t, err)
+	require.True(t, claimed)
+
+	magpieChannelMonitorHandler{}.Run(ctx, claimedTask, "runner-magpie")
+
+	var stored model.SystemTask
+	require.NoError(t, model.DB.Where("task_id = ?", task.TaskID).First(&stored).Error)
+	assert.Equal(t, model.SystemTaskStatusFailed, stored.Status)
+	assert.Equal(t, context.Canceled.Error(), stored.Error)
+	assert.NotContains(t, stored.Result, "private-gateway-key")
+	var result magpieChannelMonitorResult
+	require.NoError(t, common.UnmarshalJsonStr(stored.Result, &result))
+	assert.Equal(t, 2, result.Checked)
+	assert.Equal(t, 1, result.Unchanged)
+	assert.Equal(t, 1, result.Failed)
+	assert.Zero(t, result.Changed)
+	require.Len(t, result.Channels, 2)
+	assert.Equal(t, "unchanged", result.Channels[0].Action)
+	assert.Equal(t, "query_failed", result.Channels[1].Action)
 }
 
 func TestMagpieQueryUsesEnabledKeysAndChannelProxy(t *testing.T) {
