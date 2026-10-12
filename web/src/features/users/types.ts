@@ -46,6 +46,7 @@ export const userSchema = z.object({
   email: z.string().optional(),
   quota: z.number(),
   quota_frozen: z.boolean().optional(),
+  can_adjust_quota: z.boolean().optional(),
   quota_pool_id: z.number().optional(),
   quota_pool_name: z.string().optional(),
   used_quota: z.number(),

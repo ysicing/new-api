@@ -110,6 +110,18 @@ export function UsersMutateDrawer({
   const currentUser = useAuthStore((s) => s.auth.user)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false)
+  const userDetail = useQuery({
+    queryKey: ['users', 'detail', currentRow?.id, currentUser?.id],
+    queryFn: () => getUser(currentRow?.id ?? 0),
+    enabled: open && isUpdate,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+  })
+  const canAdjustQuota =
+    !userDetail.isFetching &&
+    !userDetail.isError &&
+    userDetail.data?.success === true &&
+    userDetail.data.data?.can_adjust_quota === true
 
   // Fetch groups
   const { data: groupsData } = useQuery({
@@ -135,21 +147,14 @@ export function UsersMutateDrawer({
   // Load existing data when updating
   useEffect(() => {
     if (open && isUpdate && currentRow) {
-      // For update, fetch fresh data
-      getUser(currentRow.id)
-        .then((result) => {
-          if (result.success && result.data) {
-            form.reset(transformUserToFormDefaults(result.data))
-          }
-        })
-        .catch(() => {
-          // Keep the current form values if the refresh fails.
-        })
+      if (userDetail.data?.success && userDetail.data.data) {
+        form.reset(transformUserToFormDefaults(userDetail.data.data))
+      }
     } else if (open && !isUpdate) {
       // For create, reset to defaults
       form.reset(USER_FORM_DEFAULT_VALUES)
     }
-  }, [open, isUpdate, currentRow, form])
+  }, [open, isUpdate, currentRow, form, userDetail.data])
 
   const { meta: currencyMeta } = getCurrencyDisplay()
   const currencyLabel = getCurrencyLabel()
@@ -208,10 +213,7 @@ export function UsersMutateDrawer({
 
   const refreshUserData = async () => {
     if (!currentRow) return
-    const result = await getUser(currentRow.id)
-    if (result.success && result.data) {
-      form.reset(transformUserToFormDefaults(result.data))
-    }
+    await userDetail.refetch()
     triggerRefresh()
   }
 
@@ -413,15 +415,16 @@ export function UsersMutateDrawer({
                               className='flex-1'
                             />
                           </FormControl>
-                          <Button
-                            type='button'
-                            variant='outline'
-                            onClick={() => setQuotaDialogOpen(true)}
-                            disabled={currentRow?.quota_frozen}
-                          >
-                            <Pencil className='mr-1 h-4 w-4' />
-                            {t('Adjust Quota')}
-                          </Button>
+                          {canAdjustQuota && (
+                            <Button
+                              type='button'
+                              variant='outline'
+                              onClick={() => setQuotaDialogOpen(true)}
+                            >
+                              <Pencil className='mr-1 h-4 w-4' />
+                              {t('Adjust Quota')}
+                            </Button>
+                          )}
                         </div>
                         <FormDescription>
                           {currentRow?.quota_frozen

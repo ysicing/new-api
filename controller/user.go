@@ -387,6 +387,21 @@ func canManageTargetRole(myRole int, targetRole int) bool {
 	return myRole == common.RoleRootUser || myRole > targetRole
 }
 
+// canDirectlyAdjustUserQuota 保留启用池的资金流转约束；禁用池允许 Root 直接维护用户余额。
+func canDirectlyAdjustUserQuota(myRole int, user *model.User) (bool, error) {
+	if myRole != common.RoleRootUser || user.QuotaFrozen {
+		return false, nil
+	}
+	if !common.QuotaPoolEnabled || user.QuotaPoolId == model.QuotaPoolDefaultUserPoolId {
+		return true, nil
+	}
+	pool, err := model.GetQuotaPoolById(user.QuotaPoolId)
+	if err != nil {
+		return false, err
+	}
+	return !pool.Enabled, nil
+}
+
 func GetUser(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -404,10 +419,16 @@ func GetUser(c *gin.Context) {
 		return
 	}
 	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
+	canAdjustQuota, err := canDirectlyAdjustUserQuota(myRole, user)
+	if err != nil {
+		// 池状态无法确认时不开放调额，但不影响查看、编辑用户的其他信息。
+		common.SysError(fmt.Sprintf("failed to check direct quota adjustment for user %d: %s", user.Id, err))
+	}
 	data := struct {
 		*model.User
 		QuotaPoolEnabled bool `json:"quota_pool_enabled"`
-	}{User: user, QuotaPoolEnabled: common.QuotaPoolEnabled}
+		CanAdjustQuota   bool `json:"can_adjust_quota"`
+	}{User: user, QuotaPoolEnabled: common.QuotaPoolEnabled, CanAdjustQuota: canAdjustQuota}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -1221,7 +1242,12 @@ func ManageUser(c *gin.Context) {
 			common.ApiErrorMsg(c, model.QuotaFrozenMessage)
 			return
 		}
-		if myRole != common.RoleRootUser || common.QuotaPoolEnabled || user.QuotaPoolId != model.QuotaPoolDefaultUserPoolId {
+		canAdjustQuota, err := canDirectlyAdjustUserQuota(myRole, &user)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if !canAdjustQuota {
 			common.ApiErrorI18n(c, i18n.MsgAuthInsufficientPrivilege)
 			return
 		}

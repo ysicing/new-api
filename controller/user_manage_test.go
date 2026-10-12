@@ -83,6 +83,84 @@ func TestManageUserSetsAndUnsetsQuotaPoolSuperAdmin(t *testing.T) {
 	assert.Equal(t, common.RoleCommonUser, user.Role)
 }
 
+func TestDirectQuotaAdjustmentPermissions(t *testing.T) {
+	for _, scenario := range []struct {
+		name    string
+		feature bool
+		pool    string
+		role    int
+		frozen  bool
+		allowed bool
+	}{
+		{"feature_disabled_with_pool", false, "enabled", common.RoleRootUser, false, true},
+		{"unassigned_with_feature_enabled", true, "none", common.RoleRootUser, false, true},
+		{"disabled_pool", true, "disabled", common.RoleRootUser, false, true},
+		{"enabled_pool", true, "enabled", common.RoleRootUser, false, false},
+		{"missing_pool", true, "missing", common.RoleRootUser, false, false},
+		{"admin_unassigned", false, "none", common.RoleAdminUser, false, false},
+		{"admin_disabled_pool", true, "disabled", common.RoleAdminUser, false, false},
+		{"frozen_disabled_pool", true, "disabled", common.RoleRootUser, true, false},
+	} {
+		for _, mode := range []string{"add", "subtract", "override"} {
+			t.Run(scenario.name+"/"+mode, func(t *testing.T) {
+				db := setupManageUserTestDB(t)
+				previous := common.QuotaPoolEnabled
+				common.QuotaPoolEnabled = scenario.feature
+				t.Cleanup(func() { common.QuotaPoolEnabled = previous })
+				poolID := 0
+				if scenario.pool == "missing" {
+					poolID = 999
+				} else if scenario.pool != "none" {
+					pool := model.QuotaPool{Name: "target-pool", PoolType: model.QuotaPoolTypeNormal, Enabled: scenario.pool == "enabled", Quota: 1000}
+					require.NoError(t, db.Create(&pool).Error)
+					if scenario.pool == "disabled" {
+						require.NoError(t, db.Model(&pool).Update("enabled", false).Error)
+					}
+					poolID = pool.Id
+				}
+				user := model.User{Username: "quota-target", AffCode: "quota-target", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Quota: 200, QuotaPoolId: poolID, QuotaFrozen: scenario.frozen}
+				require.NoError(t, db.Create(&user).Error)
+
+				recorder := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(recorder)
+				c.Params = gin.Params{{Key: "id", Value: fmt.Sprint(user.Id)}}
+				c.Set("role", scenario.role)
+				GetUser(c)
+				var detail struct {
+					Success bool `json:"success"`
+					Data    struct {
+						CanAdjustQuota bool `json:"can_adjust_quota"`
+					} `json:"data"`
+				}
+				require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &detail))
+				assert.True(t, detail.Success, recorder.Body.String())
+				assert.Equal(t, scenario.allowed, detail.Data.CanAdjustQuota)
+
+				recorder = performManageUserRequestAs(t, fmt.Sprintf(`{"id":%d,"action":"add_quota","mode":%q,"value":100}`, user.Id, mode), scenario.role)
+				var result struct {
+					Success bool `json:"success"`
+				}
+				require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &result))
+				assert.Equal(t, scenario.allowed, result.Success, recorder.Body.String())
+				require.NoError(t, db.First(&user, user.Id).Error)
+				expected := 200
+				if scenario.allowed {
+					expected = 100
+					if mode == "add" {
+						expected = 300
+					}
+				}
+				assert.Equal(t, expected, user.Quota)
+				if scenario.pool == "enabled" || scenario.pool == "disabled" {
+					var pool model.QuotaPool
+					require.NoError(t, db.First(&pool, poolID).Error)
+					assert.Equal(t, 1000, pool.Quota)
+				}
+			})
+		}
+	}
+}
+
 func TestManageUserFreezeQuotaKeepsAccountEnabledAndRejectsRecharge(t *testing.T) {
 	db := setupManageUserTestDB(t)
 	user := model.User{Username: "freeze-user", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AuthVersion: 1}
