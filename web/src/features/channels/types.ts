@@ -92,6 +92,7 @@ export interface ChannelSettings {
 }
 
 export interface ChannelOtherSettings {
+  magpie_enabled?: boolean
   azure_responses_version?: string
   vertex_key_type?: 'json' | 'api_key'
   openrouter_enterprise?: boolean

@@ -111,6 +111,7 @@ import {
   SecureVerificationDialog,
   useSecureVerification,
 } from '@/features/auth/secure-verification'
+import { ChannelMagpieSetting } from '@/features/channels/components/channel-magpie-setting'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useHiddenClickUnlock } from '@/hooks/use-hidden-click-unlock'
 import {
@@ -299,6 +300,7 @@ const SENSITIVE_FORM_FIELDS = [
   'allow_inference_geo',
   'allow_speed',
   'claude_beta_query',
+  'magpie_enabled',
   'disable_task_polling_sleep',
   'upstream_model_update_check_enabled',
   'upstream_model_update_auto_sync_enabled',
@@ -743,6 +745,7 @@ export function ChannelMutateDrawer({
   const currentWeight = form.watch('weight')
   const currentTestModel = form.watch('test_model')
   const currentAutoBan = form.watch('auto_ban')
+  const currentMagpieEnabled = form.watch('magpie_enabled')
   const currentTag = form.watch('tag')
   const currentRemark = form.watch('remark')
   const currentStatusCodeMapping = form.watch('status_code_mapping')
@@ -1011,7 +1014,8 @@ export function ChannelMutateDrawer({
       currentPriority ||
       currentWeight ||
       currentTestModel?.trim() ||
-      (currentAutoBan ?? 1) !== 1
+      (currentAutoBan ?? 1) !== 1 ||
+      currentMagpieEnabled
     )
   const internalNotesConfigured = Boolean(
     currentTag?.trim() || currentRemark?.trim()
@@ -3774,6 +3778,7 @@ export function ChannelMutateDrawer({
                                 </FormItem>
                               )}
                             />
+                            <ChannelMagpieSetting control={form.control} />
                           </div>
 
                           <div

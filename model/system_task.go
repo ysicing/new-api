@@ -23,6 +23,7 @@ const (
 	SystemTaskTypeAsyncTaskPoll             = "async_task_poll"
 	SystemTaskTypeQuotaPoolMaintenance      = "quota_pool_maintenance"
 	SystemTaskTypeAnnouncementGroupDelivery = "announcement_group_delivery"
+	SystemTaskTypeMagpieChannelMonitor      = "magpie_channel_monitor"
 )
 
 var ErrSystemTaskLockLost = errors.New("system task lock lost")

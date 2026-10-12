@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
@@ -21,6 +22,8 @@ import (
 )
 
 type Channel struct {
+	// MagpieAutoDisabledAt 是 Magpie 自动禁用的标记；由服务维护，不能从客户端写入。
+	MagpieAutoDisabledAt int64 `json:"-" gorm:"type:bigint;default:0;index"`
 	// MaxConcurrency 为 nil 或 0 时不限并发；按渠道 ID 共享所有模型和 Key 的名额。
 	MaxConcurrency     *int    `json:"max_concurrency" gorm:"type:int"`
 	Id                 int     `json:"id"`
@@ -348,23 +351,6 @@ func (channel *Channel) Save() error {
 	return DB.Save(channel).Error
 }
 
-// saveStatusState persists only the fields owned by the channel status flow.
-// Keeping this allowlist here prevents a stale channel snapshot from
-// overwriting credentials, accounting counters, or channel configuration.
-func (channel *Channel) saveStatusState() error {
-	if channel.Id == 0 {
-		return errors.New("channel ID is 0")
-	}
-	updates := map[string]any{
-		"status":     channel.Status,
-		"other_info": channel.OtherInfo,
-	}
-	if channel.ChannelInfo.IsMultiKey {
-		updates["channel_info"] = channel.ChannelInfo
-	}
-	return DB.Model(&Channel{}).Where("id = ?", channel.Id).Updates(updates).Error
-}
-
 func GetAllChannels(startIdx int, num int, selectAll bool, idSort bool, sortOptions ...ChannelSortOptions) ([]*Channel, error) {
 	var channels []*Channel
 	var err error
@@ -581,12 +567,28 @@ func (channel *Channel) Update() error {
 		}
 	}
 	var err error
-	err = DB.Model(channel).Updates(channel).Error
-	if err != nil {
-		return err
-	}
-	DB.Model(channel).First(channel, "id = ?", channel.Id)
-	err = channel.UpdateAbilities(nil)
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(channel).Omit("MagpieAutoDisabledAt").Updates(channel).Error; err != nil {
+			return err
+		}
+		if channel.Status != 0 && channel.Status != common.ChannelStatusAutoDisabled {
+			if err := tx.Model(channel).Update("magpie_auto_disabled_at", 0).Error; err != nil {
+				return err
+			}
+		}
+		// 与 Magpie 监控使用同一事务边界，避免编辑后的能力表覆盖并发封禁。
+		if err := tx.First(channel, "id = ?", channel.Id).Error; err != nil {
+			return err
+		}
+		// 关闭 Magpie 开关取消自动恢复，不主动变更当前禁用状态。
+		if channel.MagpieAutoDisabledAt > 0 && !channel.IsMagpieEnabled() {
+			if err := tx.Model(channel).Update("magpie_auto_disabled_at", 0).Error; err != nil {
+				return err
+			}
+			channel.MagpieAutoDisabledAt = 0
+		}
+		return channel.UpdateAbilities(tx)
+	})
 	return err
 }
 
@@ -722,97 +724,57 @@ func hasEnabledMultiKey(keys []string, statusList map[int]int) bool {
 }
 
 func UpdateChannelStatus(channelId int, usingKey string, status int, reason string) bool {
-	if common.MemoryCacheEnabled {
-		channelStatusLock.Lock()
-		defer channelStatusLock.Unlock()
-	}
+	return updateChannelStatus(channelId, usingKey, status, reason, false)
+}
 
-	// ChannelInfo stores both multi-key status and the polling cursor. Hold the
-	// same per-channel lock from the first read through persistence so neither
-	// writer can save a stale JSON snapshot over the other.
-	pollingLock := GetChannelPollingLock(channelId)
-	pollingLock.Lock()
-	defer pollingLock.Unlock()
+// UpdateChannelStatusAutomatically 将 Magpie 渠道的状态交给额度监控，避免健康检查绕过账号可用性判断。
+func UpdateChannelStatusAutomatically(channelId int, usingKey string, status int, reason string) bool {
+	return updateChannelStatus(channelId, usingKey, status, reason, true)
+}
 
-	if common.MemoryCacheEnabled {
-		channelCache, _ := CacheGetChannel(channelId)
-		if channelCache == nil {
+func updateChannelStatus(channelId int, usingKey string, status int, reason string, automatic bool) bool {
+	changed, err := withChannelStatusTransaction(context.Background(), channelId, func(channel *Channel) bool {
+		if automatic && channel.IsMagpieEnabled() {
 			return false
 		}
-		if channelCache.ChannelInfo.IsMultiKey {
-			beforeStatus := channelCache.Status
-			// 如果是多Key模式，更新缓存中的状态
-			handlerMultiKeyUpdate(channelCache, usingKey, status, reason)
-			if beforeStatus != channelCache.Status {
-				CacheUpdateChannelStatus(channelId, channelCache.Status)
-			}
-			//CacheUpdateChannel(channelCache)
-			//return true
-		} else {
-			// 如果缓存渠道存在，且状态已是目标状态，直接返回
-			if channelCache.Status == status {
-				return false
-			}
-			CacheUpdateChannelStatus(channelId, status)
-		}
-	}
-
-	shouldUpdateAbilities := false
-	defer func() {
-		if shouldUpdateAbilities {
-			err := UpdateAbilityStatus(channelId, status == common.ChannelStatusEnabled)
-			if err != nil {
-				common.SysLog(fmt.Sprintf("failed to update ability status: channel_id=%d, error=%v", channelId, err))
-			}
-		}
-	}()
-	channel, err := GetChannelById(channelId, true)
-	if err != nil {
-		return false
-	} else {
-		if channel.Status == status {
+		if channel.Status == status && channel.MagpieAutoDisabledAt == 0 {
 			return false
 		}
-
+		// 人工调整状态即取消 Magpie 自动恢复。
+		channel.MagpieAutoDisabledAt = 0
 		if channel.ChannelInfo.IsMultiKey {
-			beforeStatus := channel.Status
 			handlerMultiKeyUpdate(channel, usingKey, status, reason)
-			if beforeStatus != channel.Status {
-				shouldUpdateAbilities = true
-			}
 		} else {
 			info := channel.GetOtherInfo()
 			info["status_reason"] = reason
 			info["status_time"] = common.GetTimestamp()
 			channel.SetOtherInfo(info)
 			channel.Status = status
-			shouldUpdateAbilities = true
 		}
-		err = channel.saveStatusState()
-		if err != nil {
-			common.SysLog(fmt.Sprintf("failed to update channel status: channel_id=%d, status=%d, error=%v", channel.Id, status, err))
-			return false
-		}
+		return true
+	})
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to update channel status: channel_id=%d, status=%d, error=%v", channelId, status, err))
 	}
-	return true
+	return err == nil && changed != nil
 }
 
 func EnableChannelByTag(tag string) error {
-	err := DB.Model(&Channel{}).Where("tag = ?", tag).Update("status", common.ChannelStatusEnabled).Error
-	if err != nil {
-		return err
-	}
-	err = UpdateAbilityStatusByTag(tag, true)
-	return err
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&Channel{}).Where("tag = ?", tag).Updates(map[string]any{"status": common.ChannelStatusEnabled, "magpie_auto_disabled_at": 0}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&Ability{}).Where("tag = ?", tag).Update("enabled", true).Error
+	})
 }
 
 func DisableChannelByTag(tag string) error {
-	err := DB.Model(&Channel{}).Where("tag = ?", tag).Update("status", common.ChannelStatusManuallyDisabled).Error
-	if err != nil {
-		return err
-	}
-	err = UpdateAbilityStatusByTag(tag, false)
-	return err
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&Channel{}).Where("tag = ?", tag).Updates(map[string]any{"status": common.ChannelStatusManuallyDisabled, "magpie_auto_disabled_at": 0}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&Ability{}).Where("tag = ?", tag).Update("enabled", false).Error
+	})
 }
 
 func EditChannelByTag(tag string, newTag *string, modelMapping *string, models *string, group *string, priority *int64, weight *uint, paramOverride *string, headerOverride *string) error {
@@ -1015,6 +977,12 @@ func (channel *Channel) SetSetting(setting dto.ChannelSettings) {
 		return
 	}
 	channel.Setting = common.GetPointer[string](string(settingBytes))
+}
+
+// IsMagpieEnabled 只读解析开关，事务内不调用带持久化副作用的 GetOtherSettings。
+func (channel *Channel) IsMagpieEnabled() bool {
+	var settings dto.ChannelOtherSettings
+	return common.UnmarshalJsonStr(channel.OtherSettings, &settings) == nil && settings.MagpieEnabled
 }
 
 func (channel *Channel) GetOtherSettings() dto.ChannelOtherSettings {

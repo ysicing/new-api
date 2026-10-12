@@ -66,6 +66,7 @@ const (
 )
 
 type ChannelOtherSettings struct {
+	MagpieEnabled                         bool                  `json:"magpie_enabled,omitempty"` // Magpie Codex 账号可用性监控，默认关闭
 	AzureResponsesVersion                 string                `json:"azure_responses_version,omitempty"`
 	VertexKeyType                         VertexKeyType         `json:"vertex_key_type,omitempty"` // "json" or "api_key"
 	OpenRouterEnterprise                  *bool                 `json:"openrouter_enterprise,omitempty"`
