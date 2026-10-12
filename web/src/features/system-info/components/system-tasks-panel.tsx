@@ -95,6 +95,7 @@ const TYPE_LABEL: Record<string, string> = {
 
 const MAGPIE_COUNTER_LABELS: Record<string, string> = {
   checked: 'Channels checked: {{count}}',
+  skipped: 'Channel probes deferred: {{count}}',
   enabled: 'Channels enabled: {{count}}',
   disabled: 'Channels disabled: {{count}}',
   unchanged: 'Channels unchanged: {{count}}',
@@ -103,6 +104,7 @@ const MAGPIE_COUNTER_LABELS: Record<string, string> = {
 }
 
 const MAGPIE_ACTION_LABELS: Record<string, string> = {
+  cached: 'Waiting for the next availability check',
   enabled: 'Automatically enabled',
   disabled: 'Automatically disabled',
   unchanged: 'Channel status preserved',
@@ -169,13 +171,14 @@ type TaskDetail = {
     action: string
     error?: string
     notificationError?: string
+    nextCheckAt?: string
   }[]
 }
 
 // Renders a succeeded task's main counters separately from skip reasons so
 // scheduled maintenance details stay readable in a table row.
 function useTaskDetail() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   return (task: SystemTask): TaskDetail | null => {
     const result = task.result as Record<string, unknown> | undefined
     if (
@@ -217,6 +220,13 @@ function useTaskDetail() {
             notificationError:
               typeof entry.notification_error === 'string'
                 ? entry.notification_error
+                : undefined,
+            nextCheckAt:
+              typeof entry.next_check_at === 'string' &&
+              Number.isFinite(Date.parse(entry.next_check_at))
+                ? new Date(entry.next_check_at).toLocaleString(
+                    toIntlLocale(i18n.language)
+                  )
                 : undefined,
           })
         }
@@ -319,6 +329,13 @@ function TaskDetailContent({ detail }: { detail: TaskDetail | null }) {
                   </div>
                   {channel.error ? (
                     <div className='text-destructive'>{channel.error}</div>
+                  ) : null}
+                  {channel.nextCheckAt ? (
+                    <div>
+                      {t('Next availability check no earlier than: {{time}}', {
+                        time: channel.nextCheckAt,
+                      })}
+                    </div>
                   ) : null}
                   {channel.notificationError ? (
                     <div className='text-destructive'>

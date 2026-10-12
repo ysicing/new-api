@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
 	"math"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -28,8 +30,10 @@ type magpieQuotaCard struct {
 	AsOf     *time.Time `json:"asOf"`
 	ReadAt   *time.Time `json:"readAt"`
 	Windows  []struct {
-		Used      *float64 `json:"used"`
-		Unlimited bool     `json:"unlimited"`
+		Used      *float64   `json:"used"`
+		Unlimited bool       `json:"unlimited"`
+		ResetsAt  *time.Time `json:"resetsAt"`
+		ResetSecs *int64     `json:"resetSecs"`
 	} `json:"windows"`
 }
 
@@ -38,27 +42,32 @@ type magpieQuotaResponse struct {
 	Data   []magpieQuotaCard `json:"data"`
 }
 
-func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (bool, error) {
+type magpieCodexAvailability struct {
+	Available   bool
+	NextCheckAt time.Time
+}
+
+func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (magpieCodexAvailability, error) {
 	var settings dto.ChannelSettings
 	if channel.Setting != nil && *channel.Setting != "" {
 		if err := common.UnmarshalJsonStr(*channel.Setting, &settings); err != nil {
-			return false, errors.New("invalid channel transport settings")
+			return magpieCodexAvailability{}, errors.New("invalid channel transport settings")
 		}
 	}
 	var other dto.ChannelOtherSettings
 	if err := common.UnmarshalJsonStr(channel.OtherSettings, &other); err != nil {
-		return false, errors.New("invalid Magpie channel settings")
+		return magpieCodexAvailability{}, errors.New("invalid Magpie channel settings")
 	}
 	client, err := GetHttpClientWithProxySettings(settings.Proxy, settings)
 	if err != nil {
-		return false, errors.New("invalid channel proxy settings")
+		return magpieCodexAvailability{}, errors.New("invalid channel proxy settings")
 	}
 	// 保留渠道的代理/连接策略，拒绝重定向，防止网关密钥被转发到其他地址。
 	queryClient := *client
 	queryClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
 	base, err := url.Parse(strings.TrimSpace(channel.GetBaseURL()))
 	if err != nil || base == nil || (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" {
-		return false, errors.New("invalid Magpie channel URL")
+		return magpieCodexAvailability{}, errors.New("invalid Magpie channel URL")
 	}
 	base.Path = strings.TrimSuffix(strings.TrimRight(base.Path, "/"), "/v1") + "/v1/magpie/quotas"
 	base.RawPath = ""
@@ -66,11 +75,13 @@ func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (
 	defer cancel()
 	keys := channel.GetKeys()
 	if len(keys) == 0 {
-		return false, errors.New("Magpie gateway key is empty")
+		return magpieCodexAvailability{}, errors.New("Magpie gateway key is empty")
 	}
-	unknown := false
+	unknownReasons := make(map[string]int)
 	var lastRequestErr error
 	queried := false
+	var nextCheckAt time.Time
+	resetsKnown := true
 	for index, key := range keys {
 		if channel.ChannelInfo.IsMultiKey {
 			if status, ok := channel.ChannelInfo.MultiKeyStatusList[index]; ok && status != common.ChannelStatusEnabled {
@@ -81,7 +92,7 @@ func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (
 		// GET 初始化 Magpie 的额度缓存；按 provider 刷新前若没有缓存，Magpie 可能仍返回空卡片。
 		quotas, err := requestMagpieQuotas(ctx, &queryClient, http.MethodGet, base.String(), key)
 		if err != nil {
-			unknown = true
+			unknownReasons["GET 额度查询失败"]++
 			lastRequestErr = err
 			continue
 		}
@@ -101,7 +112,7 @@ func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (
 		}
 		cards, err := requestMagpieQuotas(ctx, &queryClient, http.MethodPost, refresh.String(), key)
 		if err != nil {
-			unknown = true
+			unknownReasons["POST 额度刷新失败"]++
 			lastRequestErr = err
 			continue
 		}
@@ -110,8 +121,25 @@ func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (
 				continue
 			}
 			delete(expectedAccounts, card.User)
-			if card.Error != "" || card.AsOf != nil || card.ReadAt == nil || time.Since(*card.ReadAt) > 3*time.Minute || time.Until(*card.ReadAt) > time.Minute || len(card.Windows) == 0 {
-				unknown = true
+			// 只记录校验失败类型，不直接写入上游 error 或账号信息，避免
+			// 将上游可能包含的凭证、地址或邮箱带入系统日志和任务详情。
+			reason := ""
+			switch {
+			case card.Error != "":
+				reason = "Codex 账号额度查询返回错误（error 非空）"
+			case card.AsOf != nil:
+				reason = "Codex 账号额度使用历史回退数据（asOf 非空）"
+			case card.ReadAt == nil:
+				reason = "Codex 账号额度缺少读取时间（readAt）"
+			case time.Since(*card.ReadAt) > 3*time.Minute:
+				reason = "Codex 账号额度读取时间已超过 3 分钟"
+			case time.Until(*card.ReadAt) > time.Minute:
+				reason = "Codex 账号额度读取时间超前超过 1 分钟，请检查时钟"
+			case len(card.Windows) == 0:
+				reason = "Codex 账号额度缺少用量窗口（windows）"
+			}
+			if reason != "" {
+				unknownReasons[reason]++
 				continue
 			}
 			valid := true
@@ -121,25 +149,85 @@ func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (
 				}
 			}
 			if !valid {
-				unknown = true
+				unknownReasons["Codex 账号用量窗口缺少有效 used 值"]++
 				continue
 			}
 			if !card.Held {
-				return true, nil
+				return magpieCodexAvailability{Available: true}, nil
+			}
+			accountNext := magpieAccountNextCheckAt(card, time.Now())
+			if accountNext.IsZero() {
+				resetsKnown = false
+			} else if nextCheckAt.IsZero() || accountNext.Before(nextCheckAt) {
+				nextCheckAt = accountNext
 			}
 		}
 		if len(expectedAccounts) > 0 {
-			unknown = true
+			unknownReasons["刷新响应缺少原有 Codex 账号"] += len(expectedAccounts)
 		}
 	}
 	// 有一个确定可用的账号即可启用；只有所有账号均确定不可用时才禁用。
-	if unknown || !queried {
-		if lastRequestErr != nil {
-			return false, fmt.Errorf("Magpie Codex account availability is unknown; channel status preserved: %w", lastRequestErr)
-		}
-		return false, errors.New("Magpie Codex account availability is unknown; channel status preserved")
+	if !queried {
+		unknownReasons["没有已启用的网关密钥"]++
 	}
-	return false, nil
+	if len(unknownReasons) > 0 {
+		reasons := make([]string, 0, len(unknownReasons))
+		for reason, count := range unknownReasons {
+			reasons = append(reasons, fmt.Sprintf("%s（%d）", reason, count))
+		}
+		sort.Strings(reasons)
+		details := strings.Join(reasons, "; ")
+		if lastRequestErr != nil {
+			return magpieCodexAvailability{}, fmt.Errorf("Magpie Codex account availability is unknown; channel status preserved: %s: %w", details, lastRequestErr)
+		}
+		return magpieCodexAvailability{}, fmt.Errorf("Magpie Codex account availability is unknown; channel status preserved: %s", details)
+	}
+	if !resetsKnown {
+		nextCheckAt = time.Time{}
+	}
+	return magpieCodexAvailability{NextCheckAt: nextCheckAt}, nil
+}
+
+// magpieAccountNextCheckAt 返回一个暂停账号所有耗尽窗口都重置的时间。
+// held 还可能来自其他限制：没有明确耗尽窗口或任一重置时间未知时，不能推迟探测。
+func magpieAccountNextCheckAt(card magpieQuotaCard, now time.Time) time.Time {
+	var next time.Time
+	for _, window := range card.Windows {
+		if window.Unlimited || window.Used == nil || *window.Used < 100 {
+			continue
+		}
+		var reset time.Time
+		if window.ResetsAt != nil {
+			reset = *window.ResetsAt
+		} else if card.ReadAt != nil && window.ResetSecs != nil && *window.ResetSecs > 0 && *window.ResetSecs <= math.MaxInt64/int64(time.Second) {
+			// 相对秒数属于这次读取，不能每次以当前时间重新延长等待。
+			reset = card.ReadAt.Add(time.Duration(*window.ResetSecs) * time.Second)
+		}
+		if !reset.After(now) {
+			return time.Time{}
+		}
+		if reset.After(next) {
+			next = reset
+		}
+	}
+	return next
+}
+
+// 缓存按渠道配置及本次自动禁用标记隔离；轮询游标不参与指纹，
+// 密钥和代理凭证只用于摘要计算，不出现在 Redis key/value 或任务日志中。
+func magpieProbeCacheKey(channel *model.Channel) string {
+	config, err := common.Marshal(struct {
+		Type               int
+		BaseURL, Setting   *string
+		Key, OtherSettings string
+		MultiKey           bool
+		KeyStatuses        map[int]int
+		DisabledAt         int64
+	}{channel.Type, channel.BaseURL, channel.Setting, channel.Key, channel.OtherSettings, channel.ChannelInfo.IsMultiKey, channel.ChannelInfo.MultiKeyStatusList, channel.MagpieAutoDisabledAt})
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("magpie_channel_probe:v1:%d:%x", channel.Id, sha256.Sum256(config))
 }
 
 func requestMagpieQuotas(ctx context.Context, client *http.Client, method, endpoint, key string) (*magpieQuotaResponse, error) {
@@ -218,6 +306,7 @@ func notifyMagpieChannelStatus(ctx context.Context, channel *model.Channel, tran
 
 type magpieChannelMonitorResult struct {
 	Checked            int                         `json:"checked"`
+	Skipped            int                         `json:"skipped"`
 	Changed            int                         `json:"changed"`
 	Enabled            int                         `json:"enabled"`
 	Disabled           int                         `json:"disabled"`
@@ -228,12 +317,13 @@ type magpieChannelMonitorResult struct {
 }
 
 type magpieChannelMonitorEntry struct {
-	ChannelID         int    `json:"channel_id"`
-	ChannelName       string `json:"channel_name"`
-	Available         *bool  `json:"available,omitempty"`
-	Action            string `json:"action"`
-	Error             string `json:"error,omitempty"`
-	NotificationError string `json:"notification_error,omitempty"`
+	ChannelID         int        `json:"channel_id"`
+	ChannelName       string     `json:"channel_name"`
+	Available         *bool      `json:"available,omitempty"`
+	Action            string     `json:"action"`
+	Error             string     `json:"error,omitempty"`
+	NotificationError string     `json:"notification_error,omitempty"`
+	NextCheckAt       *time.Time `json:"next_check_at,omitempty"`
 }
 
 func syncMagpieChannels(ctx context.Context) (magpieChannelMonitorResult, error) {
@@ -257,14 +347,29 @@ func syncMagpieChannels(ctx context.Context) (magpieChannelMonitorResult, error)
 		resultIndex := len(result.Channels)
 		result.Channels = append(result.Channels, magpieChannelMonitorEntry{ChannelID: channel.Id, ChannelName: channel.Name})
 		entry := &result.Channels[resultIndex]
+		// Redis 仅提供减少探测的提示。失败、未启用或配置变化时回退到实际查询，
+		// 缓存本身不能启用渠道，也不能覆盖人工状态操作。
+		if common.RedisEnabled && common.RDB != nil && channel.Status == common.ChannelStatusAutoDisabled && channel.MagpieAutoDisabledAt != 0 {
+			cacheCtx, cancel := context.WithTimeout(ctx, time.Second)
+			cached, cacheErr := common.RDB.Get(cacheCtx, magpieProbeCacheKey(channel)).Result()
+			cancel()
+			next, parseErr := time.Parse(time.RFC3339Nano, cached)
+			now := time.Now()
+			if cacheErr == nil && parseErr == nil && next.After(now) && !next.After(now.Add(30*time.Minute)) {
+				entry.Action, entry.NextCheckAt = "cached", &next
+				result.Skipped++
+				continue
+			}
+		}
 		result.Checked++
-		available, queryErr := queryMagpieCodexAvailability(ctx, channel)
+		availability, queryErr := queryMagpieCodexAvailability(ctx, channel)
 		if queryErr != nil {
 			entry.Action, entry.Error = "query_failed", queryErr.Error()
 			result.Failed++
 			common.SysError(fmt.Sprintf("query Magpie channel #%d: %v", channel.Id, queryErr))
 			continue
 		}
+		available := availability.Available
 		entry.Available = &available
 		changed, updateErr := model.SyncMagpieChannelStatus(ctx, channel, available)
 		if updateErr != nil {
@@ -299,6 +404,24 @@ func syncMagpieChannels(ctx context.Context) (magpieChannelMonitorResult, error)
 				"status": changed.Status, "reason": reason, "transition_at": transitionAt,
 			})
 			notices = append(notices, notice{changed, transitionAt, resultIndex})
+		}
+		if changed != nil {
+			channel = changed
+		}
+		if !available && channel.Status == common.ChannelStatusAutoDisabled && channel.MagpieAutoDisabledAt != 0 && common.RedisEnabled && common.RDB != nil {
+			now := time.Now()
+			next := availability.NextCheckAt
+			if next.After(now.Add(30 * time.Minute)) {
+				next = now.Add(30 * time.Minute)
+			}
+			if next.After(now) {
+				cacheCtx, cancel := context.WithTimeout(ctx, time.Second)
+				cacheErr := common.RDB.Set(cacheCtx, magpieProbeCacheKey(channel), next.Format(time.RFC3339Nano), next.Sub(now)).Err()
+				cancel()
+				if cacheErr == nil {
+					entry.NextCheckAt = &next
+				}
+			}
 		}
 	}
 	// 先完成状态切换，再发送通知；外部通知失败不会回滚渠道状态。

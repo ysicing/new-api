@@ -9,7 +9,8 @@ the Free Software Foundation, either version 3 of the License, or
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { expect, test, vi } from 'vitest'
+import i18next from 'i18next'
+import { beforeAll, expect, test, vi } from 'vitest'
 
 import type { SystemTask } from '@/features/system-settings/types'
 
@@ -20,6 +21,16 @@ const { listSystemTasks } = vi.hoisted(() => ({
 }))
 
 vi.mock('@/features/system-settings/api', () => ({ listSystemTasks }))
+
+// 与生产环境一致，由 React 转义插值；否则日期中的 / 会显示为 HTML 实体。
+beforeAll(async () => {
+  await i18next.init({
+    lng: 'en',
+    fallbackLng: 'en',
+    resources: { en: { translation: {} } },
+    interpolation: { escapeValue: false },
+  })
+})
 
 function maintenanceTask(overrides: Partial<SystemTask> = {}): SystemTask {
   return {
@@ -184,6 +195,50 @@ test('shows zero changes for legacy Magpie history without inventing channel det
   expect(
     table.queryByRole('button', { name: 'Channel results' })
   ).not.toBeInTheDocument()
+})
+
+test('shows deferred probes and the next check time without claiming fresh availability', async () => {
+  const nextCheck = '2026-10-12T14:27:12Z'
+  const table = await renderPanel([
+    maintenanceTask({
+      type: 'magpie_channel_monitor',
+      result: {
+        checked: 0,
+        skipped: 1,
+        channels: [
+          {
+            channel_id: 59,
+            channel_name: 'Cached pool',
+            action: 'cached',
+            next_check_at: nextCheck,
+          },
+          {
+            channel_id: 60,
+            channel_name: 'Old pool',
+            action: 'unchanged',
+            next_check_at: 'invalid-date',
+          },
+        ],
+      },
+    }),
+  ])
+
+  expect(
+    table.getByText('Channels checked: 0 · Channel probes deferred: 1')
+  ).toBeInTheDocument()
+  await userEvent
+    .setup()
+    .click(table.getByRole('button', { name: 'Channel results' }))
+  expect(
+    table.getByText('Waiting for the next availability check')
+  ).toBeInTheDocument()
+  expect(
+    table.getByText(
+      `Next availability check no earlier than: ${new Date(nextCheck).toLocaleString('en-US')}`
+    )
+  ).toBeInTheDocument()
+  expect(table.queryByText(/Codex accounts available/)).not.toBeInTheDocument()
+  expect(table.queryByText(/Invalid Date/)).not.toBeInTheDocument()
 })
 
 test('retains partial Magpie results when a task fails', async () => {

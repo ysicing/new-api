@@ -53,6 +53,8 @@ export const STATIC_I18N_KEYS = [
   'Drawing task polling',
   'Magpie channel monitor',
   'Channels checked: {{count}}',
+  'Channel probes deferred: {{count}}',
+  'Waiting for the next availability check',
   'Channels enabled: {{count}}',
   'Channels disabled: {{count}}',
   'Channels unchanged: {{count}}',

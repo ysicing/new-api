@@ -21,23 +21,28 @@ func TestMagpieCodexAvailability(t *testing.T) {
 	available := `{"provider":"codex","kind":"subscription","readAt":"` + now + `","windows":[{"used":10}]}`
 	held := `{"provider":"codex","kind":"subscription","held":true,"readAt":"` + now + `","windows":[{"name":"5 hours","used":100},{"name":"7 days","used":100}]}`
 	for _, test := range []struct {
-		name, cards        string
-		available, unknown bool
+		name, cards string
+		available   bool
+		reason      string
 	}{
-		{"available", available, true, false},
-		{"five-hour exhausted", `{"provider":"codex","kind":"subscription","held":true,"readAt":"` + now + `","windows":[{"name":"5 hours","used":100},{"name":"7 days","used":50}]}`, false, false},
-		{"weekly exhausted after five hours", held, false, false},
-		{"credits bypass exhausted windows", `{"provider":"codex","kind":"subscription","readAt":"` + now + `","windows":[{"used":100},{"used":100}]}`, true, false},
-		{"one account recovers", held + "," + available, true, false},
-		{"no Codex accounts", `{"provider":"claude","kind":"subscription","windows":[{"used":0}]}`, false, false},
-		{"empty pool", "", false, false},
-		{"unknown account", `{"provider":"codex","kind":"subscription","error":"usage unavailable"}`, false, true},
-		{"stale reading", `{"provider":"codex","kind":"subscription","readAt":"2020-01-01T00:00:00Z","windows":[{"used":0}]}`, false, true},
-		{"historical fallback", `{"provider":"codex","kind":"subscription","readAt":"` + now + `","asOf":"` + now + `","windows":[{"used":0}]}`, false, true},
-		{"missing windows", `{"provider":"codex","kind":"subscription","readAt":"` + now + `"}`, false, true},
-		{"missing percent", `{"provider":"codex","kind":"subscription","readAt":"` + now + `","windows":[{}]}`, false, true},
-		{"unknown plus available", `{"provider":"codex","kind":"subscription","error":"unavailable"},` + available, true, false},
-		{"unknown plus held", `{"provider":"codex","kind":"subscription","error":"unavailable"},` + held, false, true},
+		{"available", available, true, ""},
+		// 真实 Team 号池响应：周额度尚余，但两个账号均被五小时窗口暂停。
+		{"five-hour exhausted", `{"provider":"codex","name":"Codex","icon":"codex-color","plan":"team","user":"1 · Team","windows":[{"name":"5 hours","used":100,"resetsAt":"2026-10-12T15:58:42Z","resetSecs":15809},{"name":"7 days","used":32,"resetsAt":"2026-10-19T05:04:49Z","resetSecs":581376}],"until":"2026-10-28T10:41:22Z","readAt":"` + now + `","held":true,"kind":"subscription"},{"provider":"codex","name":"Codex","icon":"codex-color","plan":"team","user":"2 · Team","windows":[{"name":"5 hours","used":100,"resetsAt":"2026-10-12T14:27:12Z","resetSecs":10319},{"name":"7 days","used":32,"resetsAt":"2026-10-19T02:29:07Z","resetSecs":572034}],"until":"2026-10-28T10:41:22Z","readAt":"` + now + `","held":true,"kind":"subscription"}`, false, ""},
+		{"weekly exhausted after five hours", held, false, ""},
+		{"credits bypass exhausted windows", `{"provider":"codex","kind":"subscription","readAt":"` + now + `","windows":[{"used":100},{"used":100}]}`, true, ""},
+		{"one account recovers", held + "," + available, true, ""},
+		{"no Codex accounts", `{"provider":"claude","kind":"subscription","windows":[{"used":0}]}`, false, ""},
+		{"empty pool", "", false, ""},
+		{"unknown account", `{"provider":"codex","kind":"subscription","user":"private@example.com","error":"gateway-key private@example.com"}`, false, "error 非空"},
+		{"stale reading", `{"provider":"codex","kind":"subscription","readAt":"2020-01-01T00:00:00Z","windows":[{"used":0}]}`, false, "读取时间已超过 3 分钟"},
+		{"historical fallback", `{"provider":"codex","kind":"subscription","readAt":"` + now + `","asOf":"` + now + `","windows":[{"used":0}]}`, false, "asOf 非空"},
+		{"missing read time", `{"provider":"codex","kind":"subscription","windows":[{"used":0}]}`, false, "缺少读取时间（readAt）"},
+		{"future reading", `{"provider":"codex","kind":"subscription","readAt":"` + time.Now().Add(10*time.Minute).UTC().Format(time.RFC3339Nano) + `","windows":[{"used":0}]}`, false, "请检查时钟"},
+		{"missing windows", `{"provider":"codex","kind":"subscription","readAt":"` + now + `"}`, false, "缺少用量窗口（windows）"},
+		{"missing percent", `{"provider":"codex","kind":"subscription","readAt":"` + now + `","windows":[{}]}`, false, "缺少有效 used 值"},
+		{"unknown plus available", `{"provider":"codex","kind":"subscription","error":"unavailable"},` + available, true, ""},
+		{"unknown plus held", `{"provider":"codex","kind":"subscription","error":"unavailable"},` + held, false, "error 非空"},
+		{"multiple query errors", `{"provider":"codex","kind":"subscription","user":"a","error":"unavailable"},{"provider":"codex","kind":"subscription","user":"b","error":"unavailable"}`, false, "error 非空）（2）"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			calls := 0
@@ -60,12 +65,15 @@ func TestMagpieCodexAvailability(t *testing.T) {
 			defer server.Close()
 			channel := &model.Channel{Key: "gateway-key", BaseURL: common.GetPointer(server.URL + "/prefix/v1/"), OtherSettings: `{"magpie_enabled":true}`}
 			actual, err := queryMagpieCodexAvailability(context.Background(), channel)
-			if test.unknown {
+			if test.reason != "" {
 				require.Error(t, err)
+				assert.Contains(t, err.Error(), test.reason)
+				assert.NotContains(t, err.Error(), "gateway-key")
+				assert.NotContains(t, err.Error(), "private@example.com")
 			} else {
 				require.NoError(t, err)
 			}
-			assert.Equal(t, test.available, actual)
+			assert.Equal(t, test.available, actual.Available)
 			assert.Equal(t, 2, calls)
 		})
 	}
@@ -130,6 +138,22 @@ func TestMagpieQueryRefusesCredentialRedirect(t *testing.T) {
 	_, err := queryMagpieCodexAvailability(context.Background(), &model.Channel{Key: "secret", BaseURL: common.GetPointer(server.URL), OtherSettings: `{"magpie_enabled":true}`})
 	require.Error(t, err)
 	assert.Zero(t, destinationCalls)
+}
+
+func TestMagpieDisabledKeysReportUnknownWithoutRequests(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { calls++ }))
+	defer server.Close()
+	channel := &model.Channel{
+		Key: "secret", BaseURL: common.GetPointer(server.URL), OtherSettings: `{"magpie_enabled":true}`,
+		ChannelInfo: model.ChannelInfo{IsMultiKey: true, MultiKeyStatusList: map[int]int{0: common.ChannelStatusManuallyDisabled}},
+	}
+	available, err := queryMagpieCodexAvailability(context.Background(), channel)
+	require.Error(t, err)
+	assert.False(t, available.Available)
+	assert.Contains(t, err.Error(), "没有已启用的网关密钥")
+	assert.NotContains(t, err.Error(), channel.Key)
+	assert.Zero(t, calls)
 }
 
 func TestMagpieMonitorNotifiesOnlyTransitions(t *testing.T) {
@@ -313,7 +337,7 @@ func TestMagpieQueryUsesEnabledKeysAndChannelProxy(t *testing.T) {
 	channel := model.Channel{Key: "disabled-key\ninvalid-key\nvalid-key", BaseURL: common.GetPointer("http://magpie.internal"), Setting: common.GetPointer(string(settings)), OtherSettings: `{"magpie_enabled":true}`, ChannelInfo: model.ChannelInfo{IsMultiKey: true, MultiKeySize: 3, MultiKeyPollingIndex: 2, MultiKeyStatusList: map[int]int{0: common.ChannelStatusManuallyDisabled}}}
 	available, err := queryMagpieCodexAvailability(context.Background(), &channel)
 	require.NoError(t, err)
-	assert.True(t, available)
+	assert.True(t, available.Available)
 	assert.Equal(t, []string{"Bearer invalid-key", "Bearer valid-key", "Bearer valid-key"}, keys)
 	assert.Equal(t, common.ChannelStatusManuallyDisabled, channel.ChannelInfo.MultiKeyStatusList[0])
 	assert.Equal(t, 2, channel.ChannelInfo.MultiKeyPollingIndex)
@@ -331,6 +355,7 @@ func TestMagpieMissingRefreshedCardsAndCancellationAreUnknown(t *testing.T) {
 	channel := model.Channel{Key: "key", BaseURL: common.GetPointer(server.URL), OtherSettings: `{"magpie_enabled":true}`}
 	_, err := queryMagpieCodexAvailability(context.Background(), &channel)
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "刷新响应缺少原有 Codex 账号（1）")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err = queryMagpieCodexAvailability(ctx, &channel)
@@ -350,6 +375,7 @@ func TestMagpieMissingAccountMakesExhaustedPoolUnknown(t *testing.T) {
 	defer server.Close()
 	_, err := queryMagpieCodexAvailability(context.Background(), &model.Channel{Key: "key", BaseURL: common.GetPointer(server.URL), OtherSettings: `{"magpie_enabled":true}`})
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "刷新响应缺少原有 Codex 账号（1）")
 }
 
 func TestMagpieInitialEmptyCacheRequiresFullRefresh(t *testing.T) {
@@ -366,5 +392,5 @@ func TestMagpieInitialEmptyCacheRequiresFullRefresh(t *testing.T) {
 	defer server.Close()
 	available, err := queryMagpieCodexAvailability(context.Background(), &model.Channel{Key: "key", BaseURL: common.GetPointer(server.URL), OtherSettings: `{"magpie_enabled":true}`})
 	require.NoError(t, err)
-	assert.True(t, available)
+	assert.True(t, available.Available)
 }
