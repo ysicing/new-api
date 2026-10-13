@@ -225,10 +225,16 @@ func TestMagpieMonitorNotifiesOnlyTransitions(t *testing.T) {
 	sendMagpieChannelGroupMessage = func(_ context.Context, _ system_setting.DingTalkSettings, recipient, title, content string) error {
 		assert.Equal(t, "cid-announcement", recipient)
 		assert.NotContains(t, content, channel.Key)
+		assert.NotContains(t, content, "渠道：")
+		assert.NotContains(t, content, channel.Name)
 		titles = append(titles, title)
-		if title == "Magpie 渠道已自动启用" {
+		if title == "Magpie 自建渠道已自动启用" {
+			assert.Equal(t, "原因：检测到可用账号，渠道已自动启用，可继续使用。", content)
+			assert.NotContains(t, content, "可能最早启用时间")
 			return errors.New("notification unavailable")
 		}
+		assert.Contains(t, content, "原因：无可用账号，渠道已自动禁用，等待小时或周限制恢复后启用。")
+		assert.Contains(t, content, "可能最早启用时间：暂无法确定")
 		return nil
 	}
 	t.Cleanup(func() { sendMagpieChannelGroupMessage = previousSend })
@@ -274,7 +280,7 @@ func TestMagpieMonitorNotifiesOnlyTransitions(t *testing.T) {
 	result, err = syncMagpieChannels(context.Background())
 	require.NoError(t, err)
 	assert.Zero(t, result.Changed)
-	assert.Equal(t, []string{"Magpie 渠道已自动禁用", "Magpie 渠道已自动启用"}, titles)
+	assert.Equal(t, []string{"Magpie 自建渠道已自动禁用", "Magpie 自建渠道已自动启用"}, titles)
 	var records []model.DingTalkNotification
 	require.NoError(t, model.DB.Find(&records).Error)
 	require.Len(t, records, 2)

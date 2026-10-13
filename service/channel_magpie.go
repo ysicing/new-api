@@ -288,14 +288,21 @@ var sendMagpieChannelGroupMessage = func(ctx context.Context, settings system_se
 	return defaultDingTalkNotifier.SendGroup(ctx, settings, recipient, title, content)
 }
 
-func notifyMagpieChannelStatus(ctx context.Context, channel *model.Channel, transitionAt int64, recovered bool) error {
+func notifyMagpieChannelStatus(ctx context.Context, channel *model.Channel, transitionAt int64, recovered bool, nextCheckAt time.Time) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	event, title := "magpie_channel_disabled", "Magpie 渠道已自动禁用"
-	content := fmt.Sprintf("渠道：%s（#%d）\n\n原因：Magpie 无可用 Codex 账号，已自动禁用；继续查询账号状态后恢复。", channel.Name, channel.Id)
+	event, title := "magpie_channel_disabled", "Magpie 自建渠道已自动禁用"
+	content := ""
 	if recovered {
-		event, title = "magpie_channel_enabled", "Magpie 渠道已自动启用"
-		content = fmt.Sprintf("渠道：%s（#%d）\n\nMagpie 已有可用 Codex 账号，已重新启用。", channel.Name, channel.Id)
+		event, title = "magpie_channel_enabled", "Magpie 自建渠道已自动启用"
+		content = "原因：检测到可用账号，渠道已自动启用，可继续使用。"
+	} else {
+		earliest := "暂无法确定"
+		if nextCheckAt.After(time.Now()) {
+			// 使用账号窗口的恢复时间，不能用最长 30 分钟的缓存探测时间替代。
+			earliest = nextCheckAt.In(time.FixedZone("Asia/Shanghai", 8*60*60)).Format("2006-01-02 15:04:05") + "（北京时间）"
+		}
+		content = "原因：无可用账号，渠道已自动禁用，等待小时或周限制恢复后启用。\n\n可能最早启用时间：" + earliest + "\n实际启用以探测到可用账号为准。"
 	}
 	settings := *system_setting.GetDingTalkSettings()
 	recipient := strings.TrimSpace(settings.AnnouncementGroupOpenConversationId)
@@ -360,6 +367,7 @@ func syncMagpieChannels(ctx context.Context) (magpieChannelMonitorResult, error)
 		channel      *model.Channel
 		transitionAt int64
 		resultIndex  int
+		nextCheckAt  time.Time
 	}
 	notices := make([]notice, 0)
 	for index := range channels {
@@ -427,7 +435,7 @@ func syncMagpieChannels(ctx context.Context) (magpieChannelMonitorResult, error)
 				"channel_id": changed.Id, "channel_name": changed.Name,
 				"status": changed.Status, "reason": reason, "transition_at": transitionAt,
 			})
-			notices = append(notices, notice{changed, transitionAt, resultIndex})
+			notices = append(notices, notice{channel: changed, transitionAt: transitionAt, resultIndex: resultIndex, nextCheckAt: availability.NextCheckAt})
 		}
 		if changed != nil {
 			channel = changed
@@ -452,7 +460,7 @@ func syncMagpieChannels(ctx context.Context) (magpieChannelMonitorResult, error)
 	notificationCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	for _, notice := range notices {
-		if err := notifyMagpieChannelStatus(notificationCtx, notice.channel, notice.transitionAt, notice.channel.Status == common.ChannelStatusEnabled); err != nil {
+		if err := notifyMagpieChannelStatus(notificationCtx, notice.channel, notice.transitionAt, notice.channel.Status == common.ChannelStatusEnabled, notice.nextCheckAt); err != nil {
 			result.NotificationFailed++
 			result.Channels[notice.resultIndex].NotificationError = err.Error()
 			common.SysError(fmt.Sprintf("notify Magpie channel #%d: %v", notice.channel.Id, err))

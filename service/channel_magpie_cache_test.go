@@ -85,8 +85,15 @@ func TestMagpieMonitorCachesOnlyAutomaticDisablingAndRechecksOnExpiryOrEdits(t *
 	t.Cleanup(func() { _ = client.Close(); common.RDB, common.RedisEnabled = previousRedis, previousEnabled })
 	previousSend := sendMagpieChannelGroupMessage
 	notices := 0
-	sendMagpieChannelGroupMessage = func(context.Context, system_setting.DingTalkSettings, string, string, string) error {
+	readAt := time.Now().UTC().Truncate(time.Second)
+	sendMagpieChannelGroupMessage = func(_ context.Context, _ system_setting.DingTalkSettings, _, title, content string) error {
 		notices++
+		if title == "Magpie 自建渠道已自动禁用" {
+			// 一小时后才可能恢复；Redis 的 30 分钟探测上限不能成为通知里的恢复时间。
+			expected := readAt.Add(time.Hour).In(time.FixedZone("Asia/Shanghai", 8*60*60)).Format("2006-01-02 15:04:05")
+			assert.Contains(t, content, "可能最早启用时间："+expected+"（北京时间）")
+			assert.Contains(t, content, "实际启用以探测到可用账号为准")
+		}
 		return nil
 	}
 	t.Cleanup(func() { sendMagpieChannelGroupMessage = previousSend })
@@ -97,7 +104,7 @@ func TestMagpieMonitorCachesOnlyAutomaticDisablingAndRechecksOnExpiryOrEdits(t *
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		_, _ = w.Write([]byte(`{"object":"list","data":[{"provider":"codex","kind":"subscription","held":` + fmt.Sprint(held) + `,"readAt":"` + time.Now().UTC().Format(time.RFC3339Nano) + `","windows":[{"used":100,"resetSecs":3600}]}]}`))
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"provider":"codex","kind":"subscription","held":` + fmt.Sprint(held) + `,"readAt":"` + readAt.Format(time.RFC3339Nano) + `","windows":[{"used":100,"resetSecs":3600}]}]}`))
 	}))
 	defer server.Close()
 	channel := &model.Channel{Name: "Cached Magpie", Key: "secret", Models: "model", Group: "default", BaseURL: common.GetPointer(server.URL), OtherSettings: `{"magpie_enabled":true}`}
