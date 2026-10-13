@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 	"time"
 
@@ -20,12 +21,17 @@ func TestMagpieCodexAvailability(t *testing.T) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	available := `{"provider":"codex","kind":"subscription","readAt":"` + now + `","windows":[{"used":10}]}`
 	held := `{"provider":"codex","kind":"subscription","held":true,"readAt":"` + now + `","windows":[{"name":"5 hours","used":100},{"name":"7 days","used":100}]}`
+	cachedAt := time.Now().Add(-5*time.Minute - 24*time.Second).UTC().Format(time.RFC3339Nano)
 	for _, test := range []struct {
 		name, cards string
 		available   bool
 		reason      string
 	}{
 		{"available", available, true, ""},
+		{"cached account available", `{"provider":"codex","kind":"subscription","readAt":"` + cachedAt + `","windows":[{"used":2},{"used":32}]}`, true, ""},
+		{"cached account held", `{"provider":"codex","kind":"subscription","held":true,"readAt":"` + cachedAt + `","windows":[{"used":100}]}`, false, ""},
+		{"nine-minute cache available", `{"provider":"codex","kind":"subscription","readAt":"` + time.Now().Add(-9*time.Minute).UTC().Format(time.RFC3339Nano) + `","windows":[{"used":0}]}`, true, ""},
+		{"eleven-minute cache unknown", `{"provider":"codex","kind":"subscription","readAt":"` + time.Now().Add(-11*time.Minute).UTC().Format(time.RFC3339Nano) + `","windows":[{"used":0}]}`, false, "读取时间已超过 10 分钟"},
 		// 真实 Team 号池响应：周额度尚余，但两个账号均被五小时窗口暂停。
 		{"five-hour exhausted", `{"provider":"codex","name":"Codex","icon":"codex-color","plan":"team","user":"1 · Team","windows":[{"name":"5 hours","used":100,"resetsAt":"2026-10-12T15:58:42Z","resetSecs":15809},{"name":"7 days","used":32,"resetsAt":"2026-10-19T05:04:49Z","resetSecs":581376}],"until":"2026-10-28T10:41:22Z","readAt":"` + now + `","held":true,"kind":"subscription"},{"provider":"codex","name":"Codex","icon":"codex-color","plan":"team","user":"2 · Team","windows":[{"name":"5 hours","used":100,"resetsAt":"2026-10-12T14:27:12Z","resetSecs":10319},{"name":"7 days","used":32,"resetsAt":"2026-10-19T02:29:07Z","resetSecs":572034}],"until":"2026-10-28T10:41:22Z","readAt":"` + now + `","held":true,"kind":"subscription"}`, false, ""},
 		{"weekly exhausted after five hours", held, false, ""},
@@ -34,7 +40,7 @@ func TestMagpieCodexAvailability(t *testing.T) {
 		{"no Codex accounts", `{"provider":"claude","kind":"subscription","windows":[{"used":0}]}`, false, ""},
 		{"empty pool", "", false, ""},
 		{"unknown account", `{"provider":"codex","kind":"subscription","user":"private@example.com","error":"gateway-key private@example.com"}`, false, "error 非空"},
-		{"stale reading", `{"provider":"codex","kind":"subscription","readAt":"2020-01-01T00:00:00Z","windows":[{"used":0}]}`, false, "读取时间已超过 3 分钟"},
+		{"stale reading", `{"provider":"codex","kind":"subscription","readAt":"2020-01-01T00:00:00Z","windows":[{"used":0}]}`, false, "读取时间已超过 10 分钟"},
 		{"historical fallback", `{"provider":"codex","kind":"subscription","readAt":"` + now + `","asOf":"` + now + `","windows":[{"used":0}]}`, false, "asOf 非空"},
 		{"missing read time", `{"provider":"codex","kind":"subscription","windows":[{"used":0}]}`, false, "缺少读取时间（readAt）"},
 		{"future reading", `{"provider":"codex","kind":"subscription","readAt":"` + time.Now().Add(10*time.Minute).UTC().Format(time.RFC3339Nano) + `","windows":[{"used":0}]}`, false, "请检查时钟"},
@@ -75,6 +81,41 @@ func TestMagpieCodexAvailability(t *testing.T) {
 			}
 			assert.Equal(t, test.available, actual.Available)
 			assert.Equal(t, 2, calls)
+		})
+	}
+}
+
+func TestMagpieReadingTimeDiagnosticsPreserveUnknownAndProtectCredentials(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	for _, test := range []struct {
+		name, reason   string
+		oldest, newest time.Time
+	}{
+		{"stale", "读取时间已超过 10 分钟（2）", now.Add(-12 * time.Minute), now.Add(-11 * time.Minute)},
+		{"future", "请检查时钟（2）", now.Add(5 * time.Minute), now.Add(10 * time.Minute)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				// 顺序与时间顺序相反，诊断范围不能依赖上游账号排序。
+				_, _ = fmt.Fprintf(w, `{"object":"list","data":[{"provider":"codex","kind":"subscription","user":"private@example.com","readAt":"%s","held":true,"windows":[{"used":100}]},{"provider":"codex","kind":"subscription","user":"another@example.com","readAt":"%s","held":true,"windows":[{"used":100}]}]}`, test.newest.Format(time.RFC3339Nano), test.oldest.Format(time.RFC3339Nano))
+			}))
+			defer server.Close()
+			result, err := queryMagpieCodexAvailability(context.Background(), &model.Channel{Key: "private-gateway-key", BaseURL: common.GetPointer(server.URL), OtherSettings: `{"magpie_enabled":true}`})
+			require.Error(t, err)
+			assert.False(t, result.Available)
+			assert.True(t, result.NextCheckAt.IsZero())
+			message := err.Error()
+			assert.Contains(t, message, test.reason)
+			assert.Contains(t, message, "readAt 范围（UTC）："+test.oldest.Format(time.RFC3339Nano)+" ~ "+test.newest.Format(time.RFC3339Nano))
+			checked := regexp.MustCompile(`检查时间（UTC）：([^;]+)`).FindStringSubmatch(message)
+			require.Len(t, checked, 2)
+			checkedAt, parseErr := time.Parse(time.RFC3339Nano, checked[1])
+			require.NoError(t, parseErr)
+			assert.Contains(t, message, fmt.Sprintf("数据年龄范围：%s ~ %s", checkedAt.Sub(test.newest).Round(time.Millisecond), checkedAt.Sub(test.oldest).Round(time.Millisecond)))
+			assert.Contains(t, message, "允许 -1m0s 至 10m0s")
+			for _, private := range []string{"private-gateway-key", "private@example.com", "another@example.com", server.URL} {
+				assert.NotContains(t, message, private)
+			}
 		})
 	}
 }

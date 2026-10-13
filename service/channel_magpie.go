@@ -78,6 +78,8 @@ func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (
 		return magpieCodexAvailability{}, errors.New("Magpie gateway key is empty")
 	}
 	unknownReasons := make(map[string]int)
+	readingTimes := make(map[string]struct{ oldest, newest time.Time })
+	var checkedAt time.Time
 	var lastRequestErr error
 	queried := false
 	var nextCheckAt time.Time
@@ -116,6 +118,7 @@ func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (
 			lastRequestErr = err
 			continue
 		}
+		checkedAt = time.Now().UTC()
 		for _, card := range cards.Data {
 			if card.Provider != "codex" || card.Kind != "subscription" {
 				continue
@@ -124,6 +127,7 @@ func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (
 			// 只记录校验失败类型，不直接写入上游 error 或账号信息，避免
 			// 将上游可能包含的凭证、地址或邮箱带入系统日志和任务详情。
 			reason := ""
+			invalidReadingTime := false
 			switch {
 			case card.Error != "":
 				reason = "Codex 账号额度查询返回错误（error 非空）"
@@ -131,15 +135,31 @@ func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (
 				reason = "Codex 账号额度使用历史回退数据（asOf 非空）"
 			case card.ReadAt == nil:
 				reason = "Codex 账号额度缺少读取时间（readAt）"
-			case time.Since(*card.ReadAt) > 3*time.Minute:
-				reason = "Codex 账号额度读取时间已超过 3 分钟"
-			case time.Until(*card.ReadAt) > time.Minute:
+			// 容忍 Magpie 短期缓存及小幅时钟偏差；超过 10 分钟的数据
+			// 仍视为未知，避免凭长期旧卡片切换渠道状态。
+			case checkedAt.Sub(*card.ReadAt) > 10*time.Minute:
+				reason = "Codex 账号额度读取时间已超过 10 分钟"
+				invalidReadingTime = true
+			case card.ReadAt.Sub(checkedAt) > time.Minute:
 				reason = "Codex 账号额度读取时间超前超过 1 分钟，请检查时钟"
+				invalidReadingTime = true
 			case len(card.Windows) == 0:
 				reason = "Codex 账号额度缺少用量窗口（windows）"
 			}
 			if reason != "" {
 				unknownReasons[reason]++
+				if invalidReadingTime {
+					// 按失败原因聚合时间范围，避免账号较多时日志膨胀；只保留
+					// 时间证据，不输出账号标识、密钥或完整上游响应。
+					bounds, recorded := readingTimes[reason]
+					if !recorded || card.ReadAt.Before(bounds.oldest) {
+						bounds.oldest = card.ReadAt.UTC()
+					}
+					if !recorded || card.ReadAt.After(bounds.newest) {
+						bounds.newest = card.ReadAt.UTC()
+					}
+					readingTimes[reason] = bounds
+				}
 				continue
 			}
 			valid := true
@@ -173,7 +193,11 @@ func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (
 	if len(unknownReasons) > 0 {
 		reasons := make([]string, 0, len(unknownReasons))
 		for reason, count := range unknownReasons {
-			reasons = append(reasons, fmt.Sprintf("%s（%d）", reason, count))
+			detail := fmt.Sprintf("%s（%d）", reason, count)
+			if bounds, ok := readingTimes[reason]; ok {
+				detail += fmt.Sprintf(" [检查时间（UTC）：%s; readAt 范围（UTC）：%s ~ %s; 数据年龄范围：%s ~ %s（允许 -1m0s 至 10m0s）]", checkedAt.Format(time.RFC3339Nano), bounds.oldest.Format(time.RFC3339Nano), bounds.newest.Format(time.RFC3339Nano), checkedAt.Sub(bounds.newest).Round(time.Millisecond), checkedAt.Sub(bounds.oldest).Round(time.Millisecond))
+			}
+			reasons = append(reasons, detail)
 		}
 		sort.Strings(reasons)
 		details := strings.Join(reasons, "; ")
