@@ -125,7 +125,8 @@ test('clicking the icon shows installation guidance and waits for explicit impor
     '_self'
   )
   const url = new URL(vi.mocked(window.open).mock.calls[0]?.[0] as string)
-  expect(url.searchParams.get('name')).toBe('iCode')
+  expect(url.searchParams.get('name')).toBe('iCode - My key (#7)')
+  expect(url.searchParams.get('id')).toBeTruthy()
   expect(url.searchParams.get('key')).toBe('sk-full-key')
   expect(url.searchParams.get('chat')).toBe('https://relay.example/v1')
   expect(url.searchParams.get('responses')).toBe('https://relay.example/v1')

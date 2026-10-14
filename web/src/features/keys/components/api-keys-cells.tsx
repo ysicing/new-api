@@ -103,6 +103,8 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
     }
     const url = buildMagpieImportUrl({
       name: getSystemName(),
+      tokenId: apiKey.id,
+      tokenName: apiKey.name,
       serverAddress,
       apiKey: resolvedFullKey,
       modelLimits: apiKey.model_limits_enabled

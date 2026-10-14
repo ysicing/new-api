@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 export function buildMagpieImportUrl(options: {
   name: string
+  tokenId: number
+  tokenName?: string
   serverAddress: string
   apiKey: string
   modelLimits?: string
@@ -39,11 +41,27 @@ export function buildMagpieImportUrl(options: {
     return null
   }
   const key = options.apiKey.trim()
-  if (!key) return null
+  if (!key || !Number.isSafeInteger(options.tokenId) || options.tokenId <= 0) {
+    return null
+  }
 
   const baseUrl = address.href.replace(/\/+$/, '').replace(/\/v1$/, '')
+  // 用公开服务地址划分命名空间，避免不同部署的同号密钥互相替换。
+  // ID 不含密钥内容，也不依赖可修改的系统名称和密钥名称；同步计算保留点击手势。
+  let serverHash = 0xcbf29ce484222325n
+  for (const char of baseUrl) {
+    serverHash = BigInt.asUintN(
+      64,
+      (serverHash ^ BigInt(char.charCodeAt(0))) * 0x100000001b3n
+    )
+  }
+  const systemName = options.name.trim() || 'New API'
+  const tokenName = options.tokenName?.trim()
+  const providerName = tokenName ? `${systemName} - ${tokenName}` : systemName
+  const nameSuffix = ` (#${options.tokenId})`
   const params = new URLSearchParams({
-    name: options.name.trim().slice(0, 80) || 'New API',
+    id: `new-api-${serverHash.toString(16)}-${options.tokenId}`,
+    name: `${[...providerName].slice(0, 80 - nameSuffix.length).join('')}${nameSuffix}`,
     chat: `${baseUrl}/v1`,
     responses: `${baseUrl}/v1`,
     anthropic: baseUrl,
