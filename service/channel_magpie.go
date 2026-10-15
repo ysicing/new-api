@@ -357,7 +357,7 @@ type magpieChannelMonitorEntry struct {
 	NextCheckAt       *time.Time `json:"next_check_at,omitempty"`
 }
 
-func syncMagpieChannels(ctx context.Context) (magpieChannelMonitorResult, error) {
+func syncMagpieChannels(ctx context.Context, manual bool) (magpieChannelMonitorResult, error) {
 	result := magpieChannelMonitorResult{Channels: make([]magpieChannelMonitorEntry, 0)}
 	channels, err := model.ListMagpieChannels(ctx)
 	if err != nil {
@@ -381,13 +381,13 @@ func syncMagpieChannels(ctx context.Context) (magpieChannelMonitorResult, error)
 		entry := &result.Channels[resultIndex]
 		// Redis 仅提供减少探测的提示。失败、未启用或配置变化时回退到实际查询，
 		// 缓存本身不能启用渠道，也不能覆盖人工状态操作。
-		if common.RedisEnabled && common.RDB != nil && channel.Status == common.ChannelStatusAutoDisabled && channel.MagpieAutoDisabledAt != 0 {
+		if !manual && common.RedisEnabled && common.RDB != nil && channel.Status == common.ChannelStatusAutoDisabled && channel.MagpieAutoDisabledAt != 0 {
 			cacheCtx, cancel := context.WithTimeout(ctx, time.Second)
 			cached, cacheErr := common.RDB.Get(cacheCtx, magpieProbeCacheKey(channel)).Result()
 			cancel()
 			next, parseErr := time.Parse(time.RFC3339Nano, cached)
 			now := time.Now()
-			if cacheErr == nil && parseErr == nil && next.After(now) && !next.After(now.Add(30*time.Minute)) {
+			if cacheErr == nil && parseErr == nil && next.After(now) && !next.After(now.Add(magpieChannelProbeCacheTTL(now))) {
 				entry.Action, entry.NextCheckAt = "cached", &next
 				result.Skipped++
 				continue
@@ -443,8 +443,8 @@ func syncMagpieChannels(ctx context.Context) (magpieChannelMonitorResult, error)
 		if !available && channel.Status == common.ChannelStatusAutoDisabled && channel.MagpieAutoDisabledAt != 0 && common.RedisEnabled && common.RDB != nil {
 			now := time.Now()
 			next := availability.NextCheckAt
-			if next.After(now.Add(30 * time.Minute)) {
-				next = now.Add(30 * time.Minute)
+			if limit := now.Add(magpieChannelProbeCacheTTL(now)); next.After(limit) {
+				next = limit
 			}
 			if next.After(now) {
 				cacheCtx, cancel := context.WithTimeout(ctx, time.Second)
@@ -493,9 +493,28 @@ func magpieChannelMonitorInterval(now time.Time) time.Duration {
 	return 2 * time.Minute
 }
 
-func (magpieChannelMonitorHandler) NewPayload() any { return struct{}{} }
+// MagpieChannelMonitorPayload 区分人工检查和定时检查；旧任务缺少 manual 时仍按定时检查处理。
+type MagpieChannelMonitorPayload struct {
+	Manual bool `json:"manual,omitempty"`
+}
+
+// 白天缩短缓存以发现官方提前重置、补充额度或新增账号；夜间维持低频探测。
+func magpieChannelProbeCacheTTL(now time.Time) time.Duration {
+	hour := now.UTC().Add(8 * time.Hour).Hour()
+	if hour >= 22 || hour < 9 {
+		return 30 * time.Minute
+	}
+	return 5 * time.Minute
+}
+
+func (magpieChannelMonitorHandler) NewPayload() any { return MagpieChannelMonitorPayload{} }
 func (magpieChannelMonitorHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
-	result, err := syncMagpieChannels(ctx)
+	payload := MagpieChannelMonitorPayload{}
+	err := task.DecodePayload(&payload)
+	result := magpieChannelMonitorResult{}
+	if err == nil {
+		result, err = syncMagpieChannels(ctx, payload.Manual)
+	}
 	status, errorText := model.SystemTaskStatusSucceeded, ""
 	if err != nil {
 		status, errorText = model.SystemTaskStatusFailed, err.Error()

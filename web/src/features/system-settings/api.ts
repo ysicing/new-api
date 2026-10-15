@@ -86,6 +86,13 @@ export async function listSystemTasks(limit = 20) {
   return res.data
 }
 
+export async function startMagpieMonitorTask() {
+  const res = await api.post<SystemTaskResponse>(
+    '/api/system-task/magpie-monitor'
+  )
+  return res.data
+}
+
 export async function listDingTalkNotifications(
   params: DingTalkNotificationListParams
 ) {

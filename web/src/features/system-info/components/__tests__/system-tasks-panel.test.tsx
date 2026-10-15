@@ -7,20 +7,26 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { AxiosError, type AxiosResponse } from 'axios'
 import i18next from 'i18next'
+import { toast } from 'sonner'
 import { beforeAll, expect, test, vi } from 'vitest'
 
 import type { SystemTask } from '@/features/system-settings/types'
 
 import { SystemTasksPanel } from '../system-tasks-panel'
 
-const { listSystemTasks } = vi.hoisted(() => ({
+const { listSystemTasks, startMagpieMonitorTask } = vi.hoisted(() => ({
   listSystemTasks: vi.fn(),
+  startMagpieMonitorTask: vi.fn(),
 }))
 
-vi.mock('@/features/system-settings/api', () => ({ listSystemTasks }))
+vi.mock('@/features/system-settings/api', () => ({
+  listSystemTasks,
+  startMagpieMonitorTask,
+}))
 
 // 与生产环境一致，由 React 转义插值；否则日期中的 / 会显示为 HTML 实体。
 beforeAll(async () => {
@@ -274,4 +280,67 @@ test('retains partial Magpie results when a task fails', async () => {
   expect(
     table.getByText('Channel status preserved · Codex accounts available')
   ).toBeInTheDocument()
+})
+
+test('manual Magpie check waits for enqueueing and then refreshes task history', async () => {
+  let finish!: (value: { success: boolean; message: string }) => void
+  startMagpieMonitorTask.mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve
+    })
+  )
+  await renderPanel([maintenanceTask()])
+  const user = userEvent.setup()
+  await user.click(screen.getByRole('button', { name: 'Check Magpie now' }))
+  expect(startMagpieMonitorTask).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole('button', { name: 'Submitting...' })).toBeDisabled()
+  finish({ success: true, message: '' })
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Check Magpie now' })
+    ).toBeEnabled()
+  )
+  expect(listSystemTasks).toHaveBeenCalledTimes(2)
+})
+
+test('manual Magpie check shows enqueue failure and permits retry', async () => {
+  const error = vi.spyOn(toast, 'error')
+  startMagpieMonitorTask.mockResolvedValue({
+    success: false,
+    message: 'Task already active',
+  })
+  await renderPanel([maintenanceTask()])
+  await userEvent
+    .setup()
+    .click(screen.getByRole('button', { name: 'Check Magpie now' }))
+  await waitFor(() => expect(error).toHaveBeenCalledWith('Task already active'))
+  expect(screen.getByRole('button', { name: 'Check Magpie now' })).toBeEnabled()
+})
+
+test('manual Magpie check is disabled while another Magpie task is active', async () => {
+  await renderPanel([
+    maintenanceTask({ type: 'magpie_channel_monitor', status: 'running' }),
+  ])
+  expect(
+    screen.getByRole('button', { name: 'Check Magpie now' })
+  ).toBeDisabled()
+  expect(startMagpieMonitorTask).not.toHaveBeenCalled()
+})
+
+test('manual Magpie check displays the server reason when enqueueing conflicts', async () => {
+  const error = vi.spyOn(toast, 'error')
+  const failure = new AxiosError('Request failed with status code 409')
+  failure.response = {
+    status: 409,
+    data: { message: 'Magpie task already active' },
+  } as AxiosResponse
+  startMagpieMonitorTask.mockRejectedValue(failure)
+  await renderPanel([maintenanceTask()])
+  await userEvent
+    .setup()
+    .click(screen.getByRole('button', { name: 'Check Magpie now' }))
+  await waitFor(() =>
+    expect(error).toHaveBeenCalledWith('Magpie task already active')
+  )
+  expect(screen.getByRole('button', { name: 'Check Magpie now' })).toBeEnabled()
 })

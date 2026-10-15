@@ -34,6 +34,25 @@ func CreateLogCleanupSystemTask(c *gin.Context) {
 	})
 }
 
+// CreateMagpieMonitorSystemTask 人工检查绕过额度探测缓存，但仍复用跨实例任务锁。
+func CreateMagpieMonitorSystemTask(c *gin.Context) {
+	task, created, err := service.EnqueueSystemTask(model.SystemTaskTypeMagpieChannelMonitor, service.MagpieChannelMonitorPayload{Manual: true})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !created {
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"message": "已有 Magpie 检查任务正在运行或等待中，请稍后重试",
+			"data":    task.ToResponse(),
+		})
+		return
+	}
+	recordManageAudit(c, "channel.magpie_check", map[string]interface{}{"task_id": task.TaskID})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": task.ToResponse()})
+}
+
 func GetCurrentSystemTask(c *gin.Context) {
 	taskType := c.Query("type")
 	if taskType == "" {

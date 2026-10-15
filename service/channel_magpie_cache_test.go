@@ -109,14 +109,14 @@ func TestMagpieMonitorCachesOnlyAutomaticDisablingAndRechecksOnExpiryOrEdits(t *
 	defer server.Close()
 	channel := &model.Channel{Name: "Cached Magpie", Key: "secret", Models: "model", Group: "default", BaseURL: common.GetPointer(server.URL), OtherSettings: `{"magpie_enabled":true}`}
 	require.NoError(t, channel.Insert())
-	result, err := syncMagpieChannels(context.Background())
+	result, err := syncMagpieChannels(context.Background(), false)
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.Disabled)
 	assert.Equal(t, 2, calls)
 	assert.Equal(t, 1, notices)
 	require.NotNil(t, result.Channels[0].NextCheckAt)
-	assert.InDelta(t, 30*time.Minute, time.Until(*result.Channels[0].NextCheckAt), float64(time.Second))
-	result, err = syncMagpieChannels(context.Background())
+	assert.InDelta(t, magpieChannelProbeCacheTTL(time.Now()), time.Until(*result.Channels[0].NextCheckAt), float64(time.Second))
+	result, err = syncMagpieChannels(context.Background(), false)
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.Skipped)
 	assert.Zero(t, result.Checked)
@@ -124,10 +124,19 @@ func TestMagpieMonitorCachesOnlyAutomaticDisablingAndRechecksOnExpiryOrEdits(t *
 	assert.Nil(t, result.Channels[0].Available)
 	assert.Equal(t, 2, calls)
 	assert.Equal(t, 1, notices)
+	// 旧版本或夜间留下的长缓存，不能延续超过当前时段允许的等待上限。
+	storedChannel, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	longDelay := magpieChannelProbeCacheTTL(time.Now()) + time.Minute
+	require.NoError(t, client.Set(context.Background(), magpieProbeCacheKey(storedChannel), time.Now().Add(longDelay).Format(time.RFC3339Nano), longDelay).Err())
+	result, err = syncMagpieChannels(context.Background(), false)
+	require.NoError(t, err)
+	assert.Zero(t, result.Skipped)
+	assert.Equal(t, 4, calls)
 	for _, edit := range []map[string]any{{"key": "new-secret"}, {"base_url": server.URL + "/prefix"}, {"setting": "{}"}, {"settings": `{"magpie_enabled":true,"note":"edited"}`}} {
 		require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", channel.Id).Updates(edit).Error)
 		before := calls
-		result, err = syncMagpieChannels(context.Background())
+		result, err = syncMagpieChannels(context.Background(), false)
 		require.NoError(t, err)
 		assert.Equal(t, before+2, calls)
 		assert.Equal(t, 1, result.Unchanged)
@@ -136,39 +145,119 @@ func TestMagpieMonitorCachesOnlyAutomaticDisablingAndRechecksOnExpiryOrEdits(t *
 	// 人工启用必须立刻重新探测，不能沿用此前自动禁用的缓存。
 	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("status", common.ChannelStatusEnabled).Error)
 	beforeManual := calls
-	result, err = syncMagpieChannels(context.Background())
+	result, err = syncMagpieChannels(context.Background(), false)
 	require.NoError(t, err)
 	assert.Equal(t, beforeManual+2, calls)
 	assert.Equal(t, 1, result.Disabled)
 	assert.Equal(t, 2, notices)
 	cache.FastForward(30 * time.Minute)
 	before := calls
-	result, err = syncMagpieChannels(context.Background())
+	result, err = syncMagpieChannels(context.Background(), false)
 	require.NoError(t, err)
 	assert.Equal(t, before+2, calls)
 	assert.Zero(t, result.Skipped)
 	cache.SetError("cache unavailable")
 	held = false
-	result, err = syncMagpieChannels(context.Background())
+	result, err = syncMagpieChannels(context.Background(), false)
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.Enabled)
 	assert.Equal(t, 3, notices)
 	cache.SetError("")
 	// 未知查询结果不能写缓存。
 	fail = true
-	result, err = syncMagpieChannels(context.Background())
+	result, err = syncMagpieChannels(context.Background(), false)
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.Failed)
 	before = calls
-	result, err = syncMagpieChannels(context.Background())
+	result, err = syncMagpieChannels(context.Background(), false)
 	require.NoError(t, err)
 	assert.Equal(t, before+1, calls)
 	assert.Equal(t, 1, result.Failed)
 	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("status", common.ChannelStatusManuallyDisabled).Error)
 	before = calls
-	result, err = syncMagpieChannels(context.Background())
+	result, err = syncMagpieChannels(context.Background(), false)
 	require.NoError(t, err)
 	assert.Zero(t, result.Checked)
 	assert.Zero(t, result.Skipped)
 	assert.Equal(t, before, calls)
+}
+
+func TestMagpieManualMonitorBypassesCachedRecovery(t *testing.T) {
+	setupAnnouncementGroupNotificationTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.User{}, &model.Log{}))
+	previousLogDB, previousMemory := model.LOG_DB, common.MemoryCacheEnabled
+	model.LOG_DB, common.MemoryCacheEnabled = model.DB, false
+	t.Cleanup(func() { model.LOG_DB, common.MemoryCacheEnabled = previousLogDB, previousMemory })
+	cache := miniredis.RunT(t)
+	previousRedis, previousEnabled := common.RDB, common.RedisEnabled
+	client := redis.NewClient(&redis.Options{Addr: cache.Addr(), MaxRetries: -1})
+	common.RDB, common.RedisEnabled = client, true
+	t.Cleanup(func() { _ = client.Close(); common.RDB, common.RedisEnabled = previousRedis, previousEnabled })
+	previousSend := sendMagpieChannelGroupMessage
+	notices := 0
+	sendMagpieChannelGroupMessage = func(context.Context, system_setting.DingTalkSettings, string, string, string) error {
+		notices++
+		return nil
+	}
+	t.Cleanup(func() { sendMagpieChannelGroupMessage = previousSend })
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		body, err := common.Marshal(map[string]any{"object": "list", "data": []any{map[string]any{"provider": "codex", "kind": "subscription", "held": false, "readAt": time.Now().UTC(), "windows": []any{map[string]any{"used": 0}}}}})
+		require.NoError(t, err)
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+	channel := &model.Channel{Name: "Early reset", Key: "secret", Models: "model", Group: "default", BaseURL: common.GetPointer(server.URL), OtherSettings: `{"magpie_enabled":true}`, Status: common.ChannelStatusAutoDisabled, MagpieAutoDisabledAt: time.Now().UnixNano()}
+	require.NoError(t, channel.Insert())
+	require.NoError(t, client.Set(context.Background(), magpieProbeCacheKey(channel), time.Now().Add(4*time.Minute).Format(time.RFC3339Nano), 4*time.Minute).Err())
+	// 定时任务仍跳过未过期缓存。
+	task, err := model.CreateSystemTask(model.SystemTaskTypeMagpieChannelMonitor, nil, nil)
+	require.NoError(t, err)
+	claimed, ok, err := model.ClaimSystemTask(task.ID, task.Type, "scheduled", common.GetTimestamp()+60)
+	require.NoError(t, err)
+	require.True(t, ok)
+	magpieChannelMonitorHandler{}.Run(context.Background(), claimed, "scheduled")
+	assert.Zero(t, calls)
+	stored, err := model.GetSystemTaskByTaskID(task.TaskID)
+	require.NoError(t, err)
+	var result magpieChannelMonitorResult
+	require.NoError(t, common.UnmarshalJsonStr(stored.Result, &result))
+	assert.Equal(t, 1, result.Skipped)
+	// 官方提前恢复后，手动执行必须查询并恢复，而不是继续等待缓存。
+	task, err = model.CreateSystemTask(model.SystemTaskTypeMagpieChannelMonitor, map[string]bool{"manual": true}, nil)
+	require.NoError(t, err)
+	claimed, ok, err = model.ClaimSystemTask(task.ID, task.Type, "manual", common.GetTimestamp()+60)
+	require.NoError(t, err)
+	require.True(t, ok)
+	magpieChannelMonitorHandler{}.Run(context.Background(), claimed, "manual")
+	stored, err = model.GetSystemTaskByTaskID(task.TaskID)
+	require.NoError(t, err)
+	require.NoError(t, common.UnmarshalJsonStr(stored.Result, &result))
+	assert.Equal(t, model.SystemTaskStatusSucceeded, stored.Status)
+	assert.Equal(t, 2, calls)
+	assert.Equal(t, 1, result.Enabled)
+	assert.Zero(t, result.Skipped)
+	assert.Equal(t, 1, notices)
+	updated, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusEnabled, updated.Status)
+}
+
+func TestMagpieProbeCacheTTLUsesBeijingDayAndNight(t *testing.T) {
+	for _, test := range []struct {
+		at  string
+		ttl time.Duration
+	}{
+		{"2026-10-15T00:59:59Z", 30 * time.Minute},
+		{"2026-10-15T01:00:00Z", 5 * time.Minute},
+		{"2026-10-15T13:59:59Z", 5 * time.Minute},
+		{"2026-10-15T14:00:00Z", 30 * time.Minute},
+	} {
+		t.Run(test.at, func(t *testing.T) {
+			now, err := time.Parse(time.RFC3339, test.at)
+			require.NoError(t, err)
+			assert.Equal(t, test.ttl, magpieChannelProbeCacheTTL(now))
+		})
+	}
 }

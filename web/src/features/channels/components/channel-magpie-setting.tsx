@@ -49,7 +49,7 @@ export function ChannelMagpieSetting(props: {
                 'Check Codex accounts on this Magpie using the channel URL and key every 2 minutes from 09:00 to 22:00 Beijing time, and every 30 minutes overnight. Disable when none are available and restore when available. Query failures and manual disabling preserve the current status.'
               )}{' '}
               {t(
-                'With Redis, unavailable channels defer probes until the earliest account recovery, for up to 30 minutes. Channel configuration changes invalidate the cache; without Redis, checks follow the regular schedule.'
+                'With Redis, unavailable channels defer probes until the earliest account recovery, for up to 5 minutes during the day and 30 minutes overnight (Beijing time). Manual checks bypass the cache. Channel configuration changes invalidate the cache; without Redis, checks follow the regular schedule.'
               )}
             </FormDescription>
             <FormMessage />

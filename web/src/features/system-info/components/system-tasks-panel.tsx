@@ -16,9 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import { ListChecks, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { ErrorState } from '@/components/error-state'
 import { Badge } from '@/components/ui/badge'
@@ -38,7 +40,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { listSystemTasks } from '@/features/system-settings/api'
+import {
+  listSystemTasks,
+  startMagpieMonitorTask,
+} from '@/features/system-settings/api'
 import type {
   SystemTask,
   SystemTaskStatus,
@@ -469,6 +474,7 @@ function SystemTasksTable(props: SystemTasksTableProps) {
 
 export function SystemTasksPanel() {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const tasksQuery = useQuery({
     queryKey: ['system-info', 'system-tasks'],
     queryFn: async () => {
@@ -492,6 +498,38 @@ export function SystemTasksPanel() {
   const hasActiveTasks = tasks.some((task) => isActiveStatus(task.status))
   const activeTasks = tasks.filter((task) => isActiveStatus(task.status))
   const historyTasks = tasks.filter((task) => !isActiveStatus(task.status))
+  const magpieTaskActive = activeTasks.some(
+    (task) => task.type === 'magpie_channel_monitor'
+  )
+  const magpieCheck = useMutation({
+    mutationFn: async () => {
+      const res = await startMagpieMonitorTask()
+      if (!res.success) {
+        throw new Error(res.message || t('Failed to start Magpie check'))
+      }
+      return res
+    },
+    onSuccess: async () => {
+      toast.success(t('Magpie check queued'))
+      await queryClient.invalidateQueries({
+        queryKey: ['system-info', 'system-tasks'],
+      })
+    },
+    onError: (error) => {
+      if (
+        isAxiosError(error) &&
+        typeof error.response?.data?.message === 'string'
+      ) {
+        toast.error(error.response.data.message)
+        return
+      }
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t('Failed to start Magpie check')
+      )
+    },
+  })
 
   return (
     <section className='bg-card overflow-hidden rounded-lg border shadow-xs'>
@@ -511,7 +549,7 @@ export function SystemTasksPanel() {
             </div>
           </div>
         </div>
-        <div className='flex shrink-0 items-center gap-3'>
+        <div className='flex shrink-0 flex-wrap items-center gap-3'>
           <span
             className='text-muted-foreground inline-flex items-center gap-1.5 text-xs'
             aria-live='polite'
@@ -529,6 +567,15 @@ export function SystemTasksPanel() {
                 })
               : t('Live refresh pauses when no task is running')}
           </span>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            onClick={() => magpieCheck.mutate()}
+            disabled={magpieCheck.isPending || magpieTaskActive}
+          >
+            {magpieCheck.isPending ? t('Submitting...') : t('Check Magpie now')}
+          </Button>
           <Button
             type='button'
             variant='outline'
