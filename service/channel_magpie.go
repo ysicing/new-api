@@ -30,6 +30,7 @@ type magpieQuotaCard struct {
 	AsOf     *time.Time `json:"asOf"`
 	ReadAt   *time.Time `json:"readAt"`
 	Windows  []struct {
+		Name      string     `json:"name"`
 		Used      *float64   `json:"used"`
 		Unlimited bool       `json:"unlimited"`
 		ResetsAt  *time.Time `json:"resetsAt"`
@@ -45,6 +46,7 @@ type magpieQuotaResponse struct {
 type magpieCodexAvailability struct {
 	Available   bool
 	NextCheckAt time.Time
+	WeeklyQuota string
 }
 
 func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (magpieCodexAvailability, error) {
@@ -83,6 +85,7 @@ func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (
 	var lastRequestErr error
 	queried := false
 	var nextCheckAt time.Time
+	var weeklyCards []magpieQuotaCard
 	resetsKnown := true
 	for index, key := range keys {
 		if channel.ChannelInfo.IsMultiKey {
@@ -119,6 +122,8 @@ func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (
 			continue
 		}
 		checkedAt = time.Now().UTC()
+		// 额度接口返回整个实例；周额度使用最后一次刷新快照，不能按网关 Key 重复累计账号。
+		weeklyCards = cards.Data
 		for _, card := range cards.Data {
 			if card.Provider != "codex" || card.Kind != "subscription" {
 				continue
@@ -209,7 +214,56 @@ func queryMagpieCodexAvailability(ctx context.Context, channel *model.Channel) (
 	if !resetsKnown {
 		nextCheckAt = time.Time{}
 	}
-	return magpieCodexAvailability{NextCheckAt: nextCheckAt}, nil
+	return magpieCodexAvailability{NextCheckAt: nextCheckAt, WeeklyQuota: magpieWeeklyQuotaSummary(weeklyCards)}, nil
+}
+
+// 不同账号的百分比不能相加；仅汇总已验证卡片的周窗口范围，并单独列出未知和无限额账号。
+func magpieWeeklyQuotaSummary(cards []magpieQuotaCard) string {
+	total, known, unlimited := 0, 0, 0
+	minRemaining, maxRemaining := 100.0, 0.0
+	for _, card := range cards {
+		if card.Provider != "codex" || card.Kind != "subscription" {
+			continue
+		}
+		total++
+		for _, window := range card.Windows {
+			if window.Name != "7 days" {
+				continue
+			}
+			if window.Unlimited {
+				unlimited++
+			} else if window.Used != nil {
+				remaining := math.Max(0, 100-*window.Used)
+				known++
+				minRemaining = math.Min(minRemaining, remaining)
+				maxRemaining = math.Max(maxRemaining, remaining)
+			}
+			break
+		}
+	}
+	if total == 0 {
+		return "无 Codex 订阅账号"
+	}
+	parts := make([]string, 0, 3)
+	if known > 0 {
+		bounds := make([]string, 0, 2)
+		for _, remaining := range []float64{minRemaining, maxRemaining} {
+			percent := fmt.Sprintf("%.2f", remaining)
+			bounds = append(bounds, strings.TrimRight(strings.TrimRight(percent, "0"), ".")+"%")
+		}
+		remaining := bounds[0]
+		if bounds[0] != bounds[1] {
+			remaining += "～" + bounds[1]
+		}
+		parts = append(parts, remaining)
+	}
+	if unlimited > 0 {
+		parts = append(parts, "无限额")
+	}
+	if unknown := total - known - unlimited; unknown > 0 {
+		parts = append(parts, "暂无法确定")
+	}
+	return strings.Join(parts, "；")
 }
 
 // magpieAccountNextCheckAt 返回一个暂停账号所有耗尽窗口都重置的时间。
@@ -288,21 +342,21 @@ var sendMagpieChannelGroupMessage = func(ctx context.Context, settings system_se
 	return defaultDingTalkNotifier.SendGroup(ctx, settings, recipient, title, content)
 }
 
-func notifyMagpieChannelStatus(ctx context.Context, channel *model.Channel, transitionAt int64, recovered bool, nextCheckAt time.Time) error {
+func notifyMagpieChannelStatus(ctx context.Context, channel *model.Channel, transitionAt int64, availability magpieCodexAvailability) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	event, title := "magpie_channel_disabled", "Magpie 自建渠道已自动禁用"
 	content := ""
-	if recovered {
+	if availability.Available {
 		event, title = "magpie_channel_enabled", "Magpie 自建渠道已自动启用"
 		content = "原因：检测到可用账号，渠道已自动启用，可继续使用。"
 	} else {
 		earliest := "暂无法确定"
-		if nextCheckAt.After(time.Now()) {
+		if availability.NextCheckAt.After(time.Now()) {
 			// 使用账号窗口的恢复时间，不能用最长 30 分钟的缓存探测时间替代。
-			earliest = nextCheckAt.In(time.FixedZone("Asia/Shanghai", 8*60*60)).Format("2006-01-02 15:04:05") + "（北京时间）"
+			earliest = availability.NextCheckAt.In(time.FixedZone("Asia/Shanghai", 8*60*60)).Format("2006-01-02 15:04:05") + "（北京时间）"
 		}
-		content = "原因：无可用账号，渠道已自动禁用，等待小时或周限制恢复后启用。\n\n可能最早启用时间：" + earliest + "\n实际启用以探测到可用账号为准。"
+		content = "原因：无可用账号，渠道已自动禁用，等待小时或周限制恢复后启用。\n\n周额度剩余（按账号）：" + availability.WeeklyQuota + "\n可能最早启用时间：" + earliest + "\n实际启用以探测到可用账号为准。"
 	}
 	settings := *system_setting.GetDingTalkSettings()
 	recipient := strings.TrimSpace(settings.AnnouncementGroupOpenConversationId)
@@ -367,7 +421,7 @@ func syncMagpieChannels(ctx context.Context, manual bool) (magpieChannelMonitorR
 		channel      *model.Channel
 		transitionAt int64
 		resultIndex  int
-		nextCheckAt  time.Time
+		availability magpieCodexAvailability
 	}
 	notices := make([]notice, 0)
 	for index := range channels {
@@ -435,7 +489,7 @@ func syncMagpieChannels(ctx context.Context, manual bool) (magpieChannelMonitorR
 				"channel_id": changed.Id, "channel_name": changed.Name,
 				"status": changed.Status, "reason": reason, "transition_at": transitionAt,
 			})
-			notices = append(notices, notice{channel: changed, transitionAt: transitionAt, resultIndex: resultIndex, nextCheckAt: availability.NextCheckAt})
+			notices = append(notices, notice{channel: changed, transitionAt: transitionAt, resultIndex: resultIndex, availability: availability})
 		}
 		if changed != nil {
 			channel = changed
@@ -460,7 +514,7 @@ func syncMagpieChannels(ctx context.Context, manual bool) (magpieChannelMonitorR
 	notificationCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	for _, notice := range notices {
-		if err := notifyMagpieChannelStatus(notificationCtx, notice.channel, notice.transitionAt, notice.channel.Status == common.ChannelStatusEnabled, notice.nextCheckAt); err != nil {
+		if err := notifyMagpieChannelStatus(notificationCtx, notice.channel, notice.transitionAt, notice.availability); err != nil {
 			result.NotificationFailed++
 			result.Channels[notice.resultIndex].NotificationError = err.Error()
 			common.SysError(fmt.Sprintf("notify Magpie channel #%d: %v", notice.channel.Id, err))

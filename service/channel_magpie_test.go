@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,6 +82,74 @@ func TestMagpieCodexAvailability(t *testing.T) {
 			}
 			assert.Equal(t, test.available, actual.Available)
 			assert.Equal(t, 2, calls)
+		})
+	}
+}
+
+func TestMagpieUnavailablePoolReportsWeeklyQuotaPerAccount(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		accounts []string
+		want     string
+	}{
+		{
+			name:     "five-hour limit preserves weekly remaining",
+			accounts: []string{`[{"name":"5 hours","used":100},{"name":"7 days","used":32}]`, `[{"name":"7 days","used":32},{"name":"5 hours","used":100}]`},
+			want:     "68%",
+		},
+		{
+			name:     "different weekly limits form a range",
+			accounts: []string{`[{"name":"5 hours","used":100},{"name":"7 days","used":32}]`, `[{"name":"7 days","used":100}]`},
+			want:     "0%～68%",
+		},
+		{
+			name:     "weekly overshoot cannot show negative quota",
+			accounts: []string{`[{"name":"7 days","used":103}]`},
+			want:     "0%",
+		},
+		{
+			name:     "fractional weekly usage",
+			accounts: []string{`[{"name":"5 hours","used":100},{"name":"7 days","used":32.25}]`},
+			want:     "67.75%",
+		},
+		{
+			name:     "missing weekly window is unknown",
+			accounts: []string{`[{"name":"5 hours","used":100}]`},
+			want:     "暂无法确定",
+		},
+		{
+			name:     "known unlimited and unknown remain distinct",
+			accounts: []string{`[{"name":"7 days","used":32}]`, `[{"name":"5 hours","used":100},{"name":"7 days","unlimited":true}]`, `[{"name":"5 hours","used":100}]`},
+			want:     "68%；无限额；暂无法确定",
+		},
+		{
+			name: "no Codex subscription accounts",
+			want: "无 Codex 订阅账号",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cards := []string{`{"provider":"claude","kind":"subscription","windows":[{"name":"7 days","used":0}]}`, `{"provider":"codex","kind":"apikey","windows":[{"name":"7 days","used":0}]}`}
+			for _, windows := range test.accounts {
+				// user 是展示名称，可能重复；不能用它去重账号或带入群通知。
+				cards = append(cards, fmt.Sprintf(`{"provider":"codex","kind":"subscription","user":"private@example.com","held":true,"readAt":"%s","windows":%s}`, time.Now().UTC().Format(time.RFC3339Nano), windows))
+			}
+			body := `{"object":"list","data":[` + strings.Join(cards, ",") + `]}`
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls++
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+			channel := &model.Channel{
+				Key: "first-key\nsecond-key", BaseURL: common.GetPointer(server.URL), OtherSettings: `{"magpie_enabled":true}`,
+				ChannelInfo: model.ChannelInfo{IsMultiKey: true, MultiKeySize: 2},
+			}
+			availability, err := queryMagpieCodexAvailability(context.Background(), channel)
+			require.NoError(t, err)
+			assert.False(t, availability.Available)
+			assert.Equal(t, test.want, availability.WeeklyQuota)
+			assert.NotContains(t, availability.WeeklyQuota, "private@example.com")
+			assert.Equal(t, 4, calls)
 		})
 	}
 }
@@ -213,7 +282,7 @@ func TestMagpieMonitorNotifiesOnlyTransitions(t *testing.T) {
 			w.WriteHeader(503)
 			return
 		}
-		body, err := common.Marshal(map[string]any{"object": "list", "data": []any{map[string]any{"provider": "codex", "kind": "subscription", "held": held, "readAt": time.Now().UTC(), "windows": []any{map[string]any{"used": 100}}}}})
+		body, err := common.Marshal(map[string]any{"object": "list", "data": []any{map[string]any{"provider": "codex", "kind": "subscription", "user": "private@example.com", "held": held, "readAt": time.Now().UTC(), "windows": []any{map[string]any{"name": "5 hours", "used": 100}, map[string]any{"name": "7 days", "used": 32}}}}})
 		require.NoError(t, err)
 		_, _ = w.Write(body)
 	}))
@@ -227,6 +296,7 @@ func TestMagpieMonitorNotifiesOnlyTransitions(t *testing.T) {
 		assert.NotContains(t, content, channel.Key)
 		assert.NotContains(t, content, "渠道：")
 		assert.NotContains(t, content, channel.Name)
+		assert.NotContains(t, content, "private@example.com")
 		titles = append(titles, title)
 		if title == "Magpie 自建渠道已自动启用" {
 			assert.Equal(t, "原因：检测到可用账号，渠道已自动启用，可继续使用。", content)
@@ -234,6 +304,9 @@ func TestMagpieMonitorNotifiesOnlyTransitions(t *testing.T) {
 			return errors.New("notification unavailable")
 		}
 		assert.Contains(t, content, "原因：无可用账号，渠道已自动禁用，等待小时或周限制恢复后启用。")
+		assert.Contains(t, content, "周额度剩余（按账号）：68%\n")
+		assert.NotContains(t, content, "个账号")
+		assert.NotContains(t, content, "耗尽")
 		assert.Contains(t, content, "可能最早启用时间：暂无法确定")
 		return nil
 	}
