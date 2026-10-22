@@ -183,7 +183,7 @@ func TestMoveRootUserQuotaPoolPreservesRoleAndReclaimsDisabledPoolBalance(t *tes
 	assert.Equal(t, root.Id, transaction.OperatorId)
 }
 
-func TestMoveRootUserQuotaPoolRejectsNonRootOperatorAndDisabledTarget(t *testing.T) {
+func TestMoveRootUserQuotaPoolRejectsNonRootOperator(t *testing.T) {
 	for _, scenario := range []struct {
 		name         string
 		operatorRole int
@@ -191,7 +191,7 @@ func TestMoveRootUserQuotaPoolRejectsNonRootOperatorAndDisabledTarget(t *testing
 		wantErr      error
 	}{
 		{name: "system admin cannot move root", operatorRole: common.RoleAdminUser, enabled: true, wantErr: ErrQuotaPoolPermissionDenied},
-		{name: "root cannot enter disabled pool", operatorRole: common.RoleRootUser, enabled: false, wantErr: ErrQuotaPoolDisabled},
+		{name: "system admin cannot move root into disabled pool", operatorRole: common.RoleAdminUser, enabled: false, wantErr: ErrQuotaPoolPermissionDenied},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			db := setupQuotaPoolFundsTestDB(t)
@@ -215,6 +215,43 @@ func TestMoveRootUserQuotaPoolRejectsNonRootOperatorAndDisabledTarget(t *testing
 			var count int64
 			require.NoError(t, db.Model(&QuotaPoolTransaction{}).Count(&count).Error)
 			assert.Zero(t, count)
+		})
+	}
+}
+
+func TestMoveUserQuotaPoolAllowsDisabledTargetWithoutGrantingQuota(t *testing.T) {
+	for _, role := range []int{common.RoleCommonUser, common.RoleAdminUser, common.RoleRootUser} {
+		t.Run(fmt.Sprint(role), func(t *testing.T) {
+			db := setupQuotaPoolFundsTestDB(t)
+			source, user := seedQuotaPoolMember(t, db, 100, 20)
+			require.NoError(t, db.Model(&source).Update("enabled", false).Error)
+			require.NoError(t, db.Model(&user).Update("role", role).Error)
+			target := QuotaPool{Name: "禁用目标池", PoolType: QuotaPoolTypeNormal, Quota: 200}
+			require.NoError(t, db.Create(&target).Error)
+			require.NoError(t, db.Model(&target).Update("enabled", false).Error)
+
+			result, err := MoveUserBetweenQuotaPools(user.Id, target.Id, true, user.Id)
+
+			require.NoError(t, err)
+			assert.True(t, result.Reclaimed)
+			require.NoError(t, db.First(&user, user.Id).Error)
+			assert.Equal(t, target.Id, user.QuotaPoolId)
+			assert.Equal(t, role, user.Role)
+			assert.Zero(t, user.Quota)
+			require.NoError(t, db.First(&source, source.Id).Error)
+			assert.Equal(t, 120, source.Quota)
+			require.NoError(t, db.First(&target, target.Id).Error)
+			assert.False(t, target.Enabled)
+			assert.Equal(t, 200, target.Quota)
+			for _, kind := range []string{QuotaPoolTransactionAllocateManual, QuotaPoolTransactionAllocateAuto} {
+				_, err = AllocateQuotaFromPool(target.Id, user.Id, 10, kind, user.Id)
+				require.ErrorIs(t, err, ErrQuotaPoolDisabled)
+			}
+			var transactions []QuotaPoolTransaction
+			require.NoError(t, db.Find(&transactions).Error)
+			require.Len(t, transactions, 1)
+			assert.Equal(t, QuotaPoolTransactionReclaimUser, transactions[0].Type)
+			assert.Equal(t, 20, transactions[0].Amount)
 		})
 	}
 }

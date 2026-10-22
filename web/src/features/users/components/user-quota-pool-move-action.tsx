@@ -70,11 +70,10 @@ export function UserQuotaPoolMoveAction(props: {
     () =>
       (query.data?.data?.items ?? [])
         .map((pool) => ({
-          label: pool.name || t('Default pool'),
-          value: pool.id,
-          available: pool.enabled,
+          label: `${pool.name || t('Default pool')} (${t(pool.enabled ? 'Enabled' : 'Disabled')})`,
+          value: String(pool.id),
         }))
-        .filter((pool) => pool.available && pool.value !== currentPoolId),
+        .filter((pool) => pool.value !== String(currentPoolId)),
     [currentPoolId, query.data?.data?.items, t]
   )
   const canMove = Boolean(
@@ -148,6 +147,7 @@ export function UserQuotaPoolMoveAction(props: {
               <Skeleton className='h-8 w-full' />
             ) : (
               <Select
+                items={options}
                 value={targetPoolId}
                 onValueChange={(value) => setTargetPoolId(value ?? undefined)}
                 disabled={failed || options.length === 0}
@@ -157,7 +157,7 @@ export function UserQuotaPoolMoveAction(props: {
                 </SelectTrigger>
                 <SelectContent>
                   {options.map((option) => (
-                    <SelectItem key={option.value} value={String(option.value)}>
+                    <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
                   ))}

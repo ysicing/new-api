@@ -76,8 +76,9 @@ func lockQuotaPoolMember(tx *gorm.DB, poolId, userId int) (*QuotaPool, *User, er
 
 func MoveUserBetweenQuotaPools(userId, targetPoolId int, allowSystemTarget bool, operatorId int) (*QuotaPoolMoveResult, error) {
 	return moveUserBetweenQuotaPools(userId, targetPoolId, operatorId, quotaPoolMoveOptions{
-		allowSystemTarget:  allowSystemTarget,
-		allowRootMigration: true,
+		allowSystemTarget:   allowSystemTarget,
+		allowDisabledTarget: true,
+		allowRootMigration:  true,
 	})
 }
 
@@ -265,8 +266,8 @@ func validateMoveTarget(target *QuotaPool, options quotaPoolMoveOptions) error {
 	if target.IsSystemPool() && !options.allowSystemTarget {
 		return ErrQuotaPoolSystemReadonly
 	}
-	// 添加成员允许进入禁用池，后续首充由充值流程独立检查池状态。
-	// 移出成员和通用迁移继续沿用目标池必须启用的约束。
+	// 添加成员和系统迁移允许进入禁用池，发放额度由充值流程独立检查池状态。
+	// 移除成员返回新用户池时仍要求目标池启用。
 	if !target.Enabled && !options.allowDisabledTarget {
 		return ErrQuotaPoolDisabled
 	}

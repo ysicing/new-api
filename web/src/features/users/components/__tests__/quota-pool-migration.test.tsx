@@ -118,12 +118,14 @@ test('system admin moves a user to another enabled quota pool', async () => {
   })
   await user.click(targetPool)
   expect(
-    screen.queryByRole('option', { name: '平台保障部' })
+    screen.queryByRole('option', { name: /平台保障部/ })
   ).not.toBeInTheDocument()
   expect(
-    screen.queryByRole('option', { name: '停用池' })
-  ).not.toBeInTheDocument()
-  await user.click(await screen.findByRole('option', { name: '研发池' }))
+    screen.getByRole('option', { name: '停用池 (Disabled)' })
+  ).toBeInTheDocument()
+  await user.click(
+    await screen.findByRole('option', { name: '研发池 (Enabled)' })
+  )
   await user.click(screen.getByRole('button', { name: 'Confirm move' }))
 
   await waitFor(() =>
@@ -139,7 +141,9 @@ test('moves into the migrated pool using its real ID', async () => {
   await user.click(
     await screen.findByRole('combobox', { name: 'Target quota pool' })
   )
-  await user.click(await screen.findByRole('option', { name: '默认额度池' }))
+  await user.click(
+    await screen.findByRole('option', { name: '默认额度池 (Enabled)' })
+  )
   await user.click(screen.getByRole('button', { name: 'Confirm move' }))
 
   await waitFor(() =>
@@ -193,9 +197,11 @@ test('root can move their own account to an enabled quota pool', async () => {
     await screen.findByRole('combobox', { name: 'Target quota pool' })
   )
   expect(
-    screen.queryByRole('option', { name: '停用池' })
-  ).not.toBeInTheDocument()
-  await user.click(await screen.findByRole('option', { name: '研发池' }))
+    screen.getByRole('option', { name: '停用池 (Disabled)' })
+  ).toBeInTheDocument()
+  await user.click(
+    await screen.findByRole('option', { name: '研发池 (Enabled)' })
+  )
   await user.click(screen.getByRole('button', { name: 'Confirm move' }))
 
   await waitFor(() =>
@@ -218,3 +224,35 @@ test('announces quota pool loading failures', async () => {
   ).toHaveAttribute('role', 'alert')
   expect(screen.queryByText('raw server error')).not.toBeInTheDocument()
 })
+
+test.each([10, 100])(
+  'admin role %s can select and move into a disabled pool',
+  async (role) => {
+    useAuthStore.getState().auth.setUser({
+      id: 2,
+      username: 'admin',
+      role,
+      quota_pool_enabled: true,
+    })
+    const user = userEvent.setup()
+    renderRowActions({ ...targetUser, role: role === 100 ? 100 : 1 })
+
+    await user.click(screen.getByRole('button', { name: 'Move quota pool' }))
+    await user.click(
+      await screen.findByRole('combobox', { name: 'Target quota pool' })
+    )
+    const option = await screen.findByRole('option', {
+      name: '停用池 (Disabled)',
+    })
+    expect(option).not.toHaveAttribute('aria-disabled', 'true')
+    await user.click(option)
+    expect(
+      screen.getByRole('combobox', { name: 'Target quota pool' })
+    ).toHaveTextContent('停用池 (Disabled)')
+    await user.click(screen.getByRole('button', { name: 'Confirm move' }))
+
+    await waitFor(() =>
+      expect(quotaPoolApiMocks.moveUserQuotaPool).toHaveBeenCalledWith(12, 9)
+    )
+  }
+)
