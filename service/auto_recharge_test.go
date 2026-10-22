@@ -302,6 +302,30 @@ func TestGetAutoRechargeEligibilityIncludesDisabledPoolDetails(t *testing.T) {
 	assert.Equal(t, pool.Quota, *result.PoolQuota)
 }
 
+func TestRootUserCannotAutoRechargeFromDisabledPool(t *testing.T) {
+	db := setupAutoRechargeTest(t)
+	pool := model.QuotaPool{
+		Name: "root-disabled-pool", PoolType: model.QuotaPoolTypeNormal, Enabled: false,
+		Quota: 100, AutoRechargeAmount: 10,
+	}
+	require.NoError(t, db.Create(&pool).Error)
+	require.NoError(t, db.Model(&pool).Update("enabled", false).Error)
+	root := model.User{Username: "root-auto-recharge", AffCode: "root-auto-recharge", Role: common.RoleRootUser, Status: common.UserStatusEnabled, QuotaPoolId: pool.Id}
+	require.NoError(t, db.Create(&root).Error)
+
+	result := TryAutoRechargeUserById(root.Id)
+
+	assert.False(t, result.Recharged)
+	assert.Equal(t, "quota_pool_disabled", result.Reason)
+	require.NoError(t, db.First(&root, root.Id).Error)
+	assert.Zero(t, root.Quota)
+	require.NoError(t, db.First(&pool, pool.Id).Error)
+	assert.Equal(t, 100, pool.Quota)
+	var count int64
+	require.NoError(t, db.Model(&model.QuotaPoolTransaction{}).Count(&count).Error)
+	assert.Zero(t, count)
+}
+
 func TestMigratedPoolRequiresFundingBeforeAutomaticRecharge(t *testing.T) {
 	db := setupAutoRechargeTest(t)
 	config := operation_setting.GetAutoRechargeSetting()

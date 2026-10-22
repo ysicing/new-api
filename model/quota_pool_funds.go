@@ -75,7 +75,10 @@ func lockQuotaPoolMember(tx *gorm.DB, poolId, userId int) (*QuotaPool, *User, er
 }
 
 func MoveUserBetweenQuotaPools(userId, targetPoolId int, allowSystemTarget bool, operatorId int) (*QuotaPoolMoveResult, error) {
-	return moveUserBetweenQuotaPools(userId, targetPoolId, operatorId, quotaPoolMoveOptions{allowSystemTarget: allowSystemTarget})
+	return moveUserBetweenQuotaPools(userId, targetPoolId, operatorId, quotaPoolMoveOptions{
+		allowSystemTarget:  allowSystemTarget,
+		allowRootMigration: true,
+	})
 }
 
 func AddUserToQuotaPool(userId, targetPoolId, operatorId int) (*QuotaPoolMoveResult, error) {
@@ -110,6 +113,7 @@ func RemoveQuotaPoolMember(removal QuotaPoolMemberRemoval) (*QuotaPoolMoveResult
 type quotaPoolMoveOptions struct {
 	allowSystemTarget        bool
 	allowDisabledTarget      bool
+	allowRootMigration       bool
 	requireEligibleCandidate bool
 	requireCandidateSource   bool
 	requiredSourcePoolId     int
@@ -167,7 +171,21 @@ func prepareQuotaPoolMove(tx *gorm.DB, context *quotaPoolMoveContext) (*User, ma
 	if err := lockForUpdate(tx).Where("id = ?", context.userId).First(&user).Error; err != nil {
 		return nil, nil, err
 	}
-	if !IsQuotaPoolMemberRole(user.Role) ||
+	// Root 只开放系统迁移入口，不能经由添加成员或移除成员绕过权限边界。
+	if user.Role == common.RoleRootUser && context.options.allowRootMigration {
+		operator := User{Role: user.Role}
+		if context.operatorId != user.Id {
+			if err := tx.Select("role").Where("id = ?", context.operatorId).First(&operator).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return nil, nil, ErrQuotaPoolPermissionDenied
+				}
+				return nil, nil, err
+			}
+		}
+		if operator.Role != common.RoleRootUser {
+			return nil, nil, ErrQuotaPoolPermissionDenied
+		}
+	} else if !IsQuotaPoolMemberRole(user.Role) ||
 		(context.options.requireEligibleCandidate && user.Status != common.UserStatusEnabled) {
 		return nil, nil, ErrQuotaPoolCandidateInvalid
 	}

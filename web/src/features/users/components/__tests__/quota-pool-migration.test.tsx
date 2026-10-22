@@ -161,9 +161,9 @@ test('hides migration when disabled or the target role cannot join a pool', () =
 
   disabledFeature.unmount()
   useAuthStore.getState().auth.setUser({
-    id: 1,
-    username: 'root',
-    role: 100,
+    id: 2,
+    username: 'admin',
+    role: 10,
     quota_pool_enabled: true,
   })
   const rootTarget = renderRowActions({ ...targetUser, role: 100 })
@@ -176,6 +176,31 @@ test('hides migration when disabled or the target role cannot join a pool', () =
   expect(
     screen.queryByRole('button', { name: 'Move quota pool' })
   ).not.toBeInTheDocument()
+})
+
+test('root can move their own account to an enabled quota pool', async () => {
+  useAuthStore.getState().auth.setUser({
+    id: 1,
+    username: 'root',
+    role: 100,
+    quota_pool_enabled: true,
+  })
+  const user = userEvent.setup()
+  renderRowActions({ ...targetUser, id: 1, role: 100 })
+
+  await user.click(screen.getByRole('button', { name: 'Move quota pool' }))
+  await user.click(
+    await screen.findByRole('combobox', { name: 'Target quota pool' })
+  )
+  expect(
+    screen.queryByRole('option', { name: '停用池' })
+  ).not.toBeInTheDocument()
+  await user.click(await screen.findByRole('option', { name: '研发池' }))
+  await user.click(screen.getByRole('button', { name: 'Confirm move' }))
+
+  await waitFor(() =>
+    expect(quotaPoolApiMocks.moveUserQuotaPool).toHaveBeenCalledWith(1, 8)
+  )
 })
 
 test('announces quota pool loading failures', async () => {

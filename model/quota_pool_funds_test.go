@@ -151,22 +151,114 @@ func TestMoveUserQuotaPoolClearsNegativeBalanceWithoutCreditingOldPool(t *testin
 	assert.Equal(t, target.Id, user.QuotaPoolId)
 }
 
-func TestMoveUserQuotaPoolRejectsRootUser(t *testing.T) {
+func TestMoveRootUserQuotaPoolPreservesRoleAndReclaimsDisabledPoolBalance(t *testing.T) {
 	db := setupQuotaPoolFundsTestDB(t)
+	source := QuotaPool{Name: "停用来源池", PoolType: QuotaPoolTypeNormal, Enabled: false, BaseQuota: 100, Quota: 100}
 	target := QuotaPool{Name: "目标池", PoolType: QuotaPoolTypeNormal, Enabled: true, BaseQuota: 100, Quota: 100}
+	require.NoError(t, db.Create(&source).Error)
+	require.NoError(t, db.Model(&source).Update("enabled", false).Error)
 	require.NoError(t, db.Create(&target).Error)
 	root := User{
 		Username: "root-target", Password: "password", AffCode: "root-target",
-		Role: common.RoleRootUser, Status: common.UserStatusEnabled, Quota: 20,
+		Role: common.RoleRootUser, Status: common.UserStatusEnabled, Quota: 20, QuotaPoolId: source.Id,
 	}
 	require.NoError(t, db.Create(&root).Error)
 
-	_, err := MoveUserBetweenQuotaPools(root.Id, target.Id, true, 7)
+	result, err := MoveUserBetweenQuotaPools(root.Id, target.Id, true, root.Id)
 
-	assert.ErrorIs(t, err, ErrQuotaPoolCandidateInvalid)
+	require.NoError(t, err)
+	assert.True(t, result.Reclaimed)
 	require.NoError(t, db.First(&root, root.Id).Error)
-	assert.Zero(t, root.QuotaPoolId)
+	assert.Equal(t, common.RoleRootUser, root.Role)
+	assert.Equal(t, target.Id, root.QuotaPoolId)
+	assert.Zero(t, root.Quota)
+	require.NoError(t, db.First(&source, source.Id).Error)
+	assert.Equal(t, 120, source.Quota)
+	require.NoError(t, db.First(&target, target.Id).Error)
+	assert.Equal(t, 100, target.Quota)
+	var transaction QuotaPoolTransaction
+	require.NoError(t, db.Where("type = ?", QuotaPoolTransactionReclaimUser).First(&transaction).Error)
+	assert.Equal(t, 20, transaction.Amount)
+	assert.Equal(t, root.Id, transaction.UserId)
+	assert.Equal(t, root.Id, transaction.OperatorId)
+}
+
+func TestMoveRootUserQuotaPoolRejectsNonRootOperatorAndDisabledTarget(t *testing.T) {
+	for _, scenario := range []struct {
+		name         string
+		operatorRole int
+		enabled      bool
+		wantErr      error
+	}{
+		{name: "system admin cannot move root", operatorRole: common.RoleAdminUser, enabled: true, wantErr: ErrQuotaPoolPermissionDenied},
+		{name: "root cannot enter disabled pool", operatorRole: common.RoleRootUser, enabled: false, wantErr: ErrQuotaPoolDisabled},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			db := setupQuotaPoolFundsTestDB(t)
+			source, root := seedQuotaPoolMember(t, db, 100, 20)
+			require.NoError(t, db.Model(&root).Update("role", common.RoleRootUser).Error)
+			target := QuotaPool{Name: "目标池", PoolType: QuotaPoolTypeNormal, Enabled: scenario.enabled, Quota: 100}
+			require.NoError(t, db.Create(&target).Error)
+			require.NoError(t, db.Model(&target).Update("enabled", scenario.enabled).Error)
+			operator := User{Username: "operator", AffCode: "operator", Role: scenario.operatorRole, Status: common.UserStatusEnabled}
+			require.NoError(t, db.Create(&operator).Error)
+
+			_, err := MoveUserBetweenQuotaPools(root.Id, target.Id, true, operator.Id)
+
+			require.ErrorIs(t, err, scenario.wantErr)
+			require.NoError(t, db.First(&root, root.Id).Error)
+			assert.Equal(t, source.Id, root.QuotaPoolId)
+			assert.Equal(t, 20, root.Quota)
+			assert.Equal(t, common.RoleRootUser, root.Role)
+			require.NoError(t, db.First(&source, source.Id).Error)
+			assert.Equal(t, 100, source.Quota)
+			var count int64
+			require.NoError(t, db.Model(&QuotaPoolTransaction{}).Count(&count).Error)
+			assert.Zero(t, count)
+		})
+	}
+}
+
+func TestRootOperatorMovesRootWithoutOriginalPool(t *testing.T) {
+	db := setupQuotaPoolFundsTestDB(t)
+	target := QuotaPool{Name: "root-target-pool", PoolType: QuotaPoolTypeNormal, Enabled: true, Quota: 100}
+	require.NoError(t, db.Create(&target).Error)
+	operator := User{Username: "root-operator", AffCode: "root-operator", Role: common.RoleRootUser, Status: common.UserStatusEnabled}
+	root := User{Username: "root-member", AffCode: "root-member", Role: common.RoleRootUser, Status: common.UserStatusEnabled, Quota: 20}
+	require.NoError(t, db.Create(&operator).Error)
+	require.NoError(t, db.Create(&root).Error)
+
+	result, err := MoveUserBetweenQuotaPools(root.Id, target.Id, true, operator.Id)
+
+	require.NoError(t, err)
+	assert.False(t, result.Reclaimed)
+	require.NoError(t, db.First(&root, root.Id).Error)
+	assert.Equal(t, common.RoleRootUser, root.Role)
+	assert.Equal(t, target.Id, root.QuotaPoolId)
+	assert.Zero(t, root.Quota)
+	require.NoError(t, db.First(&target, target.Id).Error)
+	assert.Equal(t, 100, target.Quota)
+	var count int64
+	require.NoError(t, db.Model(&QuotaPoolTransaction{}).Count(&count).Error)
+	assert.Zero(t, count)
+}
+
+func TestAllocateQuotaFromDisabledPoolRejectsRootUser(t *testing.T) {
+	db := setupQuotaPoolFundsTestDB(t)
+	pool, root := seedQuotaPoolMember(t, db, 100, 20)
+	require.NoError(t, db.Model(&root).Update("role", common.RoleRootUser).Error)
+	require.NoError(t, db.Model(&pool).Update("enabled", false).Error)
+
+	_, err := AllocateQuotaFromPool(pool.Id, root.Id, 10, QuotaPoolTransactionAllocateManual, root.Id)
+
+	require.ErrorIs(t, err, ErrQuotaPoolDisabled)
+	require.NoError(t, db.First(&pool, pool.Id).Error)
+	require.NoError(t, db.First(&root, root.Id).Error)
+	assert.Equal(t, 100, pool.Quota)
 	assert.Equal(t, 20, root.Quota)
+	var count int64
+	require.NoError(t, db.Model(&QuotaPoolTransaction{}).Count(&count).Error)
+	assert.Zero(t, count)
 }
 
 func TestAddUserToQuotaPoolRejectsIneligibleCandidates(t *testing.T) {

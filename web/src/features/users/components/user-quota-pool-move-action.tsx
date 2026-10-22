@@ -80,7 +80,9 @@ export function UserQuotaPoolMoveAction(props: {
   const canMove = Boolean(
     currentUser?.quota_pool_enabled &&
     currentUser.role >= USER_ROLE.ADMIN &&
-    QUOTA_POOL_MEMBER_ROLES.has(props.user.role)
+    (QUOTA_POOL_MEMBER_ROLES.has(props.user.role) ||
+      (props.user.role === USER_ROLE.ROOT &&
+        currentUser.role === USER_ROLE.ROOT))
   )
   if (!canMove) return null
 
