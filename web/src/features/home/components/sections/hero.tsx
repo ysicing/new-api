@@ -56,6 +56,7 @@ export function Hero(props: HeroProps) {
     if (isExternal) {
       return (
         <Button
+          hidden
           variant='outline'
           className='group border-border/50 hover:border-border hover:bg-muted/50 inline-flex h-11 items-center gap-1.5 rounded-lg px-5 text-sm font-medium'
           render={
@@ -69,6 +70,7 @@ export function Hero(props: HeroProps) {
     }
     return (
       <Button
+        hidden
         variant='outline'
         className='group border-border/50 hover:border-border hover:bg-muted/50 inline-flex h-11 items-center gap-1.5 rounded-lg px-5 text-sm font-medium'
         render={<Link to={docsUrl} />}

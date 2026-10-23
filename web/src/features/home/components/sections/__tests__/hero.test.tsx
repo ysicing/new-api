@@ -8,9 +8,13 @@ the Free Software Foundation, either version 3 of the License, or
 */
 import { render, screen } from '@testing-library/react'
 import type { AnchorHTMLAttributes } from 'react'
-import { expect, test, vi } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 
 import { Hero } from '../hero'
+
+const status = vi.hoisted(() => ({
+  docs_link: undefined as string | undefined,
+}))
 
 vi.mock('@lobehub/icons', () => ({
   CherryStudio: { Color: () => <span>Cherry Studio icon</span> },
@@ -27,23 +31,38 @@ vi.mock('../../hero-terminal-demo', () => ({
 }))
 
 vi.mock('@/hooks/use-status', () => ({
-  useStatus: () => ({ status: null }),
+  useStatus: () => ({ status }),
 }))
 
-test.each([
-  { isAuthenticated: false, primaryAction: 'Get Started' },
-  { isAuthenticated: true, primaryAction: 'Go to Dashboard' },
-])(
-  'hero preserves upstream Docs when authenticated is $isAuthenticated',
-  ({ isAuthenticated, primaryAction }) => {
-    render(<Hero isAuthenticated={isAuthenticated} />)
+describe.each([undefined, 'https://example.com/docs', '/docs'])(
+  'homepage with docs link %s',
+  (docsLink) => {
+    test.each([
+      { isAuthenticated: false, primaryAction: 'Get Started' },
+      { isAuthenticated: true, primaryAction: 'Go to Dashboard' },
+    ])(
+      'hides Docs and preserves primary actions when authenticated is $isAuthenticated',
+      ({ isAuthenticated, primaryAction }) => {
+        status.docs_link = docsLink
+        render(<Hero isAuthenticated={isAuthenticated} />)
 
-    expect(
-      screen.getByRole('button', { name: primaryAction })
-    ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Docs' })).toHaveAttribute(
-      'href',
-      'https://docs.newapi.pro'
+        expect(
+          screen.getByRole('button', { name: primaryAction })
+        ).toBeVisible()
+        expect(
+          screen.queryByRole('button', { name: 'Docs' })
+        ).not.toBeInTheDocument()
+        expect(screen.getByText('Docs')).not.toBeVisible()
+        expect(screen.getByText('Docs').closest('a')).toHaveAttribute(
+          'href',
+          docsLink || 'https://docs.newapi.pro'
+        )
+        if (!isAuthenticated) {
+          expect(
+            screen.getByRole('button', { name: 'View Pricing' })
+          ).toBeVisible()
+        }
+      }
     )
   }
 )
