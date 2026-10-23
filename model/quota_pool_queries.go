@@ -1,0 +1,295 @@
+package model
+
+import (
+	"strconv"
+	"strings"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+)
+
+func ListQuotaPoolItems() ([]QuotaPoolListItem, error) {
+	items, _, err := ListQuotaPoolItemsPage("", nil)
+	return items, err
+}
+
+func ListQuotaPoolItemsPage(keyword string, page *common.PageInfo) ([]QuotaPoolListItem, int64, error) {
+	query := DB.Model(&QuotaPool{})
+	keyword = strings.TrimSpace(keyword)
+	if keyword != "" {
+		escapedKeyword := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(strings.ToLower(keyword))
+		like := "%" + escapedKeyword + "%"
+		if poolId, err := strconv.Atoi(keyword); err == nil {
+			query = query.Where("(id = ? OR LOWER(name) LIKE ? ESCAPE '!')", poolId, like)
+		} else {
+			query = query.Where("LOWER(name) LIKE ? ESCAPE '!'", like)
+		}
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if page != nil {
+		if page.PageSize < 1 {
+			page.PageSize = common.ItemsPerPage
+		}
+		lastPage := int64(1)
+		if total > 0 {
+			lastPage = (total-1)/int64(page.PageSize) + 1
+		}
+		if page.Page < 1 {
+			page.Page = 1
+		} else if int64(page.Page) > lastPage {
+			page.Page = int(lastPage)
+		}
+		query = query.Offset(page.GetStartIdx()).Limit(page.GetPageSize())
+	}
+	var pools []QuotaPool
+	if err := query.Order("id ASC").Find(&pools).Error; err != nil {
+		return nil, 0, err
+	}
+	items := make([]QuotaPoolListItem, 0, len(pools))
+	for _, pool := range pools {
+		item, err := buildQuotaPoolListItem(pool)
+		if err != nil {
+			return nil, 0, err
+		}
+		items = append(items, item)
+	}
+	return items, total, nil
+}
+
+func GetQuotaPoolListItemById(poolId int) (*QuotaPoolListItem, error) {
+	pool, err := GetQuotaPoolById(poolId)
+	if err != nil {
+		return nil, err
+	}
+	item, err := buildQuotaPoolListItem(*pool)
+	return &item, err
+}
+
+func GetNewUserQuotaPool() (*QuotaPool, error) {
+	var pool QuotaPool
+	if err := DB.Where("pool_type = ?", QuotaPoolTypeNewUser).
+		Order("id ASC").First(&pool).Error; err != nil {
+		return nil, mapQuotaPoolRecordError(err)
+	}
+	return &pool, nil
+}
+
+func GetQuotaPoolAuditName(poolId int) (string, error) {
+	var pool QuotaPool
+	if err := DB.Unscoped().Select("name").Where("id = ?", poolId).
+		First(&pool).Error; err != nil {
+		return "", mapQuotaPoolRecordError(err)
+	}
+	return pool.Name, nil
+}
+
+func buildQuotaPoolListItem(pool QuotaPool) (QuotaPoolListItem, error) {
+	config := operation_setting.GetAutoRechargeSetting()
+	item := QuotaPoolListItem{
+		QuotaPool: pool,
+		SystemAutoRecharge: QuotaPoolSystemAutoRecharge{
+			Enabled: config.Enabled, Interval: config.Interval,
+			Threshold:   int(float64(config.Threshold) * common.QuotaPerUnit),
+			Amount:      int(float64(config.Amount) * common.QuotaPerUnit),
+			WeeklyLimit: config.WeeklyLimit, MonthlyLimit: config.MonthlyLimit,
+		},
+	}
+	if err := DB.Model(&User{}).Where("quota_pool_id = ?", pool.Id).Count(&item.MemberCount).Error; err != nil {
+		return item, err
+	}
+	if err := DB.Model(&QuotaPoolAdmin{}).Where("pool_id = ?", pool.Id).Count(&item.AdminCount).Error; err != nil {
+		return item, err
+	}
+	return item, nil
+}
+
+func ListQuotaPoolMembers(poolId int, keyword string, page *common.PageInfo) ([]QuotaPoolMember, int64, error) {
+	query := DB.Model(&User{}).Where("quota_pool_id = ?", poolId)
+	keyword = strings.TrimSpace(keyword)
+	if keyword != "" {
+		escapedKeyword := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(strings.ToLower(keyword))
+		like := "%" + escapedKeyword + "%"
+		if userId, err := strconv.Atoi(keyword); err == nil {
+			query = query.Where("(id = ? OR LOWER(username) LIKE ? ESCAPE '!' OR LOWER(display_name) LIKE ? ESCAPE '!' OR LOWER(email) LIKE ? ESCAPE '!' OR LOWER(department) LIKE ? ESCAPE '!')", userId, like, like, like, like)
+		} else {
+			query = query.Where("(LOWER(username) LIKE ? ESCAPE '!' OR LOWER(display_name) LIKE ? ESCAPE '!' OR LOWER(email) LIKE ? ESCAPE '!' OR LOWER(department) LIKE ? ESCAPE '!')", like, like, like, like)
+		}
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var users []User
+	if err := query.Order("id ASC").Offset(page.GetStartIdx()).Limit(page.GetPageSize()).Find(&users).Error; err != nil {
+		return nil, 0, err
+	}
+	administrators, err := quotaPoolAdministrators(poolId)
+	if err != nil {
+		return nil, 0, err
+	}
+	items := make([]QuotaPoolMember, 0, len(users))
+	for _, user := range users {
+		items = append(items, QuotaPoolMember{
+			Id: user.Id, Username: user.Username, DisplayName: user.DisplayName,
+			Email: user.Email, Department: user.Department, Role: user.Role, Status: user.Status,
+			QuotaFrozen: user.QuotaFrozen,
+			Quota:       user.Quota, UsedQuota: user.UsedQuota, QuotaPoolId: user.QuotaPoolId,
+			QuotaPoolAdmin: administrators[user.Id],
+		})
+	}
+	return items, total, nil
+}
+
+func quotaPoolAdministrators(poolId int) (map[int]bool, error) {
+	var admins []QuotaPoolAdmin
+	if err := DB.Where("pool_id = ?", poolId).Find(&admins).Error; err != nil {
+		return nil, err
+	}
+	result := make(map[int]bool, len(admins))
+	for _, admin := range admins {
+		result[admin.UserId] = true
+	}
+	return result, nil
+}
+
+func ListQuotaPoolAdminContacts(poolId int) ([]QuotaPoolAdminContact, error) {
+	var admins []QuotaPoolAdmin
+	if err := DB.Where("pool_id = ?", poolId).Find(&admins).Error; err != nil {
+		return nil, err
+	}
+	ids := make([]int, 0, len(admins))
+	for _, admin := range admins {
+		ids = append(ids, admin.UserId)
+	}
+	if len(ids) == 0 {
+		return []QuotaPoolAdminContact{}, nil
+	}
+	var users []User
+	if err := DB.Select("id", "username", "display_name", "email").Where("id IN ?", ids).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	contacts := make([]QuotaPoolAdminContact, 0, len(users))
+	for _, user := range users {
+		contacts = append(contacts, QuotaPoolAdminContact{Id: user.Id, Username: user.Username, DisplayName: user.DisplayName, Email: user.Email})
+	}
+	return contacts, nil
+}
+
+// ListAvailableQuotaPoolDirectory 返回启用的普通额度池及其负责人联系方式。
+// 目录不包含额度、成员数量等管理字段，供新用户只读选择部门负责人。
+func ListAvailableQuotaPoolDirectory() ([]QuotaPoolDirectoryItem, error) {
+	var pools []QuotaPool
+	if err := DB.Select("id", "name").
+		Where("pool_type = ? AND enabled = ?", QuotaPoolTypeNormal, true).
+		Order("name ASC, id ASC").Find(&pools).Error; err != nil {
+		return nil, err
+	}
+	items := make([]QuotaPoolDirectoryItem, 0, len(pools))
+	for _, pool := range pools {
+		contacts, err := ListQuotaPoolAdminContacts(pool.Id)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, QuotaPoolDirectoryItem{
+			Id: pool.Id, Name: pool.Name, AdminContacts: contacts,
+		})
+	}
+	return items, nil
+}
+
+func ListQuotaPoolCandidates(keyword string, page *common.PageInfo) ([]QuotaPoolMember, int64, error) {
+	var newUserPool QuotaPool
+	if err := DB.Where("pool_type = ?", QuotaPoolTypeNewUser).First(&newUserPool).Error; err != nil {
+		return nil, 0, mapQuotaPoolRecordError(err)
+	}
+	query := DB.Model(&User{}).Where(
+		"quota_pool_id = ? AND role IN ? AND status = ?",
+		newUserPool.Id,
+		[]int{common.RoleCommonUser, common.RoleQuotaPoolSuperAdmin, common.RoleAdminUser},
+		common.UserStatusEnabled,
+	)
+	keyword = strings.TrimSpace(keyword)
+	if keyword != "" {
+		escapedKeyword := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(strings.ToLower(keyword))
+		like := "%" + escapedKeyword + "%"
+		if userId, err := strconv.Atoi(keyword); err == nil {
+			query = query.Where("(id = ? OR LOWER(username) LIKE ? ESCAPE '!' OR LOWER(display_name) LIKE ? ESCAPE '!' OR LOWER(email) LIKE ? ESCAPE '!' OR LOWER(department) LIKE ? ESCAPE '!')", userId, like, like, like, like)
+		} else {
+			query = query.Where("(LOWER(username) LIKE ? ESCAPE '!' OR LOWER(display_name) LIKE ? ESCAPE '!' OR LOWER(email) LIKE ? ESCAPE '!' OR LOWER(department) LIKE ? ESCAPE '!')", like, like, like, like)
+		}
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var users []User
+	if err := query.Order("id ASC").Offset(page.GetStartIdx()).Limit(page.GetPageSize()).Find(&users).Error; err != nil {
+		return nil, 0, err
+	}
+	items := make([]QuotaPoolMember, 0, len(users))
+	for _, user := range users {
+		items = append(items, QuotaPoolMember{Id: user.Id, Username: user.Username, DisplayName: user.DisplayName, Email: user.Email, Department: user.Department, Role: user.Role, Status: user.Status, QuotaFrozen: user.QuotaFrozen, Quota: user.Quota, UsedQuota: user.UsedQuota, QuotaPoolId: user.QuotaPoolId})
+	}
+	return items, total, nil
+}
+
+func ListQuotaPoolTransactions(poolId int, page *common.PageInfo, transactionType, keyword string) ([]QuotaPoolTransactionItem, int64, error) {
+	query := DB.Model(&QuotaPoolTransaction{}).Where("pool_id = ?", poolId)
+	if transactionType = strings.TrimSpace(transactionType); transactionType != "" {
+		query = query.Where("type = ?", transactionType)
+	}
+	if keyword = strings.TrimSpace(keyword); keyword != "" {
+		like := "%" + strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(strings.ToLower(keyword)) + "%"
+		users := DB.Model(&User{}).Select("id").Where("LOWER(username) LIKE ? ESCAPE '!' OR LOWER(display_name) LIKE ? ESCAPE '!'", like, like)
+		// 在池范围内按历史交易的成员或操作人搜索，不限定用户当前所属池。
+		if userID, err := strconv.Atoi(keyword); err == nil && userID > 0 {
+			query = query.Where("(user_id IN (?) OR operator_id IN (?) OR user_id = ? OR operator_id = ?)", users, users, userID, userID)
+		} else {
+			query = query.Where("(user_id IN (?) OR operator_id IN (?))", users, users)
+		}
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var records []QuotaPoolTransaction
+	if err := query.Order("id DESC").Offset(page.GetStartIdx()).Limit(page.GetPageSize()).Find(&records).Error; err != nil {
+		return nil, 0, err
+	}
+	names, err := quotaPoolTransactionUserNames(records)
+	if err != nil {
+		return nil, 0, err
+	}
+	items := make([]QuotaPoolTransactionItem, 0, len(records))
+	for _, record := range records {
+		items = append(items, QuotaPoolTransactionItem{QuotaPoolTransaction: record, UserName: names[record.UserId], OperatorName: names[record.OperatorId]})
+	}
+	return items, total, nil
+}
+
+func quotaPoolTransactionUserNames(records []QuotaPoolTransaction) (map[int]string, error) {
+	ids := make([]int, 0, len(records)*2)
+	for _, record := range records {
+		if record.UserId > 0 {
+			ids = append(ids, record.UserId)
+		}
+		if record.OperatorId > 0 {
+			ids = append(ids, record.OperatorId)
+		}
+	}
+	var users []User
+	if len(ids) > 0 {
+		if err := DB.Select("id", "username").Where("id IN ?", ids).Find(&users).Error; err != nil {
+			return nil, err
+		}
+	}
+	names := make(map[int]string, len(users))
+	for _, user := range users {
+		names[user.Id] = user.Username
+	}
+	return names, nil
+}

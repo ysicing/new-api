@@ -32,6 +32,17 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+var notifySensitiveWordsDetected = service.NotifySensitiveWordsDetected
+
+func newSensitiveWordsDetectedError() *types.NewAPIError {
+	return types.NewError(
+		errors.New("请求触发敏感词审查，请修改后重试"),
+		types.ErrorCodeSensitiveWordsDetected,
+		types.ErrOptionWithStatusCode(http.StatusForbidden),
+		types.ErrOptionWithSkipRetry(),
+	)
+}
+
 func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
 	var err *types.NewAPIError
 	switch info.RelayMode {
@@ -70,6 +81,7 @@ func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewA
 }
 
 func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+	defer service.ReleaseChannelConcurrency(c)
 
 	requestId := c.GetString(common.RequestIdKey)
 	//group := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
@@ -158,6 +170,21 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	if newAPIError = relay.PrepareRequestBilling(c, relayInfo); newAPIError != nil {
+		if newAPIError.GetErrorCode() == types.ErrorCodeSensitiveWordsDetected {
+			meta := request.GetTokenCountMeta()
+			_, words := service.CheckSensitiveText(meta.CombineText)
+			newAPIError = newSensitiveWordsDetectedError()
+			logSensitivePromptAudit(c, meta.CombineText)
+			notifySensitiveWordsDetected(relayInfo.UserId, words)
+			if constant.ErrorLogEnabled {
+				other := model.NewLogOther()
+				other.SetPublic("error_code", newAPIError.GetErrorCode())
+				other.SetPublic("status_code", newAPIError.StatusCode)
+				service.AppendRelayLogAdminInfo(c, relayInfo, other)
+				model.RecordErrorLog(c, relayInfo.UserId, c.GetInt("channel_id"), relayInfo.OriginModelName, c.GetString("token_name"), newAPIError.MaskSensitiveErrorWithStatusCode()+", sensitive_words="+strings.Join(words, ", "), c.GetInt("token_id"), 0, relayInfo.IsStream, relayInfo.UserGroup, other)
+			}
+		}
+
 		return
 	}
 	defer func() {
@@ -320,6 +347,12 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		return nil, types.NewError(errors.New(i18n.T(c, i18n.MsgRelayRetryNoAvailableChannel, map[string]any{"Group": selectGroup, "Model": info.OriginModelName})), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 
+	var capacityErr *types.NewAPIError
+	channel, capacityErr = service.ReserveChannelForRequest(c, channel)
+	if capacityErr != nil {
+		return nil, capacityErr
+	}
+
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 
 	service.RequestPolicy(c).BeginAttempt(channel, selectGroup)
@@ -335,6 +368,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 }
 
 func RelayMidjourney(c *gin.Context) {
+	defer service.ReleaseChannelConcurrency(c)
 	policy := service.RequestPolicy(c)
 	defer func() {
 		if policy.Attempts > 0 && !policy.Successful {
@@ -370,6 +404,9 @@ func RelayMidjourney(c *gin.Context) {
 	if mjErr != nil {
 		policy.Successful = false
 		statusCode := http.StatusBadRequest
+		if mjErr.Code == http.StatusServiceUnavailable {
+			statusCode = http.StatusServiceUnavailable
+		}
 		if mjErr.Code == 30 {
 			mjErr.Result = i18n.T(c, i18n.MsgRelayGroupSaturated)
 			statusCode = http.StatusTooManyRequests
@@ -465,6 +502,7 @@ type taskSubmissionOutcome struct {
 }
 
 func RelayTask(c *gin.Context) {
+	defer service.ReleaseChannelConcurrency(c)
 	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
 	if err != nil {
 		respondTaskSubmissionError(c, &taskdto.TaskError{
@@ -561,12 +599,16 @@ func executeTaskSubmissionWith(
 			channel, channelErr = getChannel(c, relayInfo, retryParam)
 			if channelErr != nil {
 				logger.LogError(c, channelErr.Error())
-				taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", channelErr.StatusCode)
+				taskErr = service.TaskErrorWrapperLocal(channelErr.Err, string(channelErr.GetErrorCode()), channelErr.StatusCode)
 				break
 			}
 		}
 		diagnostics.attempt(retryParam.GetRetry()+1, channel, relayInfo.LockedChannel != nil)
 
+		if _, capacityErr := service.ReserveChannelForRequest(c, channel); capacityErr != nil {
+			taskErr = service.TaskErrorWrapperLocal(capacityErr.Err, string(capacityErr.GetErrorCode()), capacityErr.StatusCode)
+			break
+		}
 		service.AppendUsedChannel(c, channel.Id)
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
@@ -863,4 +905,23 @@ func decideTaskRetry(c *gin.Context, taskErr *taskdto.TaskError, retryTimes int)
 		return retry
 	}
 	return stop
+}
+
+func logSensitivePromptAudit(c *gin.Context, prompt string) {
+	payload, err := common.Marshal(struct {
+		Event     string `json:"event"`
+		UserId    int    `json:"user_id"`
+		RequestId string `json:"request_id"`
+		Prompt    string `json:"prompt"`
+	}{
+		Event: "sensitive_word_prompt", UserId: c.GetInt("id"),
+		RequestId: c.GetString(common.RequestIdKey), Prompt: prompt,
+	})
+	if err != nil {
+		logger.LogError(c, fmt.Sprintf("marshal sensitive prompt audit log: %s", err.Error()))
+		return
+	}
+	common.LogWriterMu.RLock()
+	_, _ = fmt.Fprintln(gin.DefaultWriter, string(payload))
+	common.LogWriterMu.RUnlock()
 }

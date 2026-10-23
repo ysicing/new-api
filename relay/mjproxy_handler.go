@@ -323,6 +323,13 @@ func RelayMidjourneyTaskImageSeed(c *gin.Context) *dto.MidjourneyResponse {
 	if channel.Status != common.ChannelStatusEnabled {
 		return service.MidjourneyErrorWrapper(constant.MjRequestError, i18n.T(c, i18n.MsgRelayTaskChannelDisabled))
 	}
+	if _, capacityErr := service.ReserveChannelForRequest(c, channel); capacityErr != nil {
+		code := 30
+		if capacityErr.StatusCode != http.StatusTooManyRequests {
+			code = http.StatusServiceUnavailable
+		}
+		return service.MidjourneyErrorWrapper(code, capacityErr.Error())
+	}
 	c.Set("channel_id", originTask.ChannelId)
 	c.Request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", channel.Key))
 
@@ -498,6 +505,13 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 				return service.MidjourneyErrorWrapper(constant.MjRequestError, i18n.T(c, i18n.MsgRelayTaskChannelDisabled))
 			}
 			c.Set("base_url", channel.GetBaseURL())
+			if _, capacityErr := service.ReserveChannelForRequest(c, channel); capacityErr != nil {
+				code := 30
+				if capacityErr.StatusCode != http.StatusTooManyRequests {
+					code = http.StatusServiceUnavailable
+				}
+				return service.MidjourneyErrorWrapper(code, capacityErr.Error())
+			}
 			c.Set("channel_id", originTask.ChannelId)
 			c.Request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", channel.Key))
 			logger.LogDebug(c, "Midjourney action uses origin channel: id=%s, base_url=%s", strconv.Itoa(originTask.ChannelId), channel.GetBaseURL())

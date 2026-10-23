@@ -140,6 +140,51 @@ export type SystemTaskFilters = {
   offset?: number
 }
 
+export type DingTalkNotificationStatus =
+  | 'pending'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'skipped'
+
+export type DingTalkNotificationRecord = {
+  id: number
+  event_type: string
+  dedupe_key: string
+  user_id: number
+  username: string
+  recipient: string
+  title: string
+  content: string
+  status: DingTalkNotificationStatus
+  error: string
+  metadata: string
+  sent_at: number
+  created_at: number
+  updated_at: number
+}
+
+export type DingTalkNotificationListResponse = {
+  success: boolean
+  message: string
+  data?: {
+    page: number
+    page_size: number
+    total: number
+    items: DingTalkNotificationRecord[]
+  }
+}
+
+export type DingTalkNotificationListParams = {
+  page: number
+  pageSize: number
+  eventType?: string
+  status?: DingTalkNotificationStatus | ''
+  keyword?: string
+  startTimestamp?: number
+  endTimestamp?: number
+}
+
 export type SiteSettings = {
   Notice: string
   SystemName: string
@@ -171,6 +216,11 @@ export type AuthSettings = {
   'discord.enabled': boolean
   'discord.client_id': string
   'discord.client_secret': string
+  'dingtalk.enabled': boolean
+  'dingtalk.corp_id': string
+  'dingtalk.client_id': string
+  'dingtalk.client_secret': string
+  'dingtalk.announcement_group_open_conversation_id': string
   'oidc.enabled': boolean
   'oidc.display_name': string
   'oidc.client_id': string
@@ -203,6 +253,15 @@ export type AuthSettings = {
   'passkey.allow_insecure_origin': boolean
   'passkey.user_verification': 'required' | 'preferred' | 'discouraged'
   'passkey.attachment_preference': '' | 'platform' | 'cross-platform'
+  'ldap.enabled': boolean
+  'ldap.ldap_url': string
+  'ldap.ldap_search_dn': string
+  'ldap.ldap_search_password': string
+  'ldap.ldap_base_dn': string
+  'ldap.ldap_filter': string
+  'ldap.ldap_uid': string
+  'ldap.ldap_scope': number
+  'ldap.ldap_connection_timeout': number
 }
 
 export type ContentSettings = {
@@ -271,6 +330,7 @@ export type ModelSettings = {
 }
 
 export type BillingSettings = {
+  SelfUseModeEnabled: boolean
   QuotaForNewUser: number
   QuotaForInviter: number
   QuotaForInvitee: number
@@ -382,6 +442,13 @@ export type OperationsSettings = {
   LogConsumeEnabled: boolean
   'log_setting.user_export_enabled': boolean
   'log_setting.max_range_days': number
+  QuotaPoolEnabled: boolean
+  'auto_recharge_setting.enabled': boolean
+  'auto_recharge_setting.interval': number
+  'auto_recharge_setting.threshold': number
+  'auto_recharge_setting.amount': number
+  'auto_recharge_setting.weekly_limit': number
+  'auto_recharge_setting.monthly_limit': number
   'performance_setting.disk_cache_enabled': boolean
   'performance_setting.disk_cache_threshold_mb': number
   'performance_setting.disk_cache_max_size_mb': number
@@ -405,6 +472,7 @@ export type SecuritySettings = {
   CheckSensitiveEnabled: boolean
   CheckSensitiveOnPromptEnabled: boolean
   SensitiveWords: string
+  SensitiveWordContactMessage: string
   'fetch_setting.enable_ssrf_protection': boolean
   'fetch_setting.allow_private_ip': boolean
   'fetch_setting.domain_filter_mode': boolean

@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Shield, User, Users } from 'lucide-react'
+import { Shield, ShieldCheck, User, Users } from 'lucide-react'
 
 import type { User as UserType } from './types'
 
@@ -35,6 +35,7 @@ export const isUserDeleted = (user: UserType): boolean => {
 export const USER_STATUS = {
   ENABLED: 1,
   DISABLED: 2,
+  FROZEN: 3,
   DELETED: -1,
 } as const
 
@@ -59,6 +60,7 @@ export const USER_STATUSES = {
 export const getUserStatusOptions = (t: (key: string) => string) => [
   { label: t('Enabled'), value: String(USER_STATUS.ENABLED) },
   { label: t('Disabled'), value: String(USER_STATUS.DISABLED) },
+  { label: t('Quota frozen'), value: String(USER_STATUS.FROZEN) },
   { label: t('Deleted'), value: String(USER_STATUS.DELETED) },
 ]
 
@@ -68,6 +70,7 @@ export const getUserStatusOptions = (t: (key: string) => string) => [
 
 export const USER_ROLE = {
   USER: 1,
+  QUOTA_POOL_SUPER_ADMIN: 2,
   ADMIN: 10,
   ROOT: 100,
 } as const
@@ -77,6 +80,11 @@ export const USER_ROLES = {
     labelKey: 'User',
     value: USER_ROLE.USER,
     icon: User,
+  },
+  [USER_ROLE.QUOTA_POOL_SUPER_ADMIN]: {
+    labelKey: 'Pool Super Admin',
+    value: USER_ROLE.QUOTA_POOL_SUPER_ADMIN,
+    icon: ShieldCheck,
   },
   [USER_ROLE.ADMIN]: {
     labelKey: 'Admin',
@@ -92,6 +100,11 @@ export const USER_ROLES = {
 
 export const getUserRoleOptions = (t: (key: string) => string) => [
   { label: t('User'), value: String(USER_ROLE.USER), icon: User },
+  {
+    label: t('Pool Super Admin'),
+    value: String(USER_ROLE.QUOTA_POOL_SUPER_ADMIN),
+    icon: ShieldCheck,
+  },
   { label: t('Admin'), value: String(USER_ROLE.ADMIN), icon: Users },
   { label: t('Root'), value: String(USER_ROLE.ROOT), icon: Shield },
 ]

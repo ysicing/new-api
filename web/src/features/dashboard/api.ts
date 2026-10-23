@@ -66,6 +66,32 @@ export async function getUserQuotaDataByUsers(params: {
   return res.data
 }
 
+export interface DailyActiveUserStat {
+  date: string
+  active_users: number
+}
+
+export interface ActiveUserStatsData {
+  total_active_users: number
+  daily: DailyActiveUserStat[]
+}
+
+export async function getActiveUserStats(params: {
+  start_timestamp: number
+  end_timestamp: number
+}) {
+  const response = await api.get<{
+    success: boolean
+    message: string
+    data: ActiveUserStatsData
+    generated_at: number
+  }>('/api/data/active-users', { params })
+  if (!response.data.success) {
+    throw new Error(response.data.message || 'Request failed')
+  }
+  return response.data
+}
+
 export async function getFlowQuotaDates(
   params: {
     start_timestamp: number
@@ -90,4 +116,81 @@ export async function getUptimeStatus() {
     '/api/uptime/status'
   )
   return res.data
+}
+
+export type OperationsStatsPeriod = 'week' | 'month'
+export type OperationsStatsRefreshSchedule = 'every_5_minutes'
+
+export interface OperationsStatsUserStat {
+  user_id: number
+  username: string
+  used_quota: number
+  auto_recharge_count?: number
+  temp_quota_count?: number
+  total_count?: number
+}
+
+interface OperationsStatsResponse<T> {
+  success: boolean
+  message: string
+  data: T
+  refreshing: boolean
+  generated_at: number
+  refresh_schedule: OperationsStatsRefreshSchedule
+}
+
+export async function getTopUsers(
+  limit = 10,
+  period: OperationsStatsPeriod = 'week'
+) {
+  const response = await api.get<
+    OperationsStatsResponse<OperationsStatsUserStat[]>
+  >('/api/log/top_users', { params: { limit, period } })
+  if (!response.data.success) {
+    throw new Error(response.data.message || 'Request failed')
+  }
+  return response.data
+}
+
+export async function getRechargeLeaderboard(
+  limit = 10,
+  period: OperationsStatsPeriod = 'week'
+) {
+  const response = await api.get<
+    OperationsStatsResponse<{
+      list: OperationsStatsUserStat[]
+      weekly_limit: number
+    }>
+  >('/api/log/recharge_leaderboard', { params: { limit, period } })
+  if (!response.data.success) {
+    throw new Error(response.data.message || 'Request failed')
+  }
+  return response.data
+}
+
+export type ModelStatisticsPeriod = 'week' | 'month'
+export type ModelStatisticsScope = 'all' | 'self'
+
+export interface ModelStatisticItem {
+  model_name: string
+  count: number
+  quota: number
+  share: number
+}
+
+export async function getModelStatistics(
+  period: ModelStatisticsPeriod,
+  scope: ModelStatisticsScope
+) {
+  const response = await api.get<{
+    success: boolean
+    message: string
+    data: ModelStatisticItem[]
+    generated_at: number
+    refresh_schedule: OperationsStatsRefreshSchedule
+  }>('/api/data/model-statistics', { params: { period, scope } })
+  if (!response.data.success) {
+    throw new Error(response.data.message || 'Request failed')
+  }
+  return response.data
 }

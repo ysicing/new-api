@@ -17,6 +17,36 @@ import (
 	"gorm.io/gorm/schema"
 )
 
+func TestQuotaPoolSuperAdminAuditRemainsVisibleWithoutExposingRoot(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&AuditLog{}))
+	previousLogDB, previousType := LOG_DB, common.LogDatabaseType()
+	LOG_DB = db
+	common.SetLogDatabaseType(common.DatabaseTypeSQLite)
+	t.Cleanup(func() {
+		LOG_DB = previousLogDB
+		common.SetLogDatabaseType(previousType)
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		assert.NoError(t, sqlDB.Close())
+	})
+	for _, role := range []int{common.RoleQuotaPoolSuperAdmin, common.RoleRootUser, 0} {
+		RecordAuditLog(nil, AuditLog{
+			UserId: 42, Username: "pool-operator", ActorRole: role, Category: AuditCategoryOperation,
+			Action: "quota_pool.update", Success: true,
+		})
+	}
+	logs, total, err := GetAuditLogs(AuditLogFilter{UserId: 42, SelfView: true}, 0, 10, common.RoleQuotaPoolSuperAdmin)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	require.Len(t, logs, 1)
+	assert.Equal(t, common.RoleQuotaPoolSuperAdmin, logs[0].ActorRole)
+	_, total, err = GetAuditLogs(AuditLogFilter{}, 0, 10, common.RoleRootUser)
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, total)
+}
+
 // TestAuditLogSortIndexDatabaseMatrix verifies audit ordering and index migrations across supported databases.
 func TestAuditLogSortIndexDatabaseMatrix(t *testing.T) {
 	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {

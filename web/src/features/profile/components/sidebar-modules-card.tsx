@@ -131,6 +131,11 @@ export function SidebarModulesCard() {
           title: t('Security & Access'),
           description: t('Manage your security settings and account access'),
         },
+        {
+          key: 'tools',
+          title: t('Tools'),
+          description: t('Account self-service queries and diagnostics.'),
+        },
       ],
     },
   ]

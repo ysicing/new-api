@@ -69,6 +69,10 @@ var accessTokenStaticResources = []AccessTokenResource{
 		accessTokenView("View balance, top-up records, subscriptions, and referral information."),
 		accessTokenEdit("Top up, pay for subscriptions, check in, and transfer referral rewards."),
 	}},
+	{Resource: "quota_pool", LabelKey: "Quota pools", group: AccessTokenGroupPersonal, minRole: common.RoleCommonUser, Actions: []authz.ActionDefinition{
+		accessTokenView("View quota pools, members, transactions, and statistics you can access."),
+		accessTokenEdit("Manage quota pools, memberships, and balances within your permissions."),
+	}},
 	{Resource: "account_security", LabelKey: "Account security", group: AccessTokenGroupPersonal, minRole: common.RoleCommonUser, Actions: []authz.ActionDefinition{
 		accessTokenView("View Passkey, two-factor, and sign-in binding status."),
 		accessTokenEdit("Includes changes that require security verification, such as password, two-factor settings, and account deletion."),

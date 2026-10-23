@@ -119,6 +119,18 @@ export function UsersMutateDrawer({
   // Matrix as loaded from the server; an unchanged matrix is not resubmitted so
   // routine edits of an administrator do not require step-up verification.
   const loadedPermissions = useRef<AdminPermissionMatrix | undefined>(undefined)
+  const userDetail = useQuery({
+    queryKey: ['users', 'detail', currentRow?.id, currentUser?.id],
+    queryFn: () => getUser(currentRow?.id ?? 0),
+    enabled: open && isUpdate,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+  })
+  const canAdjustQuota =
+    !userDetail.isFetching &&
+    !userDetail.isError &&
+    userDetail.data?.success === true &&
+    userDetail.data.data?.can_adjust_quota === true
 
   // Fetch groups
   const { data: groupsData } = useQuery({
@@ -144,22 +156,15 @@ export function UsersMutateDrawer({
   // Load existing data when updating
   useEffect(() => {
     if (open && isUpdate && currentRow) {
-      // For update, fetch fresh data
-      getUser(currentRow.id)
-        .then((result) => {
-          if (result.success && result.data) {
-            loadedPermissions.current = result.data.admin_permissions
-            form.reset(transformUserToFormDefaults(result.data))
-          } else {
-            handleServerError(result, t('Failed to load'))
-          }
-        })
-        .catch((error) => handleServerError(error, t('Failed to load')))
+      if (userDetail.data?.success && userDetail.data.data) {
+        loadedPermissions.current = userDetail.data.data.admin_permissions
+        form.reset(transformUserToFormDefaults(userDetail.data.data))
+      }
     } else if (open && !isUpdate) {
       // For create, reset to defaults
       form.reset(USER_FORM_DEFAULT_VALUES)
     }
-  }, [open, isUpdate, currentRow, form, t])
+  }, [open, isUpdate, currentRow, form, userDetail.data])
 
   const { meta: currencyMeta } = getCurrencyDisplay()
   const currencyLabel = getCurrencyLabel()
@@ -260,16 +265,8 @@ export function UsersMutateDrawer({
 
   const refreshUserData = async () => {
     if (!currentRow) return
-    try {
-      const result = requireServerSuccess(await getUser(currentRow.id))
-      if (result.success && result.data) {
-        loadedPermissions.current = result.data.admin_permissions
-        form.reset(transformUserToFormDefaults(result.data))
-      }
-      triggerRefresh()
-    } catch (error) {
-      handleServerError(error, t('Failed to load'))
-    }
+    await userDetail.refetch()
+    triggerRefresh()
   }
 
   return (
@@ -460,17 +457,25 @@ export function UsersMutateDrawer({
                               className='flex-1'
                             />
                           </FormControl>
-                          <Button
-                            type='button'
-                            variant='outline'
-                            onClick={() => setQuotaDialogOpen(true)}
-                          >
-                            <Pencil className='mr-1 h-4 w-4' />
-                            {t('Adjust Quota')}
-                          </Button>
+                          {canAdjustQuota && (
+                            <Button
+                              type='button'
+                              variant='outline'
+                              onClick={() => setQuotaDialogOpen(true)}
+                            >
+                              <Pencil className='mr-1 h-4 w-4' />
+                              {t('Adjust Quota')}
+                            </Button>
+                          )}
                         </div>
                         <FormDescription>
-                          {formatQuota(parseQuotaFromDollars(field.value || 0))}
+                          {currentRow?.quota_frozen
+                            ? t(
+                                'Already using Codex Business; iCode is currently unavailable.'
+                              )
+                            : formatQuota(
+                                parseQuotaFromDollars(field.value || 0)
+                              )}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

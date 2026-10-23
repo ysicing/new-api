@@ -51,6 +51,7 @@ var auditContentTemplates = map[string]string{
 	"option.passkey_domains_confirmed": "Confirmed removal of Passkey domains: ${domains}; affected ${known}; unknown ${unknown}",
 	"option.passkey_domains_blocked":   "Passkey domain change blocked: ${domains}; affected ${known}; unknown ${unknown}",
 	"option.passkey_domains_failed":    "Passkey domain update failed",
+	"user.quota_pool_recharge":         "Replenished quota for user ${username} (ID: ${target_user_id}): ${quota}",
 
 	"channel.create":             "Created channel ${name} (type ${type}, count ${count})",
 	"channel.update":             "Updated channel ${name} (ID: ${id})",
@@ -69,6 +70,27 @@ var auditContentTemplates = map[string]string{
 
 	"redemption.create":       "Created ${count} redemption codes named ${name} (${quota} each)",
 	"redemption.delete_batch": "Batch deleted ${count} redemption codes",
+
+	"quota_pool.create":                  "Created quota pool ${quota_pool_name} with initial quota ${amount}",
+	"quota_pool.sync_system":             "Synchronized system quota pools",
+	"quota_pool.update":                  "Updated ${fields} settings for quota pool ${quota_pool_name}",
+	"quota_pool.enabled":                 "Updated enabled state for quota pool ${quota_pool_name}",
+	"quota_pool.delete":                  "Deleted quota pool ${quota_pool_name}",
+	"quota_pool.refill":                  "Added ${amount} temporary quota to ${quota_pool_name}",
+	"quota_pool.deduct":                  "Deducted ${amount} available quota from ${quota_pool_name}",
+	"quota_pool.self_update":             "Updated ${fields} auto-recharge settings for ${quota_pool_name}",
+	"quota_pool.member_add":              "Added member ${user_name} (ID: ${user_id}) to ${quota_pool_name}",
+	"quota_pool.member_move":             "Moved member ${user_name} (ID: ${user_id}) into ${quota_pool_name}",
+	"quota_pool.member_remove":           "Removed member ${user_name} (ID: ${user_id}) to ${target_pool_name} and reclaimed ${amount}",
+	"quota_pool.member_recharge":         "Recharged member ${user_name} (ID: ${user_id}) by ${amount}",
+	"quota_pool.member_reclaim":          "Reclaimed ${amount} from member ${user_name} (ID: ${user_id})",
+	"quota_pool.admin_grant":             "Set member ${user_name} (ID: ${user_id}) as a pool administrator",
+	"quota_pool.admin_revoke":            "Removed member ${user_name} (ID: ${user_id})'s pool administrator role",
+	"quota_pool.budget_tag.create":       "Created budget tag ${name}",
+	"quota_pool.budget_tag.update":       "Renamed budget tag ${before_name} to ${after_name}",
+	"quota_pool.budget_tag.delete":       "Deleted budget tag ${name} (ID: ${tag_id})",
+	"quota_pool.budget_tag.assign":       "Updated budget tag for quota pool ${quota_pool_name} (${before_tag_id} to ${after_tag_id})",
+	"quota_pool.budget_tag.assign_pools": "Assigned ${pool_count} quota pools to budget tag (ID: ${tag_id})",
 
 	"subscription.plan_reset":       "Reset active subscriptions for plan ${plan_id}",
 	"subscription.user_plan_reset":  "Reset active plan ${plan_id} subscriptions for user ${target_user_id}",
@@ -147,7 +169,15 @@ func recordManageAudit(c *gin.Context, action string, params map[string]any) {
 
 // recordManageAuditFor 记录一条管理审计日志，日志归属于操作者；targetUserId
 // 只表示被操作用户，用于在结构化参数中保留目标上下文。
-func recordManageAuditFor(c *gin.Context, targetUserId int, action string, params map[string]any) {
+func recordManageAuditFor(c *gin.Context, targetUserId int, action string, params map[string]interface{}) {
+	recordOperationAuditFor(c, targetUserId, model.LogTypeManage, action, params)
+}
+
+func recordTopupAuditFor(c *gin.Context, targetUserId int, action string, params map[string]interface{}) {
+	recordOperationAuditFor(c, targetUserId, model.LogTypeTopup, action, params)
+}
+
+func recordOperationAuditFor(c *gin.Context, targetUserId int, logType int, action string, params map[string]interface{}) {
 	if params == nil {
 		params = map[string]any{}
 	}
@@ -155,7 +185,7 @@ func recordManageAuditFor(c *gin.Context, targetUserId int, action string, param
 	if _, ok := params["target_user_id"]; !ok && targetUserId > 0 && targetUserId != operatorUserId {
 		params["target_user_id"] = targetUserId
 	}
-	model.RecordOperationAuditLog(operatorUserId, c.GetInt("role"), auditContentEN(action, params), c.ClientIP(), action, params, auditOperatorInfo(c), nil, c)
+	model.RecordOperationAuditLogWithType(logType, operatorUserId, c.GetInt("role"), auditContentEN(action, params), c.ClientIP(), action, params, auditOperatorInfo(c), nil, c)
 	markAuditLogged(c)
 }
 

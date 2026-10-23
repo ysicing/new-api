@@ -110,6 +110,7 @@ const (
 )
 
 type ChannelOtherSettings struct {
+	MagpieEnabled                         bool                  `json:"magpie_enabled,omitempty"` // Magpie Codex 账号可用性监控，默认关闭
 	AzureResponsesVersion                 string                `json:"azure_responses_version,omitempty"`
 	VertexKeyType                         VertexKeyType         `json:"vertex_key_type,omitempty"`   // "json" or "api_key"
 	VertexProjectID                       string                `json:"vertex_project_id,omitempty"` // 仅当 vertex_key_type=api_key 时使用；JSON 模式下从 service account 解析

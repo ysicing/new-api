@@ -1366,8 +1366,8 @@ func TestSecurityEnrollmentOAuthVerificationNeverChangesLoginOrBindings(t *testi
 	}
 }
 
-func TestSecurityEnrollmentEncryptedPasswordVerification(t *testing.T) {
-	_, identity := setupSecurityEnrollmentTest(t)
+func encryptedEnrollmentPassword(t *testing.T) (string, string) {
+	t.Helper()
 	keyID, publicPEM := common.PasswordEncryptionPublicKey()
 	if keyID == "" {
 		privatePEM, err := common.GeneratePasswordEncryptionPrivateKey()
@@ -1383,8 +1383,86 @@ func TestSecurityEnrollmentEncryptedPasswordVerification(t *testing.T) {
 	require.True(t, ok)
 	ciphertext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, publicKey, []byte("enrollment-password"), nil)
 	require.NoError(t, err)
+	return base64.StdEncoding.EncodeToString(ciphertext), keyID
+}
+
+func TestLDAPLoginPreservesEncryptedCredentialsAndLoginVerification(t *testing.T) {
+	for _, scenario := range []string{"success", "MFA", "disabled", "plaintext", "invalid key"} {
+		t.Run(scenario, func(t *testing.T) {
+			user, _ := setupSecurityEnrollmentTest(t)
+			encrypted, keyID := encryptedEnrollmentPassword(t)
+			common.PasswordLoginEncryptionEnabled = true
+			previous := loginWithLDAP
+			called := false
+			loginWithLDAP = func(username, password string) (*model.User, error) {
+				called = true
+				assert.Equal(t, user.Username, username)
+				assert.Equal(t, "enrollment-password", password)
+				return user, nil
+			}
+			t.Cleanup(func() { loginWithLDAP = previous })
+			if scenario == "MFA" {
+				require.NoError(t, model.DB.Create(&model.TwoFA{
+					UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true,
+				}).Error)
+			}
+			if scenario == "disabled" {
+				require.NoError(t, model.DB.Model(user).Update("status", common.UserStatusDisabled).Error)
+			}
+			request := LoginRequest{Username: user.Username, PasswordEncrypted: encrypted, EncryptionKeyID: keyID}
+			if scenario == "plaintext" {
+				request.Password, request.PasswordEncrypted, request.EncryptionKeyID = "enrollment-password", "", ""
+			}
+			if scenario == "invalid key" {
+				request.EncryptionKeyID = "wrong-key"
+			}
+			body, err := common.Marshal(request)
+			require.NoError(t, err)
+			var before int64
+			require.NoError(t, model.DB.Model(&model.UserSession{}).Count(&before).Error)
+			engine := gin.New()
+			engine.POST("/api/user/ldap/login", LDAPLogin)
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/user/ldap/login", bytes.NewReader(body)))
+			var result securityEnrollmentResponse
+			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+			var after int64
+			require.NoError(t, model.DB.Model(&model.UserSession{}).Count(&after).Error)
+			switch scenario {
+			case "success":
+				assert.True(t, called)
+				assert.True(t, result.Success)
+				assert.Equal(t, before+1, after)
+				var data struct {
+					Session struct {
+						LoginMethod string `json:"login_method"`
+					} `json:"session"`
+				}
+				require.NoError(t, common.Unmarshal(result.Data, &data))
+				assert.Equal(t, "ldap", data.Session.LoginMethod)
+			case "MFA":
+				assert.True(t, result.Success)
+				var challenge service.LoginChallenge
+				require.NoError(t, common.Unmarshal(result.Data, &challenge))
+				assert.True(t, challenge.RequireVerification)
+				assert.NotEmpty(t, challenge.FlowToken)
+				assert.Equal(t, before, after)
+				assert.Empty(t, response.Result().Cookies())
+			default:
+				assert.False(t, result.Success)
+				assert.Equal(t, before, after)
+				assert.Empty(t, response.Result().Cookies())
+				assert.Equal(t, scenario == "disabled", called)
+			}
+		})
+	}
+}
+
+func TestSecurityEnrollmentEncryptedPasswordVerification(t *testing.T) {
+	_, identity := setupSecurityEnrollmentTest(t)
+	encrypted, keyID := encryptedEnrollmentPassword(t)
 	common.PasswordLoginEncryptionEnabled = true
-	input := service.VerificationInput{Method: "password", Scope: "passkey.register", PasswordEncrypted: base64.StdEncoding.EncodeToString(ciphertext), EncryptionKeyID: keyID}
+	input := service.VerificationInput{Method: "password", Scope: "passkey.register", PasswordEncrypted: encrypted, EncryptionKeyID: keyID}
 	proof, err := service.VerifySecurityInput(identity, input)
 	require.NoError(t, err)
 	_, err = service.ConsumeOperationProof(proof.ProofToken, identity, service.VerificationOperation{Scope: input.Scope})

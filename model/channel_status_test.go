@@ -51,7 +51,7 @@ func TestUpdateChannelStatusPersistsMultiKeyState(t *testing.T) {
 	assert.Equal(t, 1, stored.ChannelInfo.MultiKeyPollingIndex)
 }
 
-func TestSaveStatusStateFromSingleKeySnapshotPreservesUnownedColumns(t *testing.T) {
+func TestUpdateChannelStatusPreservesUnownedColumns(t *testing.T) {
 	setupChannelStatusTest(t)
 
 	channel := Channel{
@@ -64,9 +64,6 @@ func TestSaveStatusStateFromSingleKeySnapshotPreservesUnownedColumns(t *testing.
 		ChannelInfo: ChannelInfo{},
 	}
 	require.NoError(t, DB.Create(&channel).Error)
-
-	stale, err := GetChannelById(channel.Id, true)
-	require.NoError(t, err)
 
 	concurrentChannelInfo := ChannelInfo{
 		IsMultiKey:           true,
@@ -81,12 +78,7 @@ func TestSaveStatusStateFromSingleKeySnapshotPreservesUnownedColumns(t *testing.
 		"channel_info": concurrentChannelInfo,
 	}).Error)
 
-	stale.Status = common.ChannelStatusManuallyDisabled
-	stale.SetOtherInfo(map[string]any{
-		"status_reason": "manual operation",
-		"status_time":   int64(1234),
-	})
-	require.NoError(t, stale.saveStatusState())
+	require.True(t, UpdateChannelStatus(channel.Id, "", common.ChannelStatusManuallyDisabled, "manual operation"))
 
 	var stored Channel
 	require.NoError(t, DB.First(&stored, channel.Id).Error)
@@ -98,5 +90,27 @@ func TestSaveStatusStateFromSingleKeySnapshotPreservesUnownedColumns(t *testing.
 
 	otherInfo := stored.GetOtherInfo()
 	assert.Equal(t, "manual operation", otherInfo["status_reason"])
-	assert.Equal(t, float64(1234), otherInfo["status_time"])
+	assert.NotZero(t, otherInfo["status_time"])
+}
+
+func TestChannelConcurrencyUpdateCanRestoreUnlimited(t *testing.T) {
+	setupChannelStatusTest(t)
+	channel := Channel{Name: "concurrency", Type: constant.ChannelTypeOpenAI, Key: "test-key", Models: "chat-model", Group: "default", MaxConcurrency: common.GetPointer(3)}
+	require.NoError(t, DB.Create(&channel).Error)
+	patch := Channel{Id: channel.Id, Name: "renamed-with-limit"}
+	require.NoError(t, patch.Update())
+	require.NotNil(t, patch.MaxConcurrency)
+	assert.Equal(t, 3, *patch.MaxConcurrency)
+	patch = Channel{Id: channel.Id, MaxConcurrency: common.GetPointer(0)}
+	require.NoError(t, patch.Update())
+	stored, err := GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	require.NotNil(t, stored.MaxConcurrency)
+	assert.Zero(t, *stored.MaxConcurrency)
+	patch = Channel{Id: channel.Id, Name: "renamed"}
+	require.NoError(t, patch.Update())
+	stored, err = GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	require.NotNil(t, stored.MaxConcurrency)
+	assert.Zero(t, *stored.MaxConcurrency)
 }

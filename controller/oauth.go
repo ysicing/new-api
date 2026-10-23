@@ -327,6 +327,8 @@ func handleOAuthLogin(c *gin.Context, provider oauth.Provider, oauthUser *oauth.
 			common.ApiErrorT(c, "Email address is already in use")
 		case *OAuthLegacyBindingNotConfirmedError:
 			common.ApiErrorT(c, "This {{provider}} account cannot be linked to an existing account automatically, please sign in or register another way and then link {{provider}} in account settings", providerParams(provider.GetName()))
+		case *OAuthEmailRequiredError:
+			common.ApiErrorT(c, "A verified email is required to sign in with {{provider}}", providerParams(provider.GetName()))
 		default:
 			writeSecurityOperationError(c, err)
 		}
@@ -405,6 +407,7 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 		}
 		return user, nil, err
 	}
+	oauthUser.Email = model.NormalizeEmail(oauthUser.Email)
 
 	// Check if user already exists with new ID
 	if provider.IsUserIDTaken(oauthUser.ProviderUserID) {
@@ -472,6 +475,19 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 				})
 			}
 			return user, nil, nil
+		}
+	}
+	if oauthUser.RequireEmailForRegistration && oauthUser.Email == "" {
+		return nil, nil, &OAuthEmailRequiredError{}
+	}
+
+	if oauthUser.EmailVerified && oauthUser.Email != "" {
+		merged, err := mergeVerifiedOAuthEmail(provider, oauthUser)
+		if err != nil {
+			return nil, nil, err
+		}
+		if merged != nil {
+			return merged, nil, nil
 		}
 	}
 
@@ -554,10 +570,15 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 
 			// Set the provider user ID on the user model and update
 			provider.SetProviderUserID(user, oauthUser.ProviderUserID)
+			if provider.ProviderUserIDColumn() == "dingtalk_id" {
+				_, err := model.BindDingTalkIdentityWithTx(tx, user.Id, oauthUser.ProviderUserID)
+				return err
+			}
 			if err := tx.Model(user).Updates(map[string]any{
 				"github_id":   user.GitHubId,
 				"discord_id":  user.DiscordId,
 				"oidc_id":     user.OidcId,
+				"dingtalk_id": user.DingTalkId,
 				"linux_do_id": user.LinuxDOId,
 				"wechat_id":   user.WeChatId,
 				"telegram_id": user.TelegramId,
@@ -574,6 +595,7 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 		// Perform post-transaction tasks
 		user.FinalizeOAuthUserCreation(inviterId)
 	}
+	notifyNewSelfRegisteredUser(user.Id)
 
 	return user, nil, nil
 }
@@ -613,6 +635,12 @@ type OAuthLegacyBindingNotConfirmedError struct{}
 
 func (e *OAuthLegacyBindingNotConfirmedError) Error() string {
 	return "legacy binding was not confirmed"
+}
+
+type OAuthEmailRequiredError struct{}
+
+func (e *OAuthEmailRequiredError) Error() string {
+	return "verified email is required for first-time OAuth login"
 }
 
 // handleOAuthError handles OAuth errors and returns a web console message

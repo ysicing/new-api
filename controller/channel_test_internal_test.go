@@ -124,6 +124,31 @@ func TestNewAPIChannelRegistration(t *testing.T) {
 	assert.Empty(t, constant.ChannelBaseURLs[constant.ChannelTypeNewAPI])
 }
 
+func TestMagpieHealthCheckDoesNotReportAutomaticDisable(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	previousCache, previousDisable := common.MemoryCacheEnabled, common.AutomaticDisableChannelEnabled
+	common.MemoryCacheEnabled, common.AutomaticDisableChannelEnabled = false, true
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled, common.AutomaticDisableChannelEnabled = previousCache, previousDisable
+	})
+	user := model.User{Username: "magpie-health", Group: "default", Status: common.UserStatusEnabled, Quota: 1000000}
+	require.NoError(t, db.Create(&user).Error)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"message":"invalid api key","type":"invalid_request_error"}}`))
+	}))
+	defer server.Close()
+	channel := model.Channel{Name: "Magpie health", Type: constant.ChannelTypeOpenAI, Key: "key", BaseURL: common.GetPointer(server.URL), Models: "gpt-4o", Group: "default", AutoBan: common.GetPointer(1), OtherSettings: `{"magpie_enabled":true}`}
+	require.NoError(t, channel.Insert())
+	// 负阈值确保健康检查进入超时禁用分支，仍应由 Magpie 额度监控独占启停。
+	summary := testChannelForHealthCheck(context.Background(), &channel, user.Id, true, -1)
+	assert.Equal(t, 1, summary.Tested)
+	assert.Zero(t, summary.Disabled)
+	stored, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusEnabled, stored.Status)
+}
+
 func TestResponsesCompactChannelSupport(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -492,4 +517,18 @@ func TestTestAllChannelsRejectsExistingActiveTask(t *testing.T) {
 	require.Equal(t, http.StatusConflict, recorder.Code)
 	require.Contains(t, recorder.Body.String(), existing.TaskID)
 	require.Contains(t, recorder.Body.String(), "A channel test task is already running or queued")
+}
+
+func TestValidateChannelConcurrencyBounds(t *testing.T) {
+	for _, value := range []int{0, 1, 100000, -1, 100001} {
+		t.Run(fmt.Sprint(value), func(t *testing.T) {
+			channel := &model.Channel{Type: constant.ChannelTypeOpenAI, MaxConcurrency: common.GetPointer(value)}
+			err := validateChannel(channel, false)
+			if value < 0 || value > 100000 {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }

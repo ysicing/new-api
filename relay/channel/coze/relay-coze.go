@@ -227,6 +227,9 @@ func checkIfChatComplete(a *Adaptor, c *gin.Context, info *relaycommon.RelayInfo
 		return err, false
 	}
 
+	if leaseCtx := service.ChannelConcurrencyContext(c); leaseCtx != nil {
+		req = req.WithContext(leaseCtx)
+	}
 	resp, err := doRequest(req, info) // 调用 doRequest
 	if err != nil {
 		return err, false
@@ -270,6 +273,9 @@ func getChatDetail(a *Adaptor, c *gin.Context, info *relaycommon.RelayInfo) (*ht
 	err = a.SetupRequestHeader(c, &req.Header, info)
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
+	}
+	if leaseCtx := service.ChannelConcurrencyContext(c); leaseCtx != nil {
+		req = req.WithContext(leaseCtx)
 	}
 	resp, err := doRequest(req, info)
 	if err != nil {

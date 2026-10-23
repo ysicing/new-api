@@ -41,6 +41,7 @@ var accessTokenExemptRoutes = []string{
 	"POST /api/user/register",
 	"GET /api/user/login/encryption-key",
 	"POST /api/user/login",
+	"POST /api/user/ldap/login",
 	"POST /api/user/login/2fa",
 	"POST /api/user/login/verify",
 	"POST /api/user/login/passkey/begin",
@@ -198,5 +199,18 @@ func TestAccessTokenVerificationScopesAreAllListed(t *testing.T) {
 	for _, scope := range scopes {
 		_, listed := service.AccessTokenVerificationScope(scope)
 		assert.True(t, listed, "verification scope %s has no access token rule", scope)
+	}
+}
+
+func TestQuotaPoolTokenScopeDoesNotGrantSystemAdministration(t *testing.T) {
+	scopes, err := service.NormalizeAccessTokenScopes(42, common.RoleQuotaPoolSuperAdmin, []string{"quota_pool:read", "quota_pool:write"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"quota_pool:read", "quota_pool:write"}, scopes)
+	_, err = service.NormalizeAccessTokenScopes(42, common.RoleQuotaPoolSuperAdmin, []string{"user:write"})
+	assert.ErrorIs(t, err, service.ErrAccessTokenScopeForbidden)
+	for _, route := range []string{"PUT /api/quota_pool/self/", "POST /api/quota_pool/:id/members/:user_id/recharge"} {
+		rule, found := middleware.AccessTokenRouteRule(route)
+		require.True(t, found)
+		assert.Equal(t, "quota_pool:write", rule.Scope())
 	}
 }

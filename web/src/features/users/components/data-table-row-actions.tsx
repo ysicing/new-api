@@ -28,8 +28,10 @@ import {
   ShieldAlert,
   Link2,
   CreditCard,
+  Coins,
+  ShieldCheck,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -50,6 +52,7 @@ import type { AdminUserManageAction } from '@/features/auth/secure-verification'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
 import { handleServerError } from '@/lib/handle-server-error'
 import { AuthOperationError } from '@/lib/secure-verification'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { manageUser, resetUserPasskey, resetUserTwoFA } from '../api'
 import {
@@ -61,9 +64,15 @@ import {
 import { getUserActionMessage } from '../lib'
 import type { User } from '../types'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
+import { UserQuotaPoolMoveAction } from './user-quota-pool-move-action'
 import { useUsers } from './users-provider'
 
 const MANAGE_ACTION_TITLES: Record<AdminUserManageAction, string> = {
+  set_quota_pool_super_admin: 'Set quota pool super administrator',
+  unset_quota_pool_super_admin: 'Remove quota pool super administrator',
+  freeze_quota: 'Freeze quota',
+  unfreeze_quota: 'Unfreeze quota',
+  recharge_auto: 'Recharge',
   disable: 'Verify to disable user',
   enable: 'Verify to enable user',
   promote: 'Verify to promote user',
@@ -88,6 +97,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
+  const currentUser = useAuthStore((state) => state.auth.user)
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -192,6 +202,33 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
     return null
   }
 
+  let poolAdminAction: ReactNode = null
+  if (currentUser?.role === USER_ROLE.ROOT) {
+    if (user.role === USER_ROLE.QUOTA_POOL_SUPER_ADMIN) {
+      poolAdminAction = (
+        <DropdownMenuItem
+          onClick={() => handleManage('unset_quota_pool_super_admin')}
+        >
+          {t('Remove Pool Super Admin')}
+          <DropdownMenuShortcut>
+            <ShieldCheck size={16} />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
+      )
+    } else if (user.role === USER_ROLE.USER) {
+      poolAdminAction = (
+        <DropdownMenuItem
+          onClick={() => handleManage('set_quota_pool_super_admin')}
+        >
+          {t('Set Pool Super Admin')}
+          <DropdownMenuShortcut>
+            <ShieldCheck size={16} />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
+      )
+    }
+  }
+
   return (
     <div className='-ml-1.5 flex items-center gap-1'>
       <Tooltip>
@@ -209,6 +246,8 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         </TooltipTrigger>
         <TooltipContent>{t('Edit')}</TooltipContent>
       </Tooltip>
+
+      <UserQuotaPoolMoveAction user={user} onSaved={triggerRefresh} />
 
       <DataTableRowActionMenu
         ariaLabel={t('Open menu')}
@@ -233,6 +272,15 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuItem>
         )}
 
+        <DropdownMenuItem
+          onClick={() =>
+            handleManage(user.quota_frozen ? 'unfreeze_quota' : 'freeze_quota')
+          }
+          disabled={isRoot}
+        >
+          {t(user.quota_frozen ? 'Unfreeze quota' : 'Freeze quota')}
+        </DropdownMenuItem>
+
         {isAdmin && !isRoot && (
           <DropdownMenuItem onClick={() => handleManage('demote')}>
             {t('Demote')}
@@ -250,6 +298,18 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
             </DropdownMenuShortcut>
           </DropdownMenuItem>
         )}
+
+        <DropdownMenuItem
+          onClick={() => handleManage('recharge_auto')}
+          disabled={user.quota_frozen}
+        >
+          {t('Recharge')}
+          <DropdownMenuShortcut>
+            <Coins size={16} />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
+
+        {poolAdminAction}
 
         <DropdownMenuItem
           onSelect={(event) => {

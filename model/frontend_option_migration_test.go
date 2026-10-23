@@ -55,7 +55,7 @@ func TestMigrateRetiredFrontendOptionsMigratesValidValuesIdempotently(t *testing
 	require.NoError(t, MigrateRetiredFrontendOptions())
 	assert.Equal(t, "default", requireOptionValue(t, db, retiredThemeOptionKey))
 	assert.JSONEq(t, legacy[1].Value, requireOptionValue(t, db, "console_setting.api_info"))
-	assert.Equal(t, legacy[2].Value, requireOptionValue(t, db, "console_setting.announcements"))
+	assert.JSONEq(t, `[{"id":1,"content":"maintenance","publishDate":"2026-07-20T00:00:00Z","type":"warning"}]`, requireOptionValue(t, db, "console_setting.announcements"))
 	assert.JSONEq(t, `[{"question":"Question","answer":"Answer"}]`, requireOptionValue(t, db, "console_setting.faq"))
 	assert.JSONEq(t, `[{
 		"id":1,"categoryName":"old","url":"https://status.example.com","slug":"status","description":""
@@ -70,6 +70,15 @@ func TestMigrateRetiredFrontendOptionsMigratesValidValuesIdempotently(t *testing
 	after, err := AllOption()
 	require.NoError(t, err)
 	assert.ElementsMatch(t, before, after)
+}
+
+func TestMigrateRetiredFrontendOptionsNormalizesExistingAnnouncementTarget(t *testing.T) {
+	db := useFrontendOptionMigrationDB(t)
+	require.NoError(t, db.Create(&Option{Key: "console_setting.announcements", Value: `[{"content":"maintenance","publishDate":"2026-07-20T00:00:00Z","type":"warning"},{"id":1,"content":"existing","publishDate":"2026-07-21T00:00:00Z","type":"default"}]`}).Error)
+
+	require.NoError(t, MigrateRetiredFrontendOptions())
+
+	assert.JSONEq(t, `[{"id":2,"content":"maintenance","publishDate":"2026-07-20T00:00:00Z","type":"warning"},{"id":1,"content":"existing","publishDate":"2026-07-21T00:00:00Z","type":"default"}]`, requireOptionValue(t, db, "console_setting.announcements"))
 }
 
 func TestLegacyConsoleListMigrationCapsAPIInfoAndFAQ(t *testing.T) {

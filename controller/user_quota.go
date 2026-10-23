@@ -46,6 +46,9 @@ func manageUserQuota(c *gin.Context, req ManageRequest) {
 	adjustment, err := model.AdjustUserQuota(req.Id, c.GetInt("role"), req.Mode, req.Value)
 	if err != nil {
 		switch {
+		case errors.Is(err, model.ErrQuotaFrozen):
+			params["failure_reason"] = "quota_frozen"
+			common.ApiErrorMsg(c, model.QuotaFrozenMessage)
 		case errors.Is(err, model.ErrInvalidUserQuotaAdjustment):
 			params["failure_reason"] = "invalid_parameters"
 			if (req.Mode == "add" || req.Mode == "subtract") && req.Value <= 0 {

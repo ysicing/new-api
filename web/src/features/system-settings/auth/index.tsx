@@ -39,6 +39,11 @@ const defaultAuthSettings: AuthSettings = {
   'discord.enabled': false,
   'discord.client_id': '',
   'discord.client_secret': '',
+  'dingtalk.enabled': false,
+  'dingtalk.corp_id': '',
+  'dingtalk.client_id': '',
+  'dingtalk.client_secret': '',
+  'dingtalk.announcement_group_open_conversation_id': '',
   'oidc.enabled': false,
   'oidc.display_name': '',
   'oidc.client_id': '',
@@ -71,6 +76,15 @@ const defaultAuthSettings: AuthSettings = {
   'passkey.allow_insecure_origin': false,
   'passkey.user_verification': 'preferred',
   'passkey.attachment_preference': '',
+  'ldap.enabled': false,
+  'ldap.ldap_url': '',
+  'ldap.ldap_search_dn': '',
+  'ldap.ldap_search_password': '',
+  'ldap.ldap_base_dn': '',
+  'ldap.ldap_filter': '',
+  'ldap.ldap_uid': 'uid',
+  'ldap.ldap_scope': 3,
+  'ldap.ldap_connection_timeout': 30,
 }
 
 export function AuthSettings() {

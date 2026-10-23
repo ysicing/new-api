@@ -474,8 +474,10 @@ func postConsumeQuotaWithResult(relayInfo *relaycommon.RelayInfo, quota int, pre
 		result.TokenApplied = true
 	}
 
-	if sendEmail {
-		if (quota + preConsumedQuota) != 0 {
+	consumeQuota := quota + preConsumedQuota
+	if consumeQuota != 0 {
+		checkAndSendNewUserQuotaExhaustedNotify(relayInfo, consumeQuota)
+		if sendEmail {
 			checkAndSendQuotaNotify(relayInfo, quota, preConsumedQuota)
 		}
 	}

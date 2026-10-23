@@ -1,9 +1,12 @@
 package console_setting
 
 import (
+	"fmt"
+	"math"
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf16"
@@ -175,7 +178,21 @@ func validateAnnouncements(announcementsStr string) error {
 	validTypes := map[string]bool{
 		"default": true, "ongoing": true, "success": true, "warning": true, "error": true,
 	}
+	ids := make(map[int64]struct{}, len(list))
+	maxAnnouncementID := float64(9007199254740991)
+	if strconv.IntSize == 32 {
+		maxAnnouncementID = float64(1<<31 - 1)
+	}
 	for i, ann := range list {
+		idValue, ok := ann["id"].(float64)
+		if !ok || idValue <= 0 || idValue > maxAnnouncementID || idValue != math.Trunc(idValue) {
+			return fmt.Errorf("第%d个公告缺少有效 ID", i+1)
+		}
+		id := int64(idValue)
+		if _, exists := ids[id]; exists {
+			return fmt.Errorf("第%d个公告的 ID 重复", i+1)
+		}
+		ids[id] = struct{}{}
 		content, ok := ann["content"].(string)
 		if !ok || content == "" {
 			return common.NewMessage("Announcement #{{index}} is missing the content field", map[string]any{"index": i + 1})

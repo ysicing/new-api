@@ -16,15 +16,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { ListChecks, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { ErrorState } from '@/components/error-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { listSystemTasks } from '@/features/system-settings/api'
+import {
+  listSystemTasks,
+  startMagpieMonitorTask,
+} from '@/features/system-settings/api'
+import { handleServerError } from '@/lib/handle-server-error'
 import { createServerError } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
@@ -54,6 +59,28 @@ export function SystemTasksPanel() {
   const loading = tasksQuery.isLoading
   const refreshing = tasksQuery.isFetching && !loading
   const hasActiveTasks = activeTasks.length > 0
+
+  const queryClient = useQueryClient()
+  const magpieTaskActive = activeTasks.some(
+    (task) => task.type === 'magpie_channel_monitor'
+  )
+  const magpieCheck = useMutation({
+    mutationFn: async () => {
+      const res = await startMagpieMonitorTask()
+      if (!res.success) {
+        throw createServerError(res, t('Failed to start Magpie check'))
+      }
+      return res
+    },
+    onSuccess: async () => {
+      toast.success(t('Magpie check queued'))
+      await queryClient.invalidateQueries({
+        queryKey: ['system-info', 'system-tasks'],
+      })
+    },
+    onError: (error) =>
+      handleServerError(error, t('Failed to start Magpie check')),
+  })
 
   return (
     <section className='bg-card overflow-hidden rounded-lg border shadow-xs'>
@@ -91,6 +118,15 @@ export function SystemTasksPanel() {
                 })
               : t('Live refresh pauses when no task is running')}
           </span>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            onClick={() => magpieCheck.mutate()}
+            disabled={magpieCheck.isPending || magpieTaskActive}
+          >
+            {magpieCheck.isPending ? t('Submitting...') : t('Check Magpie now')}
+          </Button>
           <Button
             type='button'
             variant='outline'

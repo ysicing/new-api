@@ -25,8 +25,33 @@ import { PerformanceSection } from '../maintenance/performance-section'
 import { UpdateCheckerSection } from '../maintenance/update-checker-section'
 import type { OperationsSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
+import { AutoRechargeSection } from './auto-recharge-section'
+import { DingTalkNotificationsSection } from './dingtalk-notifications-section'
 
 const OPERATIONS_SECTIONS = [
+  {
+    id: 'quota-pools',
+    titleKey: 'Quota pools and automatic recharge',
+    build: (settings: OperationsSettings) => (
+      <AutoRechargeSection
+        defaultValues={{
+          QuotaPoolEnabled: settings.QuotaPoolEnabled,
+          'auto_recharge_setting.enabled':
+            settings['auto_recharge_setting.enabled'],
+          'auto_recharge_setting.interval':
+            settings['auto_recharge_setting.interval'],
+          'auto_recharge_setting.threshold':
+            settings['auto_recharge_setting.threshold'],
+          'auto_recharge_setting.amount':
+            settings['auto_recharge_setting.amount'],
+          'auto_recharge_setting.weekly_limit':
+            settings['auto_recharge_setting.weekly_limit'],
+          'auto_recharge_setting.monthly_limit':
+            settings['auto_recharge_setting.monthly_limit'],
+        }}
+      />
+    ),
+  },
   {
     id: 'behavior',
     titleKey: 'System Behavior',
@@ -39,6 +64,11 @@ const OPERATIONS_SECTIONS = [
         }}
       />
     ),
+  },
+  {
+    id: 'dingtalk-notifications',
+    titleKey: 'DingTalk notification records',
+    build: () => <DingTalkNotificationsSection />,
   },
   {
     id: 'alerts',

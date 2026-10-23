@@ -49,6 +49,8 @@ const STATUS_RELATED_KEYS = new Set([
   'passkey.origins',
   'QuotaRemindEnabled',
   'QuotaRemindThreshold',
+  'dingtalk.enabled',
+  'dingtalk.client_id',
 ])
 
 export function useUpdateOption() {

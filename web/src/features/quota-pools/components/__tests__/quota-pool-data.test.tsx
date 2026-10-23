@@ -1,0 +1,193 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+*/
+import type { UseQueryResult } from '@tanstack/react-query'
+import { render, screen } from '@testing-library/react'
+import { expect, test } from 'vitest'
+
+import type {
+  ApiResponse,
+  PageData,
+  QuotaPoolOperationLog,
+  QuotaPoolTransaction,
+} from '../../types'
+import { PoolOperationLogs, PoolTransactions } from '../quota-pool-data'
+
+const typeLabels = [
+  ['initial_fund', 'Initial funding'],
+  ['manual_refill', 'Temporary refill'],
+  ['manual_deduct', 'Manual deduction'],
+  ['monthly_refill', 'Monthly automatic refill'],
+  ['allocate_auto', 'Automatic allocation'],
+  ['allocate_manual', 'Manual allocation'],
+  ['reclaim_user', 'Reclaimed user quota'],
+  ['adjust_base_quota', 'Base quota adjustment'],
+] as const
+
+test('renders localized labels for every quota pool transaction type', () => {
+  const items = typeLabels.map(([type], index) => ({
+    id: index + 1,
+    pool_id: 7,
+    type,
+    amount: 100,
+    quota_before: 100,
+    quota_after: 200,
+    user_id: 1,
+    operator_id: 9,
+    user_name: 'alice',
+    operator_name: 'admin',
+    created_at: 1_700_000_000,
+  }))
+  const query = {
+    isLoading: false,
+    isError: false,
+    data: {
+      success: true,
+      data: { items, total: items.length, page: 1, page_size: 20 },
+    },
+  } as unknown as UseQueryResult<ApiResponse<PageData<QuotaPoolTransaction>>>
+
+  render(<PoolTransactions query={query} />)
+
+  for (const [type, label] of typeLabels) {
+    expect(screen.getByText(label)).toBeInTheDocument()
+    expect(screen.queryByText(type)).not.toBeInTheDocument()
+  }
+})
+
+test('renders structured quota pool operations with readable columns', () => {
+  const items: QuotaPoolOperationLog[] = [
+    {
+      id: 1,
+      user_id: 8,
+      username: 'admin-a',
+      content: 'quota_pool.member_move',
+      other: JSON.stringify({
+        op: {
+          action: 'quota_pool.member_move',
+          params: {
+            user_id: 25,
+            user_name: '张三',
+            quota_pool_id: 7,
+            quota_pool_name: '平台保障部',
+          },
+        },
+      }),
+      created_at: 1_700_000_000,
+    },
+  ]
+  const query = {
+    isLoading: false,
+    isError: false,
+    data: {
+      success: true,
+      data: { items, total: 1, page: 1, page_size: 20 },
+    },
+  } as unknown as UseQueryResult<ApiResponse<PageData<QuotaPoolOperationLog>>>
+
+  render(<PoolOperationLogs query={query} />)
+
+  expect(
+    screen.getByRole('columnheader', { name: 'Operator' })
+  ).toBeInTheDocument()
+  expect(
+    screen.getByRole('columnheader', { name: 'Operation details' })
+  ).toBeInTheDocument()
+  expect(
+    screen.queryByRole('columnheader', { name: 'User' })
+  ).not.toBeInTheDocument()
+  expect(screen.getByText('admin-a')).toBeInTheDocument()
+  expect(
+    screen.getByText('Moved member 张三 (ID: 25) into 平台保障部')
+  ).toBeInTheDocument()
+  expect(screen.queryByText('quota_pool.member_move')).not.toBeInTheDocument()
+})
+
+test.each([true, false])(
+  'shows explicit loading while operation logs are fetching (initial=%s)',
+  (initial) => {
+    const query = {
+      isLoading: initial,
+      isFetching: true,
+      isError: false,
+      data: initial
+        ? undefined
+        : {
+            success: true,
+            data: {
+              items: [
+                {
+                  id: 1,
+                  user_id: 8,
+                  username: 'cached-operator',
+                  content: 'cached operation',
+                  other: '',
+                  created_at: 1,
+                },
+              ],
+              total: 1,
+              page: 1,
+              page_size: 10,
+            },
+          },
+    } as unknown as UseQueryResult<ApiResponse<PageData<QuotaPoolOperationLog>>>
+    const { rerender } = render(<PoolOperationLogs query={query} />)
+    expect(screen.getByRole('status')).toHaveTextContent('Loading...')
+    expect(screen.getByRole('status')).toHaveAttribute('aria-busy', 'true')
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.queryByText('No data')).not.toBeInTheDocument()
+    rerender(
+      <PoolOperationLogs
+        query={
+          {
+            ...query,
+            isLoading: false,
+            isFetching: false,
+            isError: true,
+          } as typeof query
+        }
+      />
+    )
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.getByText('Loading failed')).toBeInTheDocument()
+  }
+)
+
+test('replaces operation log loading with the fetched rows', () => {
+  const query = {
+    isLoading: false,
+    isFetching: true,
+    isError: false,
+    data: {
+      success: true,
+      data: {
+        items: [
+          {
+            id: 1,
+            user_id: 8,
+            username: 'operator',
+            content: 'loaded operation',
+            other: '',
+            created_at: 1,
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 10,
+      },
+    },
+  } as unknown as UseQueryResult<ApiResponse<PageData<QuotaPoolOperationLog>>>
+  const { rerender } = render(<PoolOperationLogs query={query} />)
+  rerender(
+    <PoolOperationLogs
+      query={{ ...query, isFetching: false } as typeof query}
+    />
+  )
+  expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  expect(screen.getByText('loaded operation')).toBeInTheDocument()
+})

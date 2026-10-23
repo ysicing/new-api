@@ -1,0 +1,295 @@
+package model
+
+import (
+	"errors"
+	"sort"
+
+	"github.com/QuantumNous/new-api/common"
+	"gorm.io/gorm"
+)
+
+func AllocateQuotaFromPool(poolId, userId, amount int, transactionType string, operatorId int) (*QuotaPoolBalanceChange, error) {
+	if amount <= 0 {
+		return nil, ErrQuotaPoolInvalidAmount
+	}
+	change := &QuotaPoolBalanceChange{PoolId: poolId, Amount: -amount}
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		pool, user, err := lockQuotaPoolMember(tx, poolId, userId)
+		if err != nil {
+			return err
+		}
+		if user.QuotaFrozen {
+			return ErrQuotaFrozen
+		}
+		// 禁用只阻止发放额度；回收共用的成员锁仍须允许资金退回池中。
+		if !pool.Enabled {
+			return ErrQuotaPoolDisabled
+		}
+		change.QuotaBefore = pool.Quota
+		change.QuotaAfter = pool.Quota - amount
+		debit := tx.Model(&QuotaPool{}).
+			Where("id = ? AND quota >= ?", poolId, amount).
+			Update("quota", gorm.Expr("quota - ?", amount))
+		if debit.Error != nil {
+			return debit.Error
+		}
+		if debit.RowsAffected != 1 {
+			return ErrQuotaPoolInsufficientQuota
+		}
+		if err := tx.Model(&User{}).Where("id = ?", user.Id).
+			Update("quota", gorm.Expr("quota + ?", amount)).Error; err != nil {
+			return err
+		}
+		return tx.Create(&QuotaPoolTransaction{
+			PoolId: poolId, Type: transactionType, Amount: -amount,
+			QuotaBefore: change.QuotaBefore, QuotaAfter: change.QuotaAfter,
+			UserId: userId, OperatorId: operatorId,
+		}).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	syncCreditUserQuotaCache(userId, amount, "quota pool allocation")
+	return change, nil
+}
+
+func lockQuotaPoolMember(tx *gorm.DB, poolId, userId int) (*QuotaPool, *User, error) {
+	var pool QuotaPool
+	if err := lockForUpdate(tx).Where("id = ?", poolId).First(&pool).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, ErrQuotaPoolNotFound
+		}
+		return nil, nil, err
+	}
+	if pool.IsSystemPool() {
+		return nil, nil, ErrQuotaPoolSystemReadonly
+	}
+	var user User
+	if err := lockForUpdate(tx).Where("id = ?", userId).First(&user).Error; err != nil {
+		return nil, nil, err
+	}
+	if user.QuotaPoolId != poolId {
+		return nil, nil, ErrQuotaPoolMemberMismatch
+	}
+	return &pool, &user, nil
+}
+
+func MoveUserBetweenQuotaPools(userId, targetPoolId int, allowSystemTarget bool, operatorId int) (*QuotaPoolMoveResult, error) {
+	return moveUserBetweenQuotaPools(userId, targetPoolId, operatorId, quotaPoolMoveOptions{
+		allowSystemTarget:   allowSystemTarget,
+		allowDisabledTarget: true,
+		allowRootMigration:  true,
+	})
+}
+
+func AddUserToQuotaPool(userId, targetPoolId, operatorId int) (*QuotaPoolMoveResult, error) {
+	return moveUserBetweenQuotaPools(userId, targetPoolId, operatorId, quotaPoolMoveOptions{
+		allowDisabledTarget:      true,
+		requireEligibleCandidate: true,
+		requireCandidateSource:   true,
+	})
+}
+
+type QuotaPoolMemberRemoval struct {
+	SourcePoolId      int
+	UserId            int
+	OperatorId        int
+	AllowAdminRemoval bool
+}
+
+func RemoveQuotaPoolMember(removal QuotaPoolMemberRemoval) (*QuotaPoolMoveResult, error) {
+	target, err := GetNewUserQuotaPool()
+	if err != nil {
+		return nil, err
+	}
+	return moveUserBetweenQuotaPools(removal.UserId, target.Id, removal.OperatorId, quotaPoolMoveOptions{
+		allowSystemTarget:    true,
+		requiredSourcePoolId: removal.SourcePoolId,
+		requireNormalSource:  true,
+		guardAdminRemoval:    true,
+		allowAdminRemoval:    removal.AllowAdminRemoval,
+	})
+}
+
+type quotaPoolMoveOptions struct {
+	allowSystemTarget        bool
+	allowDisabledTarget      bool
+	allowRootMigration       bool
+	requireEligibleCandidate bool
+	requireCandidateSource   bool
+	requiredSourcePoolId     int
+	requireNormalSource      bool
+	guardAdminRemoval        bool
+	allowAdminRemoval        bool
+}
+
+type quotaPoolMoveContext struct {
+	userId       int
+	targetPoolId int
+	operatorId   int
+	options      quotaPoolMoveOptions
+	result       *QuotaPoolMoveResult
+}
+
+func moveUserBetweenQuotaPools(userId, targetPoolId, operatorId int, options quotaPoolMoveOptions) (*QuotaPoolMoveResult, error) {
+	context := &quotaPoolMoveContext{
+		userId: userId, targetPoolId: targetPoolId, operatorId: operatorId,
+		options: options, result: &QuotaPoolMoveResult{NewPoolId: targetPoolId},
+	}
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		return moveUserBetweenQuotaPoolsWithTx(tx, context)
+	})
+	if err != nil {
+		return nil, err
+	}
+	_ = invalidateUserCache(userId)
+	return context.result, nil
+}
+
+func moveUserBetweenQuotaPoolsWithTx(tx *gorm.DB, context *quotaPoolMoveContext) error {
+	user, pools, err := prepareQuotaPoolMove(tx, context)
+	if err != nil {
+		return err
+	}
+	if err := reclaimMovingUserQuota(tx, pools[user.QuotaPoolId], user, context.operatorId, context.result); err != nil {
+		return err
+	}
+	if err := tx.Model(&User{}).Where("id = ?", context.userId).Updates(map[string]any{
+		"quota": 0, "quota_pool_id": context.targetPoolId,
+	}).Error; err != nil {
+		return err
+	}
+	deletion := tx.Where("user_id = ? AND pool_id = ?", context.userId, user.QuotaPoolId).Delete(&QuotaPoolAdmin{})
+	if deletion.Error != nil {
+		return deletion.Error
+	}
+	context.result.AdminRevoked = deletion.RowsAffected > 0
+	return nil
+}
+
+func prepareQuotaPoolMove(tx *gorm.DB, context *quotaPoolMoveContext) (*User, map[int]*QuotaPool, error) {
+	var user User
+	if err := lockForUpdate(tx).Where("id = ?", context.userId).First(&user).Error; err != nil {
+		return nil, nil, err
+	}
+	// Root 只开放系统迁移入口，不能经由添加成员或移除成员绕过权限边界。
+	if user.Role == common.RoleRootUser && context.options.allowRootMigration {
+		operator := User{Role: user.Role}
+		if context.operatorId != user.Id {
+			if err := tx.Select("role").Where("id = ?", context.operatorId).First(&operator).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return nil, nil, ErrQuotaPoolPermissionDenied
+				}
+				return nil, nil, err
+			}
+		}
+		if operator.Role != common.RoleRootUser {
+			return nil, nil, ErrQuotaPoolPermissionDenied
+		}
+	} else if !IsQuotaPoolMemberRole(user.Role) ||
+		(context.options.requireEligibleCandidate && user.Status != common.UserStatusEnabled) {
+		return nil, nil, ErrQuotaPoolCandidateInvalid
+	}
+	context.result.OldPoolId, context.result.UserQuota = user.QuotaPoolId, user.Quota
+	if context.options.requiredSourcePoolId > 0 && user.QuotaPoolId != context.options.requiredSourcePoolId {
+		return nil, nil, ErrQuotaPoolMemberMismatch
+	}
+	if user.QuotaPoolId == context.targetPoolId {
+		return nil, nil, ErrQuotaPoolSamePool
+	}
+	pools, err := lockMovePools(tx, user.QuotaPoolId, context.targetPoolId)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := validateMoveTarget(pools[context.targetPoolId], context.options); err != nil {
+		return nil, nil, err
+	}
+	if err := context.validateMoveSource(tx, pools[user.QuotaPoolId], &user); err != nil {
+		return nil, nil, err
+	}
+	context.result.TargetNewUserPool = pools[context.targetPoolId] != nil && pools[context.targetPoolId].IsNewUserPool()
+	return &user, pools, nil
+}
+
+func (context *quotaPoolMoveContext) validateMoveSource(tx *gorm.DB, source *QuotaPool, user *User) error {
+	if context.options.requireCandidateSource && (source == nil || !source.IsNewUserPool()) {
+		return ErrQuotaPoolCandidateInvalid
+	}
+	if context.options.requireNormalSource && (source == nil || source.PoolType != QuotaPoolTypeNormal) {
+		return ErrQuotaPoolSystemReadonly
+	}
+	if !context.options.guardAdminRemoval {
+		return nil
+	}
+	if !context.options.allowAdminRemoval && user.Role != common.RoleCommonUser {
+		return ErrQuotaPoolPermissionDenied
+	}
+	var adminCount int64
+	if err := tx.Model(&QuotaPoolAdmin{}).
+		Where("pool_id = ? AND user_id = ?", user.QuotaPoolId, user.Id).
+		Count(&adminCount).Error; err != nil {
+		return err
+	}
+	if adminCount > 0 && !context.options.allowAdminRemoval {
+		return ErrQuotaPoolPermissionDenied
+	}
+	return nil
+}
+
+func lockMovePools(tx *gorm.DB, oldPoolId, targetPoolId int) (map[int]*QuotaPool, error) {
+	ids := make([]int, 0, 2)
+	for _, id := range []int{oldPoolId, targetPoolId} {
+		if id > 0 && (len(ids) == 0 || ids[0] != id) {
+			ids = append(ids, id)
+		}
+	}
+	sort.Ints(ids)
+	result := make(map[int]*QuotaPool, len(ids))
+	for _, id := range ids {
+		var pool QuotaPool
+		if err := lockForUpdate(tx).Where("id = ?", id).First(&pool).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, ErrQuotaPoolNotFound
+			}
+			return nil, err
+		}
+		poolCopy := pool
+		result[id] = &poolCopy
+	}
+	return result, nil
+}
+
+func validateMoveTarget(target *QuotaPool, options quotaPoolMoveOptions) error {
+	if target == nil {
+		return ErrQuotaPoolNotFound
+	}
+	if target.IsSystemPool() && !options.allowSystemTarget {
+		return ErrQuotaPoolSystemReadonly
+	}
+	// 添加成员和系统迁移允许进入禁用池，发放额度由充值流程独立检查池状态。
+	// 移除成员返回新用户池时仍要求目标池启用。
+	if !target.Enabled && !options.allowDisabledTarget {
+		return ErrQuotaPoolDisabled
+	}
+	return nil
+}
+
+func reclaimMovingUserQuota(tx *gorm.DB, oldPool *QuotaPool, user *User, operatorId int, result *QuotaPoolMoveResult) error {
+	if oldPool == nil || oldPool.IsNewUserPool() || user.Quota <= 0 {
+		return nil
+	}
+	result.Reclaimed = true
+	result.Change = QuotaPoolBalanceChange{
+		PoolId: oldPool.Id, Amount: user.Quota,
+		QuotaBefore: oldPool.Quota, QuotaAfter: oldPool.Quota + user.Quota,
+	}
+	if err := tx.Model(&QuotaPool{}).Where("id = ?", oldPool.Id).
+		Update("quota", gorm.Expr("quota + ?", user.Quota)).Error; err != nil {
+		return err
+	}
+	return tx.Create(&QuotaPoolTransaction{
+		PoolId: oldPool.Id, Type: QuotaPoolTransactionReclaimUser,
+		Amount: user.Quota, QuotaBefore: oldPool.Quota, QuotaAfter: oldPool.Quota + user.Quota,
+		UserId: user.Id, OperatorId: operatorId,
+	}).Error
+}

@@ -18,6 +18,7 @@ import (
 )
 
 const UserNameMaxLength = 20
+const UserDepartmentMaxLength = 512
 
 var userSortColumns = map[string]string{
 	"id":            "id",
@@ -76,6 +77,12 @@ func resolveUserSortOptions(sortOptions []UserSortOptions) UserSortOptions {
 
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
+// QuotaFrozenMessage 是冻结用户使用或重置额度时显示的提示。
+const QuotaFrozenMessage = "已经使用Codex商业版，暂不支持继续使用iCode"
+
+// ErrQuotaFrozen 表示用户额度被冻结，不能消费或重置。
+var ErrQuotaFrozen = errors.New(QuotaFrozenMessage)
+
 type User struct {
 	Id                   int                        `json:"id"`
 	Username             string                     `json:"username" gorm:"unique;index" validate:"max=20"`
@@ -112,6 +119,12 @@ type User struct {
 	LastLoginAt          int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
 	AuthVersion          int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
 	AdminPermissions     map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
+	Department           string                     `json:"department" gorm:"type:varchar(512);column:department;index" validate:"max=512"`
+	LDAPId               string                     `json:"ldap_id" gorm:"type:varchar(256);column:ldap_id;index"`
+	DingTalkId           string                     `json:"dingtalk_id" gorm:"type:varchar(256);column:dingtalk_id;index"`
+	QuotaFrozen          bool                       `json:"quota_frozen" gorm:"type:boolean;not null;default:false"`
+	QuotaPoolId          int                        `json:"quota_pool_id" gorm:"type:int;default:0;column:quota_pool_id;index"`
+	QuotaPoolName        string                     `json:"quota_pool_name,omitempty" gorm:"-:all"`
 }
 
 func (user *User) ToBaseUser() *UserBase {
@@ -119,6 +132,7 @@ func (user *User) ToBaseUser() *UserBase {
 		Id:          user.Id,
 		Group:       user.Group,
 		Quota:       user.Quota,
+		QuotaFrozen: user.QuotaFrozen,
 		Status:      user.Status,
 		Role:        user.Role,
 		Username:    user.Username,
@@ -203,6 +217,7 @@ var userBindColumns = map[string]bool{
 	"github_id":   true,
 	"discord_id":  true,
 	"oidc_id":     true,
+	"dingtalk_id": true,
 	"linux_do_id": true,
 	"wechat_id":   true,
 }
@@ -247,6 +262,7 @@ func generateDefaultSidebarConfigForRole(userRole int) string {
 		"enabled":  true,
 		"topup":    true,
 		"personal": true,
+		"tools":    true,
 	}
 
 	// 管理员区域 - 根据角色决定
@@ -426,6 +442,10 @@ func GetAllUsers(pageInfo *common.PageInfo, sortOptions ...UserSortOptions) (use
 		tx.Rollback()
 		return nil, 0, err
 	}
+	if err = fillUserQuotaPoolNames(tx, users); err != nil {
+		tx.Rollback()
+		return nil, 0, err
+	}
 
 	// Commit transaction
 	if err = tx.Commit().Error; err != nil {
@@ -435,7 +455,10 @@ func GetAllUsers(pageInfo *common.PageInfo, sortOptions ...UserSortOptions) (use
 	return users, total, nil
 }
 
-func SearchUsers(keyword string, group string, role *int, status *int, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
+// 冻结只是列表筛选状态，不写入 users.status。
+const userStatusQuotaFrozenFilter = 3
+
+func SearchUsers(keyword string, group string, role *int, status *int, quotaPoolId *int, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
 	var users []*User
 	var total int64
 	var err error
@@ -476,9 +499,17 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 	if status != nil {
 		if *status == -1 {
 			query = query.Where("deleted_at IS NOT NULL")
+		} else if *status == userStatusQuotaFrozenFilter {
+			query = query.Where("deleted_at IS NULL AND status = ? AND quota_frozen = ?", common.UserStatusEnabled, true)
 		} else {
 			query = query.Where("deleted_at IS NULL").Where("status = ?", *status)
+			if *status == common.UserStatusEnabled {
+				query = query.Where("quota_frozen = ?", false)
+			}
 		}
+	}
+	if quotaPoolId != nil {
+		query = query.Where("quota_pool_id = ?", *quotaPoolId)
 	}
 
 	// 获取总数
@@ -487,11 +518,14 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 		tx.Rollback()
 		return nil, 0, err
 	}
-
 	// 获取分页数据
 	order := resolveUserSortOptions(sortOptions)
 	err = order.Apply(query.Omit("password", "access_token")).Limit(num).Offset(startIdx).Find(&users).Error
 	if err != nil {
+		tx.Rollback()
+		return nil, 0, err
+	}
+	if err = fillUserQuotaPoolNames(tx, users); err != nil {
 		tx.Rollback()
 		return nil, 0, err
 	}
@@ -514,6 +548,12 @@ func GetUserById(id int, selectAll bool) (*User, error) {
 		err = DB.First(&user, "id = ?", id).Error
 	} else {
 		err = DB.Omit("password", "access_token").First(&user, "id = ?", id).Error
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err = fillUserQuotaPoolNames(DB, []*User{&user}); err != nil {
+		return nil, err
 	}
 	return &user, err
 }
@@ -678,7 +718,9 @@ func (user *User) Insert(inviterId int) error {
 			if err := user.prepareForInsert(tx); err != nil {
 				return err
 			}
-			user.Quota = common.QuotaForNewUser
+			if err := user.applyInitialQuotaPool(tx); err != nil {
+				return err
+			}
 			user.AffCode = common.GetRandomString(4)
 
 			// 初始化用户设置，包括默认的边栏配置
@@ -718,7 +760,7 @@ func (user *User) finishInsert(inviterId int) {
 		RecordLog(user.Id, LogTypeSystem, common.NewMessage("New user sign-up bonus {{quota}}", map[string]any{"quota": logger.FormatQuota(common.QuotaForNewUser)}))
 	}
 	if inviterId != 0 && operation_setting.IsPaymentComplianceConfirmed() {
-		if common.QuotaForInvitee > 0 {
+		if common.QuotaForInvitee > 0 && user.QuotaPoolId == QuotaPoolDefaultUserPoolId {
 			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
 			RecordLog(user.Id, LogTypeSystem, common.NewMessage("Invitation code bonus {{quota}}", map[string]any{"quota": logger.FormatQuota(common.QuotaForInvitee)}))
 		}
@@ -742,7 +784,9 @@ func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 		if err := user.prepareForInsert(tx); err != nil {
 			return err
 		}
-		user.Quota = common.QuotaForNewUser
+		if err := user.applyInitialQuotaPool(tx); err != nil {
+			return err
+		}
 		user.AffCode = common.GetRandomString(4)
 
 		// 初始化用户设置
@@ -775,7 +819,7 @@ func (user *User) FinalizeOAuthUserCreation(inviterId int) {
 		RecordLog(user.Id, LogTypeSystem, common.NewMessage("New user sign-up bonus {{quota}}", map[string]any{"quota": logger.FormatQuota(common.QuotaForNewUser)}))
 	}
 	if inviterId != 0 && operation_setting.IsPaymentComplianceConfirmed() {
-		if common.QuotaForInvitee > 0 {
+		if common.QuotaForInvitee > 0 && user.QuotaPoolId == QuotaPoolDefaultUserPoolId {
 			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
 			RecordLog(user.Id, LogTypeSystem, common.NewMessage("Invitation code bonus {{quota}}", map[string]any{"quota": logger.FormatQuota(common.QuotaForInvitee)}))
 		}
@@ -835,6 +879,7 @@ func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
 	if err = tx.Model(&current).Omit(
 		"access_token",
 		"quota",
+		"quota_frozen",
 		"used_quota",
 		"request_count",
 		"aff_count",
@@ -914,6 +959,8 @@ func (user *User) ClearBinding(bindingType string) error {
 		"github":   "github_id",
 		"discord":  "discord_id",
 		"oidc":     "oidc_id",
+		"ldap":     "ldap_id",
+		"dingtalk": "dingtalk_id",
 		"wechat":   "wechat_id",
 		"telegram": "telegram_id",
 		"linuxdo":  "linux_do_id",
@@ -928,8 +975,8 @@ func (user *User) ClearBinding(bindingType string) error {
 		if err := tx.Model(&User{}).Where("id = ?", user.Id).Update(column, "").Error; err != nil {
 			return err
 		}
-		if bindingType == ExternalIdentityProviderTelegram {
-			return ReleaseExternalIdentityWithTx(tx, ExternalIdentityProviderTelegram, user.Id)
+		if bindingType == ExternalIdentityProviderDingTalk || bindingType == ExternalIdentityProviderTelegram {
+			return ReleaseExternalIdentityWithTx(tx, bindingType, user.Id)
 		}
 		return nil
 	}); err != nil {
@@ -1122,6 +1169,14 @@ func (user *User) FillUserByOidcId() error {
 	return nil
 }
 
+// FillUserByDingTalkId 按钉钉 unionId 填充已绑定用户。
+func (user *User) FillUserByDingTalkId() error {
+	if user.DingTalkId == "" {
+		return errors.New("DingTalk id 为空！")
+	}
+	return DB.Where(User{DingTalkId: user.DingTalkId}).First(user).Error
+}
+
 func (user *User) FillUserByWeChatId() error {
 	if user.WeChatId == "" {
 		return common.NewMessage("WeChat ID is empty!")
@@ -1165,6 +1220,22 @@ func GetUniqueUserByEmail(email string) (*User, error) {
 	}
 }
 
+// FindOAuthEmailOwnerWithTx 同时检查已注销账号和历史重复邮箱，避免归并到不明确的所有者。
+func FindOAuthEmailOwnerWithTx(tx *gorm.DB, email string) (*User, error) {
+	var users []User
+	if err := lockForUpdate(emailQuery(tx, email)).Limit(2).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	switch len(users) {
+	case 0:
+		return nil, gorm.ErrRecordNotFound
+	case 1:
+		return &users[0], nil
+	default:
+		return nil, ErrEmailAmbiguous
+	}
+}
+
 func IsWeChatIdAlreadyTaken(wechatId string) bool {
 	return DB.Unscoped().Where("wechat_id = ?", wechatId).Find(&User{}).RowsAffected == 1
 }
@@ -1179,6 +1250,11 @@ func IsDiscordIdAlreadyTaken(discordId string) bool {
 
 func IsOidcIdAlreadyTaken(oidcId string) bool {
 	return DB.Where("oidc_id = ?", oidcId).Find(&User{}).RowsAffected == 1
+}
+
+// IsDingTalkIdAlreadyTaken 判断钉钉 unionId 是否已经绑定账号。
+func IsDingTalkIdAlreadyTaken(dingTalkId string) bool {
+	return DB.Unscoped().Where("dingtalk_id = ?", dingTalkId).Find(&User{}).RowsAffected == 1
 }
 
 func IsTelegramIdAlreadyTaken(telegramId string) bool {

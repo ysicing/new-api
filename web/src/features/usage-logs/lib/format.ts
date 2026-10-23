@@ -24,6 +24,8 @@ import {
   splitBillingExprAndRequestRules,
   type ParsedTier,
 } from '@/features/pricing/lib/billing-expr'
+import { renderQuotaPoolOperationDescriptor } from '@/features/quota-pools/lib/operation-format'
+import { formatQuota } from '@/lib/format'
 import { translateServerText } from '@/lib/server-error-message'
 
 import type { UsageLog } from '../data/schema'
@@ -623,6 +625,30 @@ export function renderAuditContent(
     }
     return t('Batch deleted redemption codes (count not recorded)')
   }
+  if (op.action === 'user.quota_pool_recharge') {
+    const params = op.params ?? {}
+    const username =
+      typeof params.username === 'string' ? params.username.trim() : ''
+    const targetUserId = Number(params.target_user_id)
+    const hasTargetUserId = Number.isInteger(targetUserId) && targetUserId > 0
+    let user = '—'
+    if (username && hasTargetUserId) {
+      user = `${username} (ID: ${targetUserId})`
+    } else if (username) {
+      user = username
+    } else if (hasTargetUserId) {
+      user = `#${targetUserId}`
+    }
+    return t('Replenished quota for user {{user}}: {{quota}}', {
+      user,
+      quota: params.quota ?? '—',
+    })
+  }
+  const quotaPoolText = renderQuotaPoolOperationDescriptor(
+    { action: op.action, params: op.params ?? {} },
+    t
+  )
+  if (quotaPoolText) return quotaPoolText
   const template = AUDIT_TEMPLATES[op.action]
   if (!template) return null
   const quotaOperation = buildQuotaAuditOperation(
@@ -636,4 +662,34 @@ export function renderAuditContent(
   }
   const params = { ...op.params }
   return t(template, params)
+}
+
+export function renderStructuredOperationContent(
+  logType: number,
+  other: LogOtherData | null | undefined,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): string | null {
+  if (logType !== 1 && logType !== 3 && logType !== 7) return null
+  return renderAuditContent(other, t)
+}
+
+export function renderAutomaticRechargeContent(
+  other: LogOtherData | null | undefined,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): string | null {
+  if (other?.recharge_source !== 'auto') return null
+  const amount = Number(other.amount)
+  if (!Number.isFinite(amount)) return null
+  const formattedAmount = formatQuota(amount)
+  if (Number(other.quota_pool_id) > 0) {
+    const poolName = other.quota_pool_name?.trim()
+    const pool = poolName || `#${other.quota_pool_id}`
+    return t('Quota pool {{pool}} automatically granted {{amount}}', {
+      pool,
+      amount: formattedAmount,
+    })
+  }
+  return t('System automatically granted {{amount}}', {
+    amount: formattedAmount,
+  })
 }

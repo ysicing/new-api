@@ -23,11 +23,45 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { api, type RefreshOutcome } from '@/lib/api'
 import type { AuthBundle } from '@/stores/auth-store'
 
-import { executeLogout } from './api'
+import { executeLogout, ldapLogin, login } from './api'
 import { useOAuthLogin } from './hooks/use-oauth-login'
 import { consumeOAuthLoginRedirect } from './lib/oauth-callback-mode'
+import * as passwordEncryption from './lib/password-encryption'
 
 afterEach(() => vi.restoreAllMocks())
+
+test.each([
+  { submit: login, path: '/api/user/login' },
+  { submit: ldapLogin, path: '/api/user/ldap/login' },
+])(
+  'encrypts credentials for $path and clears stale keys on rejection',
+  async ({ submit, path }) => {
+    vi.spyOn(passwordEncryption, 'encryptPassword').mockResolvedValue({
+      password_encrypted: 'encrypted-password',
+      encryption_key_id: 'key-id',
+    })
+    const clear = vi.spyOn(passwordEncryption, 'clearPasswordEncryptionCache')
+    const post = vi.spyOn(api, 'post').mockResolvedValue({
+      data: { success: false, message: 'Invalid credentials' },
+    })
+    const response = await submit({
+      username: 'alice',
+      password: 'secret',
+      passwordEncryptionEnabled: true,
+    })
+    expect(post).toHaveBeenCalledWith(
+      `${path}?turnstile=`,
+      {
+        username: 'alice',
+        password_encrypted: 'encrypted-password',
+        encryption_key_id: 'key-id',
+      },
+      { skipAuthRefresh: true }
+    )
+    expect(response.success).toBe(false)
+    expect(clear).toHaveBeenCalled()
+  }
+)
 
 test.each([true, false])(
   'starts Telegram OAuth only when configuration is ready: %s',

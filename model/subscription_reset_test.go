@@ -26,6 +26,44 @@ func getSubscriptionResetSub(t *testing.T, id int) UserSubscription {
 	return sub
 }
 
+func TestSubscriptionResetSkipsFrozenUsers(t *testing.T) {
+	truncateTables(t)
+	now := GetDBTimestamp()
+	plan := &SubscriptionPlan{Id: 9901, Title: "Codex", DurationUnit: SubscriptionDurationMonth, DurationValue: 1, TotalAmount: 1000, QuotaResetPeriod: SubscriptionResetDaily}
+	seedSubscriptionResetPlan(t, plan)
+	require.NoError(t, DB.Create(&User{Id: 9911, Username: "frozen-subscriber", Password: "password", AffCode: "frozen-sub", Status: 1, QuotaFrozen: true}).Error)
+	require.NoError(t, DB.Create(&User{Id: 9912, Username: "active-subscriber", Password: "password", AffCode: "active-sub", Status: 1}).Error)
+	end := now + 86400
+	seedSubscriptionResetSub(t, &UserSubscription{Id: 9921, UserId: 9911, PlanId: plan.Id, AmountTotal: 1000, AmountUsed: 500, StartTime: now - 86400, EndTime: end, Status: "active", LastResetTime: now - 86400, NextResetTime: now - 1})
+	seedSubscriptionResetSub(t, &UserSubscription{Id: 9922, UserId: 9912, PlanId: plan.Id, AmountTotal: 1000, AmountUsed: 600, StartTime: now - 86400, EndTime: end, Status: "active", LastResetTime: now - 86400, NextResetTime: now - 1})
+
+	_, err := AdminResetUserSubscriptionsByPlan(9911, plan.Id, true)
+	require.ErrorContains(t, err, QuotaFrozenMessage)
+	result, err := AdminResetPlanSubscriptions(plan.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.ResetCount)
+	assert.EqualValues(t, 500, getSubscriptionResetSub(t, 9921).AmountUsed)
+	assert.Zero(t, getSubscriptionResetSub(t, 9922).AmountUsed)
+}
+
+func TestDueSubscriptionResetDoesNotLetFrozenUserFillBatch(t *testing.T) {
+	truncateTables(t)
+	now := GetDBTimestamp()
+	plan := &SubscriptionPlan{Id: 9931, Title: "Codex", DurationUnit: SubscriptionDurationMonth, DurationValue: 1, TotalAmount: 1000, QuotaResetPeriod: SubscriptionResetDaily}
+	seedSubscriptionResetPlan(t, plan)
+	require.NoError(t, DB.Create(&User{Id: 9932, Username: "frozen-due", Password: "password", AffCode: "frozen-due", Status: 1, QuotaFrozen: true}).Error)
+	require.NoError(t, DB.Create(&User{Id: 9933, Username: "active-due", Password: "password", AffCode: "active-due", Status: 1}).Error)
+	end := now + 86400
+	seedSubscriptionResetSub(t, &UserSubscription{Id: 9934, UserId: 9932, PlanId: plan.Id, AmountTotal: 1000, AmountUsed: 500, StartTime: now - 86400, EndTime: end, Status: "active", LastResetTime: now - 86400, NextResetTime: now - 2})
+	seedSubscriptionResetSub(t, &UserSubscription{Id: 9935, UserId: 9933, PlanId: plan.Id, AmountTotal: 1000, AmountUsed: 600, StartTime: now - 86400, EndTime: end, Status: "active", LastResetTime: now - 86400, NextResetTime: now - 1})
+
+	count, err := ResetDueSubscriptions(1)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+	assert.EqualValues(t, 500, getSubscriptionResetSub(t, 9934).AmountUsed)
+	assert.Zero(t, getSubscriptionResetSub(t, 9935).AmountUsed)
+}
+
 func TestAdminResetUserSubscriptionsByPlanResetsAllActiveMatchesAndAdvancesTime(t *testing.T) {
 	truncateTables(t)
 

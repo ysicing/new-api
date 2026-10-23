@@ -39,8 +39,20 @@ func AdjustUserQuota(userID, operatorRole int, mode string, value int) (*UserQuo
 		if err := lockForUpdate(tx).First(&user, userID).Error; err != nil {
 			return err
 		}
-		if operatorRole != common.RoleRootUser && operatorRole <= user.Role {
+		if user.QuotaFrozen {
+			return ErrQuotaFrozen
+		}
+		if operatorRole != common.RoleRootUser {
 			return ErrUserQuotaPermission
+		}
+		if common.QuotaPoolEnabled && user.QuotaPoolId != QuotaPoolDefaultUserPoolId {
+			var pool QuotaPool
+			if err := lockForUpdate(tx).First(&pool, user.QuotaPoolId).Error; err != nil {
+				return err
+			}
+			if pool.Enabled {
+				return ErrUserQuotaPermission
+			}
 		}
 		if user.Quota > common.MaxWalletQuota || user.Quota < -common.MaxWalletQuota {
 			return ErrWalletQuotaLimitExceeded

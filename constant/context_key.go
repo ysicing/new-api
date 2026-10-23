@@ -85,4 +85,7 @@ const (
 	ContextKeyTokenAuditParams ContextKey = "token_audit_params"
 	// ContextKeyTokenAuditSucceeded disambiguates token responses that exceed the audit buffer.
 	ContextKeyTokenAuditSucceeded ContextKey = "token_audit_succeeded"
+	// ContextKeyAuditSkip marks a POST/PUT/PATCH/DELETE endpoint as logically
+	// read-only so the admin audit fallback does not emit a misleading write log.
+	ContextKeyAuditSkip ContextKey = "audit_skip"
 )

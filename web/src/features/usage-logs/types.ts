@@ -178,6 +178,10 @@ export interface LogOtherData {
   login_method?: string
   user_agent?: string
   request_path?: string
+  recharge_source?: string
+  quota_pool_id?: number
+  quota_pool_name?: string
+  amount?: number
   request_conversion?: string[]
   ws?: boolean
   audio?: boolean
@@ -523,6 +527,9 @@ export interface UserInfo {
   used_quota: number
   request_count: number
   group?: string
+  quota_pool_id?: number
+  quota_pool_name?: string
+  quota_pool_enabled?: boolean
   aff_code?: string
   aff_count?: number
   aff_quota?: number

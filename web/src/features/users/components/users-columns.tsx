@@ -33,7 +33,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { getCurrencyDisplay } from '@/lib/currency'
-import { formatQuota } from '@/lib/format'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import {
@@ -146,6 +145,10 @@ export function useUsersColumns(): ColumnDef<User>[] {
         cell: ({ row }) => {
           const user = row.original
           const requestCount = user.request_count
+          const quotaFrozen =
+            !isUserDeleted(user) &&
+            user.status === USER_STATUS.ENABLED &&
+            user.quota_frozen
 
           const statusConfig = isUserDeleted(user)
             ? USER_STATUSES[USER_STATUS.DELETED]
@@ -159,9 +162,13 @@ export function useUsersColumns(): ColumnDef<User>[] {
             <Tooltip>
               <TooltipTrigger render={<div className='-ml-1.5 cursor-help' />}>
                 <StatusBadge
-                  label={t(statusConfig.labelKey)}
+                  label={
+                    quotaFrozen ? t('Quota frozen') : t(statusConfig.labelKey)
+                  }
                   variant={
-                    isUserDeleted(user) ? 'neutral' : statusConfig.variant
+                    isUserDeleted(user) || quotaFrozen
+                      ? 'neutral'
+                      : statusConfig.variant
                   }
                   copyable={false}
                   className='font-normal'
@@ -188,11 +195,31 @@ export function useUsersColumns(): ColumnDef<User>[] {
         header: `${t('Available Balance')} (${quotaUnit})`,
         cell: ({ row }) => {
           const user = row.original
-          return <UserQuotaCell remaining={user.quota} used={user.used_quota} />
+          return user.quota_frozen ? (
+            <span>{t('Quota unavailable')}</span>
+          ) : (
+            <UserQuotaCell remaining={user.quota} used={user.used_quota} />
+          )
         },
         size: 180,
         minSize: 160,
         meta: { mobileOrder: 40 },
+      },
+      {
+        accessorKey: 'quota_pool_name',
+        header: t('Quota pool'),
+        cell: ({ row }) => (
+          <BadgeCell>
+            <StatusBadge
+              label={row.original.quota_pool_name || t('Default pool')}
+              variant='neutral'
+              copyable={false}
+            />
+          </BadgeCell>
+        ),
+        enableSorting: false,
+        size: 160,
+        meta: { mobileOrder: 35 },
       },
       {
         accessorKey: 'group',
@@ -234,45 +261,6 @@ export function useUsersColumns(): ColumnDef<User>[] {
         enableSorting: false,
         size: 120,
         meta: { mobileOrder: 20 },
-      },
-      {
-        id: 'invite_info',
-        header: t('Invite Info'),
-        cell: ({ row }) => {
-          const user = row.original
-          const affCount = user.aff_count || 0
-          const affHistoryQuota = user.aff_history_quota || 0
-          const inviterId = user.inviter_id || 0
-
-          if (affCount === 0 && affHistoryQuota === 0 && inviterId === 0) {
-            return <span className='text-muted-foreground text-sm'>—</span>
-          }
-
-          return (
-            <div
-              data-table-text='secondary'
-              className='min-w-0 space-y-1 text-xs font-normal'
-            >
-              {(affCount > 0 || affHistoryQuota !== 0) && (
-                <LongText>
-                  {t('Invited {{count}} users', { count: affCount })} ·{' '}
-                  {t('Earnings')}:{' '}
-                  <span className='tabular-nums'>
-                    {formatQuota(affHistoryQuota)}
-                  </span>
-                </LongText>
-              )}
-              {inviterId > 0 && (
-                <LongText className='text-muted-foreground'>
-                  {t('Inviter ID: {{id}}', { id: inviterId })}
-                </LongText>
-              )}
-            </div>
-          )
-        },
-        size: 240,
-        enableSorting: false,
-        meta: { mobileHidden: true },
       },
       {
         accessorKey: 'created_at',

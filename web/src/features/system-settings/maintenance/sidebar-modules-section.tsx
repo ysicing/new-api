@@ -136,6 +136,10 @@ export function SidebarModulesSection({
         title: t('Security & Access'),
         description: t('Manage your security settings and account access'),
       },
+      tools: {
+        title: t('Tools'),
+        description: t('Account self-service queries and diagnostics.'),
+      },
     },
     admin: {
       channel: {

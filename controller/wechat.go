@@ -91,6 +91,7 @@ func WeChatAuth(c *gin.Context) {
 				common.ApiError(c, err)
 				return
 			}
+			notifyNewSelfRegisteredUser(user.Id)
 		} else {
 			common.ApiErrorT(c, "New user registration has been disabled by administrator")
 			return

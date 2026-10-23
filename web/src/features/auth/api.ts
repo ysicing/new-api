@@ -52,6 +52,17 @@ import type {
 
 // User login with username and password
 export async function login(payload: LoginPayload): Promise<LoginResponse> {
+  return submitPasswordLogin(payload, '/api/user/login')
+}
+
+export async function ldapLogin(payload: LoginPayload): Promise<LoginResponse> {
+  return submitPasswordLogin(payload, '/api/user/ldap/login')
+}
+
+async function submitPasswordLogin(
+  payload: LoginPayload,
+  path: string
+): Promise<LoginResponse> {
   const turnstile = payload.turnstile ?? ''
   try {
     let passwordFields:
@@ -67,7 +78,7 @@ export async function login(payload: LoginPayload): Promise<LoginResponse> {
       passwordFields = { password: payload.password }
     }
     const res = await api.post<LoginResponse>(
-      `/api/user/login?turnstile=${turnstile}`,
+      `${path}?turnstile=${turnstile}`,
       {
         username: payload.username,
         ...passwordFields,

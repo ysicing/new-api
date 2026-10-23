@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -33,6 +34,8 @@ var completionRatioMetaOptionKeys = []string{
 	"AudioRatio",
 	"AudioCompletionRatio",
 }
+
+var syncAnnouncementGroupNotifications = service.SyncAnnouncementGroupNotifications
 
 func isPaymentComplianceOptionKey(key string) bool {
 	return strings.HasPrefix(key, "payment_setting.compliance_")
@@ -93,7 +96,8 @@ func GetOptions(c *gin.Context) {
 			strings.HasSuffix(k, "Secret") ||
 			strings.HasSuffix(k, "Key") ||
 			strings.HasSuffix(k, "secret") ||
-			strings.HasSuffix(k, "api_key")
+			strings.HasSuffix(k, "api_key") ||
+			strings.Contains(strings.ToLower(k), "password")
 		if isSensitiveKey {
 			continue
 		}
@@ -189,6 +193,10 @@ func UpdateOption(c *gin.Context) {
 		common.ApiErrorStatus(c, http.StatusBadRequest, common.NewMessage("Invalid parameters"))
 		return
 	}
+	previousAnnouncements := ""
+	if option.Key == "console_setting.announcements" {
+		previousAnnouncements = console_setting.GetConsoleSetting().Announcements
+	}
 	switch option.Value.(type) {
 	case bool:
 		option.Value = common.Interface2String(option.Value.(bool))
@@ -228,10 +236,33 @@ func UpdateOption(c *gin.Context) {
 			common.ApiErrorT(c, "Cannot enable {{provider}}. Enter the {{provider}} Client ID and Client Secret first.", map[string]any{"provider": "Discord OAuth"})
 			return
 		}
+	case "dingtalk.enabled":
+		dingTalk := system_setting.GetDingTalkSettings()
+		if option.Value == "true" && (strings.TrimSpace(dingTalk.CorpId) == "" || strings.TrimSpace(dingTalk.ClientId) == "" || strings.TrimSpace(dingTalk.ClientSecret) == "") {
+			common.ApiErrorMsg(c, "无法启用钉钉登录，请先配置 Corp ID、Client ID 和 Client Secret")
+			return
+		}
 	case "oidc.enabled":
 		if option.Value == "true" && system_setting.GetOIDCSettings().ClientId == "" {
 			common.ApiErrorT(c, "Cannot enable {{provider}}. Enter the {{provider}} Client ID and Client Secret first.", map[string]any{"provider": "OIDC"})
 			return
+		}
+	case "ldap.enabled":
+		ldap := system_setting.GetLDAPSettings()
+		if option.Value == "true" && (strings.TrimSpace(ldap.URL) == "" || strings.TrimSpace(ldap.BaseDN) == "" || strings.TrimSpace(ldap.UID) == "") {
+			common.ApiErrorMsg(c, "无法启用 LDAP 登录，请先配置 LDAP 地址、Base DN 和用户属性")
+			return
+		}
+	case "QuotaPoolEnabled":
+		if common.QuotaPoolEnabled && option.Value != "true" {
+			common.ApiErrorMsg(c, "额度池功能启用后不能关闭")
+			return
+		}
+		if option.Value == "true" {
+			if err := model.SyncSystemQuotaPools(); err != nil {
+				common.ApiError(c, err)
+				return
+			}
 		}
 	case "LinuxDOOAuthEnabled":
 		if option.Value == "true" && common.LinuxDOClientId == "" {
@@ -424,6 +455,11 @@ func UpdateOption(c *gin.Context) {
 			common.ApiError(c, err)
 		}
 		return
+	}
+	if option.Key == "console_setting.announcements" {
+		if syncErr := syncAnnouncementGroupNotifications(previousAnnouncements, option.Value.(string), c.GetInt("id"), c.GetString("username"), time.Now()); syncErr != nil {
+			common.SysError("sync announcement group notifications: " + syncErr.Error())
+		}
 	}
 	// 出于安全考虑只记录被修改的配置项名称，不记录配置值（可能含密钥等敏感信息）。
 	recordManageAudit(c, "option.update", map[string]any{

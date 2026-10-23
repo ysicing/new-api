@@ -48,7 +48,16 @@ export type SecurityProofScope =
   | 'admin.user.binding.clear'
 
 /** ManageUser actions that change a user's status or role and need step-up. */
-export type AdminUserManageAction = 'disable' | 'enable' | 'promote' | 'demote'
+export type AdminUserManageAction =
+  | 'disable'
+  | 'enable'
+  | 'promote'
+  | 'demote'
+  | 'set_quota_pool_super_admin'
+  | 'unset_quota_pool_super_admin'
+  | 'freeze_quota'
+  | 'unfreeze_quota'
+  | 'recharge_auto'
 
 export type VerificationOperation =
   | { scope: 'channel.key.read'; context: { channel_id: number } }

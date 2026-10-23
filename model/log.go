@@ -227,6 +227,12 @@ func RecordLoginLog(userId, actorRole int, username string, content string, ip s
 // adminInfo 存放操作者身份（写入 Other.admin_info，普通用户查询时剥离）；
 // auditInfo 存放路由/方法/结果等中间件兜底信息（写入 Other.audit_info，普通用户查询时剥离）。
 func RecordOperationAuditLog(logUserId, actorRole int, content string, ip string, action string, params map[string]any, adminInfo *AuditAdminInfo, auditInfo *AuditRequestInfo, request ...*gin.Context) {
+
+	RecordOperationAuditLogWithType(LogTypeManage, logUserId, actorRole, content, ip, action, params, adminInfo, auditInfo, request...)
+}
+
+// RecordOperationAuditLogWithType 同时保留资金流水的分类和操作审计。
+func RecordOperationAuditLogWithType(logType, logUserId, actorRole int, content, ip, action string, params map[string]any, adminInfo *AuditAdminInfo, auditInfo *AuditRequestInfo, request ...*gin.Context) {
 	username, _ := GetUsernameById(logUserId, false)
 	other := AuditOther{
 		Op:        &AuditOperation{Action: action, Params: params},
@@ -245,6 +251,20 @@ func RecordOperationAuditLog(logUserId, actorRole int, content string, ip string
 	if auditInfo != nil {
 		status = auditInfo.Status
 		success = auditInfo.Success
+	}
+	if logType == LogTypeTopup || strings.HasPrefix(action, "quota_pool.") {
+		data, err := common.Marshal(other)
+		if err != nil {
+			common.SysError(err.Error())
+			return
+		}
+		log := &Log{UserId: logUserId, Username: username, CreatedAt: common.GetTimestamp(), Type: logType, Content: content, Ip: ip, Other: string(data)}
+		if c != nil {
+			log.RequestId = c.GetString(common.RequestIdKey)
+		}
+		if err := createLog(log); err != nil {
+			common.SysError(err.Error())
+		}
 	}
 	RecordAuditLog(c, AuditLog{UserId: logUserId, Username: username, ActorRole: actorRole, Category: category, Action: action, Content: content, Ip: ip, Status: status, Success: success, Other: other})
 }
@@ -275,42 +295,60 @@ func RecordTopupLog(userId int, content *common.Message, callerIp string, paymen
 	}
 }
 
+const maxRequestLogUserAgentRunes = 512
+
+func requestLogOther(c *gin.Context, other *LogOther) *LogOther {
+	result := NewLogOther()
+	if other != nil {
+		*result = *other
+		result.public = copyLogOtherMap(other.public)
+	}
+	delete(result.public, "user_agent")
+	if c == nil || c.Request == nil {
+		return result
+	}
+	userAgent := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, strings.TrimSpace(c.Request.UserAgent()))
+	userAgent = strings.TrimSpace(userAgent)
+	runes := []rune(userAgent)
+	if len(runes) > maxRequestLogUserAgentRunes {
+		userAgent = string(runes[:maxRequestLogUserAgentRunes])
+	}
+	if userAgent != "" {
+		result.SetPublic("user_agent", userAgent)
+	}
+	return result
+}
+
 func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeSeconds int,
 	isStream bool, group string, other *LogOther) {
 	logger.LogInfo(c, common.LogText("record error log: userId=%d, channelId=%d, modelName=%s, tokenName=%s, content=%s", userId, channelId, modelName, tokenName, common.LocalLogPreview(content)))
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
+	other = requestLogOther(c, other)
 	otherStr := other.JSONString()
-	// 判断是否需要记录 IP
-	needRecordIp := false
-	if settingMap, err := GetUserSetting(userId, false); err == nil {
-		if settingMap.RecordIpLog {
-			needRecordIp = true
-		}
-	}
 	log := &Log{
-		UserId:           userId,
-		Username:         username,
-		CreatedAt:        common.GetTimestamp(),
-		Type:             LogTypeError,
-		Content:          content,
-		PromptTokens:     0,
-		CompletionTokens: 0,
-		TokenName:        tokenName,
-		ModelName:        modelName,
-		Quota:            0,
-		ChannelId:        channelId,
-		TokenId:          tokenId,
-		UseTime:          useTimeSeconds,
-		IsStream:         isStream,
-		Group:            group,
-		Ip: func() string {
-			if needRecordIp {
-				return c.ClientIP()
-			}
-			return ""
-		}(),
+		UserId:            userId,
+		Username:          username,
+		CreatedAt:         common.GetTimestamp(),
+		Type:              LogTypeError,
+		Content:           content,
+		PromptTokens:      0,
+		CompletionTokens:  0,
+		TokenName:         tokenName,
+		ModelName:         modelName,
+		Quota:             0,
+		ChannelId:         channelId,
+		TokenId:           tokenId,
+		UseTime:           useTimeSeconds,
+		IsStream:          isStream,
+		Group:             group,
+		Ip:                c.ClientIP(),
 		RequestId:         requestId,
 		UpstreamRequestId: upstreamRequestId,
 		Other:             otherStr,
@@ -345,38 +383,26 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
 	createdAt := common.GetTimestamp()
-	other := params.Other
+	other := requestLogOther(c, params.Other)
 	content := other.setContent(params.Content)
 	otherStr := other.JSONString()
-	// 判断是否需要记录 IP
-	needRecordIp := false
-	if settingMap, err := GetUserSetting(userId, false); err == nil {
-		if settingMap.RecordIpLog {
-			needRecordIp = true
-		}
-	}
 	log := &Log{
-		UserId:           userId,
-		Username:         username,
-		CreatedAt:        createdAt,
-		Type:             LogTypeConsume,
-		Content:          content,
-		PromptTokens:     params.PromptTokens,
-		CompletionTokens: params.CompletionTokens,
-		TokenName:        params.TokenName,
-		ModelName:        params.ModelName,
-		Quota:            params.Quota,
-		ChannelId:        params.ChannelId,
-		TokenId:          params.TokenId,
-		UseTime:          params.UseTimeSeconds,
-		IsStream:         params.IsStream,
-		Group:            params.Group,
-		Ip: func() string {
-			if needRecordIp {
-				return c.ClientIP()
-			}
-			return ""
-		}(),
+		UserId:            userId,
+		Username:          username,
+		CreatedAt:         createdAt,
+		Type:              LogTypeConsume,
+		Content:           content,
+		PromptTokens:      params.PromptTokens,
+		CompletionTokens:  params.CompletionTokens,
+		TokenName:         params.TokenName,
+		ModelName:         params.ModelName,
+		Quota:             params.Quota,
+		ChannelId:         params.ChannelId,
+		TokenId:           params.TokenId,
+		UseTime:           params.UseTimeSeconds,
+		IsStream:          params.IsStream,
+		Group:             params.Group,
+		Ip:                c.ClientIP(),
 		RequestId:         requestId,
 		UpstreamRequestId: upstreamRequestId,
 		Other:             otherStr,

@@ -39,6 +39,7 @@ import {
   postTelegramBindResult,
   startOAuthBindResponseDeadline,
 } from '@/features/auth/lib/oauth-bind-window'
+import { resolveOAuthAuthorizationCode } from '@/features/auth/lib/oauth-callback-code'
 import {
   getOAuthSessionStorage,
   consumeOAuthLoginRedirect,
@@ -77,6 +78,7 @@ function OAuthCallback() {
   }
   const search = useSearch({ from: '/oauth/$provider' }) as {
     code?: string
+    authCode?: string
     state?: string
     error?: string
     error_description?: string
@@ -102,7 +104,10 @@ function OAuthCallback() {
   useEffect(() => {
     if (typeof window === 'undefined') return
 
-    const code = search.code ?? ''
+    const code = resolveOAuthAuthorizationCode(provider, {
+      code: search.code,
+      authCode: search.authCode,
+    })
     const state = callbackState
     const telegramCallback =
       provider === 'telegram'
@@ -263,6 +268,7 @@ function OAuthCallback() {
     handleLoginResult,
     provider,
     search.code,
+    search.authCode,
     search.error,
     search.error_code,
     search.error_description,

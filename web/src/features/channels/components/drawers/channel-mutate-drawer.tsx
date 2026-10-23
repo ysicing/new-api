@@ -105,6 +105,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { SecureVerificationDialog } from '@/features/auth/secure-verification'
+import { ChannelMagpieSetting } from '@/features/channels/components/channel-magpie-setting'
 import { PluginIcon } from '@/features/task-plugins/components/plugin-icon'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useHiddenClickUnlock } from '@/hooks/use-hidden-click-unlock'
@@ -314,6 +315,8 @@ const SENSITIVE_FORM_FIELDS = [
   'allow_speed',
   'claude_beta_query',
   'ollama_openai_chat',
+  'magpie_enabled',
+  'max_concurrency',
   'disable_task_polling_sleep',
   'upstream_model_update_check_enabled',
   'upstream_model_update_auto_sync_enabled',
@@ -2203,6 +2206,33 @@ export function ChannelMutateDrawer({
         icon={<Route className='h-3.5 w-3.5' />}
         iconTone='info'
       />
+      <FormField
+        control={form.control}
+        name='max_concurrency'
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>{t('Maximum concurrent requests')}</FormLabel>
+            <FormControl>
+              <Input
+                type='number'
+                min={0}
+                max={100000}
+                step={1}
+                {...field}
+                value={field.value ?? 0}
+                onChange={(event) => field.onChange(Number(event.target.value))}
+              />
+            </FormControl>
+            <FormDescription>
+              {t(
+                '0 means unlimited. Streaming requests occupy a slot until they finish. Requests are rejected with HTTP 429 when this channel is full.'
+              )}
+            </FormDescription>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <ChannelMagpieSetting control={form.control} />
       <div className='grid gap-4 sm:grid-cols-2'>
         <FormField
           control={form.control}

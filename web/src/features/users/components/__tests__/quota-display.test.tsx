@@ -316,7 +316,7 @@ async function renderUsersList(emptyInvitation = false) {
   return get
 }
 
-it('sends balance sorting to the server and keeps invitation details on two lines', async () => {
+it('sends balance sorting to the server without restoring the removed invitation column', async () => {
   const get = await renderUsersList()
   expect(
     screen.getByRole('columnheader', { name: 'User Group' })
@@ -333,8 +333,10 @@ it('sends balance sorting to the server and keeps invitation details on two line
   expect(
     screen.queryByRole('button', { name: 'Total Used' })
   ).not.toBeInTheDocument()
-  expect(screen.getByText('Inviter ID: 42')).toBeInTheDocument()
-  expect(screen.getByText(/Invited 2 users · Earnings:/)).toBeInTheDocument()
+  expect(screen.queryByText('Inviter ID: 42')).not.toBeInTheDocument()
+  expect(
+    screen.queryByText(/Invited 2 users · Earnings:/)
+  ).not.toBeInTheDocument()
 })
 
 it('shows balance above usage on mobile cards in Chinese', async () => {
@@ -374,7 +376,6 @@ it('combines creation and last login into one column with full dates visible dir
   const row = screen.getByRole('row', {
     name: /long-user-name-for-table-layout/,
   })
-  expect(within(row).getByText('—')).toBeInTheDocument()
   const times = within(row).getAllByRole('time')
   expect(times).toHaveLength(2)
   expect(times[0]).toHaveTextContent(

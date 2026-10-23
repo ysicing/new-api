@@ -53,6 +53,7 @@ func InitOptionMap() {
 	common.OptionMap["LogConsumeEnabled"] = strconv.FormatBool(common.LogConsumeEnabled)
 	common.OptionMap["DisplayInCurrencyEnabled"] = strconv.FormatBool(common.DisplayInCurrencyEnabled)
 	common.OptionMap["DisplayTokenStatEnabled"] = strconv.FormatBool(common.DisplayTokenStatEnabled)
+	common.OptionMap["QuotaPoolEnabled"] = strconv.FormatBool(common.QuotaPoolEnabled)
 	common.OptionMap["DrawingEnabled"] = strconv.FormatBool(common.DrawingEnabled)
 	common.OptionMap["TaskEnabled"] = strconv.FormatBool(common.TaskEnabled)
 	common.OptionMap["TaskPluginEnabled"] = strconv.FormatBool(constant.TaskPluginEnabled)
@@ -184,6 +185,7 @@ func InitOptionMap() {
 	common.OptionMap["CheckSensitiveOnPromptEnabled"] = strconv.FormatBool(setting.CheckSensitiveOnPromptEnabled)
 	common.OptionMap["StopOnSensitiveEnabled"] = strconv.FormatBool(setting.StopOnSensitiveEnabled)
 	common.OptionMap["SensitiveWords"] = setting.SensitiveWordsToString()
+	common.OptionMap["SensitiveWordContactMessage"] = setting.SensitiveWordContactMessage
 	common.OptionMap["StreamCacheQueueLength"] = strconv.Itoa(setting.StreamCacheQueueLength)
 	common.OptionMap["AutomaticDisableKeywords"] = operation_setting.AutomaticDisableKeywordsToString()
 	common.OptionMap["AutomaticDisableStatusCodes"] = operation_setting.AutomaticDisableStatusCodesToString()
@@ -271,7 +273,17 @@ func validateOptionValue(key string, value string) error {
 	if key == "MaxTokenAutoGroups" {
 		return setting.ValidateMaxTokenAutoGroups(value)
 	}
+	if key == "SensitiveWordContactMessage" {
+		return setting.ValidateSensitiveWordContactMessage(value)
+	}
 	return nil
+}
+
+func normalizeOptionValue(key string, value string) string {
+	if key == "SensitiveWordContactMessage" {
+		return setting.NormalizeSensitiveWordContactMessage(value)
+	}
+	return value
 }
 
 func UpdateOption(key string, value string) error {
@@ -285,6 +297,7 @@ func UpdateOption(key string, value string) error {
 	if IsModelPricingOption(key) {
 		return UpdateModelPricingOptions(map[string]string{key: value})
 	}
+	value = normalizeOptionValue(key, value)
 	if err := validateOptionValue(key, value); err != nil {
 		return err
 	}
@@ -318,11 +331,15 @@ func UpdateOptionsBulk(values map[string]string) error {
 			return err
 		}
 	}
+	normalizedValues := make(map[string]string, len(values))
 	for key, value := range values {
+		value = normalizeOptionValue(key, value)
 		if err := validateOptionValue(key, value); err != nil {
 			return err
 		}
+		normalizedValues[key] = value
 	}
+	values = normalizedValues
 	var policySnapshot *RequestPolicySnapshot
 	for key := range values {
 		if IsRequestPolicyOption(key) {
@@ -377,6 +394,7 @@ func updateOptionMap(key string, value string) (err error) {
 		common.OptionMapRWMutex.Unlock()
 		return nil
 	}
+	value = normalizeOptionValue(key, value)
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
 	common.OptionMap[key] = value
@@ -445,6 +463,8 @@ func updateOptionMap(key string, value string) (err error) {
 			}
 		case "DisplayTokenStatEnabled":
 			common.DisplayTokenStatEnabled = boolValue
+		case "QuotaPoolEnabled":
+			common.QuotaPoolEnabled = boolValue
 		case "DrawingEnabled":
 			common.DrawingEnabled = boolValue
 		case "TaskEnabled":
@@ -693,6 +713,8 @@ func updateOptionMap(key string, value string) (err error) {
 		common.QuotaPerUnit, _ = strconv.ParseFloat(value, 64)
 	case "SensitiveWords":
 		setting.SensitiveWordsFromString(value)
+	case "SensitiveWordContactMessage":
+		err = setting.SetSensitiveWordContactMessage(value)
 	case "AutomaticDisableKeywords":
 		operation_setting.AutomaticDisableKeywordsFromString(value)
 	case "AutomaticDisableStatusCodes":

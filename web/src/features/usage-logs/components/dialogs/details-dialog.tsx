@@ -83,6 +83,7 @@ import {
   logTokenName,
   renderAuditContent,
   renderLogContent,
+  renderAutomaticRechargeContent,
 } from '../../lib/format'
 import { buildQuotaAuditOperation } from '../../lib/quota-audit-operation'
 import {
@@ -535,13 +536,14 @@ export function DetailsDialog(props: DetailsDialogProps) {
           },
         ].filter(Boolean) as Array<{ label: string; value: string }>)
       : []
-  const showLegacyTopupWarning = isTopup && props.isAdmin && !adminInfo
+  const showLegacyTopupWarning =
+    isTopup && props.isAdmin && !adminInfo && other?.recharge_source !== 'auto'
   const showTopupAuditSection =
     isTopup &&
     props.isAdmin &&
     (topupAuditFields.length > 0 || showLegacyTopupWarning)
   const manageOperator = (() => {
-    if (!isManage || !props.isAdmin || !adminInfo) return null
+    if ((!isManage && !isTopup) || !props.isAdmin || !adminInfo) return null
     const username = adminInfo.admin_username
     const id = adminInfo.admin_id
     const hasUsername = username != null && String(username).trim() !== ''
@@ -552,7 +554,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
     return `ID: ${id}`
   })()
   const authMethodLabel = (() => {
-    if (!isManage || !props.isAdmin || !adminInfo?.auth_method) return ''
+    if ((!isManage && !isTopup) || !props.isAdmin || !adminInfo?.auth_method) {
+      return ''
+    }
     if (adminInfo.auth_method === 'access_token') return t('Access Token')
     if (adminInfo.auth_method === 'session') return t('Session')
     return String(adminInfo.auth_method)
@@ -569,6 +573,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
     : null
   const operationText = renderAuditContent(other, t)
   const details =
+    renderAutomaticRechargeContent(other, t) ??
     (isTopup ? operationText : null) ??
     renderLogContent(other, t) ??
     props.log.content ??
@@ -719,6 +724,14 @@ export function DetailsDialog(props: DetailsDialogProps) {
                   {props.log.ip}
                 </span>
               }
+              mono
+            />
+          )}
+
+          {showTiming && other?.user_agent && (
+            <DetailRow
+              label={t('User Agent')}
+              value={String(other.user_agent)}
               mono
             />
           )}
@@ -1007,6 +1020,13 @@ export function DetailsDialog(props: DetailsDialogProps) {
             }
             value={manageOperator}
             mono
+          />
+        )}
+
+        {isTopup && authMethodLabel !== '' && (
+          <DetailRow
+            label={t('Authentication Method')}
+            value={authMethodLabel}
           />
         )}
 

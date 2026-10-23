@@ -63,13 +63,17 @@ func TestClearTelegramBindingReleasesIdentityClaim(t *testing.T) {
 func TestInitializeExternalIdentityClaimsIsIdempotent(t *testing.T) {
 	truncateTables(t)
 
-	user := User{Username: "telegram-legacy", Password: "password", TelegramId: "telegram-legacy-id"}
+	user := User{Username: "telegram-legacy", Password: "password", TelegramId: "telegram-legacy-id", DingTalkId: "dingtalk-legacy-id"}
 	require.NoError(t, DB.Create(&user).Error)
 	require.NoError(t, InitializeExternalIdentityClaims())
 	require.NoError(t, InitializeExternalIdentityClaims())
 
 	var claim ExternalIdentityClaim
 	require.NoError(t, DB.Where("provider = ? AND subject = ?", ExternalIdentityProviderTelegram, user.TelegramId).
+		First(&claim).Error)
+	assert.Equal(t, user.Id, claim.UserId)
+	claim = ExternalIdentityClaim{}
+	require.NoError(t, DB.Where("provider = ? AND subject = ?", ExternalIdentityProviderDingTalk, user.DingTalkId).
 		First(&claim).Error)
 	assert.Equal(t, user.Id, claim.UserId)
 }

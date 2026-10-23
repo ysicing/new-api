@@ -32,6 +32,29 @@ func useUserCacheMiniRedis(t *testing.T) *miniredis.Miniredis {
 	return server
 }
 
+func TestQuotaFreezePublishesToCachedUser(t *testing.T) {
+	truncateTables(t)
+	useUserCacheMiniRedis(t)
+	user := User{Username: "quota-freeze-cache", Password: "password", AffCode: "quota-freeze-cache", Status: common.UserStatusEnabled, AuthVersion: 1}
+	require.NoError(t, DB.Create(&user).Error)
+	require.NoError(t, populateUserCache(user))
+
+	require.NoError(t, SetUserQuotaFrozen(user.Id, true))
+	require.NoError(t, updateUserCache(user)) // A delayed pre-freeze snapshot must not undo the restriction.
+	cached, err := GetUserCache(user.Id)
+	require.NoError(t, err)
+	assert.True(t, cached.QuotaFrozen)
+	assert.Equal(t, common.UserStatusEnabled, cached.Status)
+
+	require.NoError(t, SetUserQuotaFrozen(user.Id, false))
+	staleFrozen := user
+	staleFrozen.QuotaFrozen = true
+	require.NoError(t, updateUserCache(staleFrozen))
+	cached, err = GetUserCache(user.Id)
+	require.NoError(t, err)
+	assert.False(t, cached.QuotaFrozen)
+}
+
 func TestUserAuthFenceRollbackExpiresAndRecovers(t *testing.T) {
 	truncateTables(t)
 	server := useUserCacheMiniRedis(t)

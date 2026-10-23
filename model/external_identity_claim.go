@@ -10,7 +10,10 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const ExternalIdentityProviderTelegram = "telegram"
+const (
+	ExternalIdentityProviderDingTalk = "dingtalk"
+	ExternalIdentityProviderTelegram = "telegram"
+)
 
 var ErrExternalIdentityAlreadyClaimed = errors.New("external identity is already claimed")
 
@@ -115,19 +118,27 @@ func releaseAllExternalIdentitiesWithTx(tx *gorm.DB, userId int) error {
 	return tx.Where("user_id = ?", userId).Delete(&ExternalIdentityClaim{}).Error
 }
 
-// InitializeExternalIdentityClaims imports legacy Telegram bindings after the
+// InitializeExternalIdentityClaims imports legacy Telegram and DingTalk bindings after the
 // claim table is migrated. Existing duplicate ownership fails migration rather
 // than preserving an ambiguous login identity.
 func InitializeExternalIdentityClaims() error {
 	var users []User
-	if err := DB.Unscoped().Select("id", "telegram_id").
-		Where("telegram_id <> ?", "").Find(&users).Error; err != nil {
+	if err := DB.Unscoped().Select("id", "telegram_id", "dingtalk_id").
+		Where("telegram_id <> ? OR dingtalk_id <> ?", "", "").Find(&users).Error; err != nil {
 		return err
 	}
 	return DB.Transaction(func(tx *gorm.DB) error {
 		for _, user := range users {
-			if err := ClaimExternalIdentityWithTx(tx, ExternalIdentityProviderTelegram, user.TelegramId, user.Id); err != nil {
-				return fmt.Errorf("backfill Telegram identity for user %d: %w", user.Id, err)
+			for provider, subject := range map[string]string{
+				ExternalIdentityProviderTelegram: user.TelegramId,
+				ExternalIdentityProviderDingTalk: user.DingTalkId,
+			} {
+				if strings.TrimSpace(subject) == "" {
+					continue
+				}
+				if err := ClaimExternalIdentityWithTx(tx, provider, subject, user.Id); err != nil {
+					return fmt.Errorf("backfill %s identity for user %d: %w", provider, user.Id, err)
+				}
 			}
 		}
 		return nil

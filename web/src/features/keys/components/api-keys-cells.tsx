@@ -19,11 +19,14 @@ For commercial licensing, please contact support@quantumnous.com
 import { Check, Copy, Loader2 } from 'lucide-react'
 import { useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
+import { IconMagpie } from '@/assets/brand-icons/icon-magpie'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { BadgeCell } from '@/components/data-table'
 import { MaskedValueTrigger } from '@/components/masked-value-display'
 import { StatusBadge } from '@/components/status-badge'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import {
   Popover,
   PopoverContent,
@@ -35,8 +38,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useChatPresets } from '@/features/chat/hooks/use-chat-presets'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
+import { getSystemName } from '@/stores/system-config-store'
 
+import { buildMagpieImportUrl } from '../lib/magpie-import'
 import type { ApiKey } from '../types'
 import { useApiKeys } from './api-keys-provider'
 
@@ -50,6 +56,8 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
     markKeyCopied,
   } = useApiKeys()
   const [popoverOpen, setPopoverOpen] = useState(false)
+  const [magpieDialogOpen, setMagpieDialogOpen] = useState(false)
+  const { serverAddress } = useChatPresets()
 
   const isLoading = !!loadingKeys[apiKey.id]
   const resolvedFullKey = resolvedKeys[apiKey.id]
@@ -73,6 +81,42 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
     const ok = await copyToClipboard(realKey)
     if (ok) markKeyCopied(apiKey.id)
   }, [resolvedFullKey, resolveRealKey, apiKey.id, markKeyCopied])
+
+  const handleMagpieDialogOpen = (open: boolean) => {
+    setMagpieDialogOpen(open)
+    if (open && !resolvedFullKey) void resolveRealKey(apiKey.id)
+  }
+
+  const handleAddToMagpie = () => {
+    if (!resolvedFullKey) {
+      void resolveRealKey(apiKey.id)
+      return
+    }
+    const url = buildMagpieImportUrl({
+      name: getSystemName(),
+      tokenId: apiKey.id,
+      tokenName: apiKey.name,
+      serverAddress,
+      apiKey: resolvedFullKey,
+      modelLimits: apiKey.model_limits_enabled
+        ? (apiKey.model_limits ?? undefined)
+        : undefined,
+    })
+    if (!url) {
+      toast.error(t('Invalid API address. Please contact your administrator.'))
+      return
+    }
+    // 弹窗期间已加载密钥；确认时同步唤起本机协议，保留用户点击手势。
+    window.open(url, '_self')
+    setMagpieDialogOpen(false)
+  }
+
+  let magpieActionLabel = t('Retry')
+  if (isLoading) {
+    magpieActionLabel = t('Loading...')
+  } else if (resolvedFullKey) {
+    magpieActionLabel = t('Continue import')
+  }
 
   let copyIcon = <Copy className='size-3.5' />
   let copyTooltip = t('Copy API key')
@@ -131,6 +175,42 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
         </TooltipTrigger>
         <TooltipContent>{copyTooltip}</TooltipContent>
       </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant='ghost'
+              size='icon'
+              className='size-7 shrink-0'
+              aria-label={t('Add to Magpie')}
+              onClick={() => handleMagpieDialogOpen(true)}
+            />
+          }
+        >
+          <IconMagpie className='size-4' aria-hidden='true' />
+        </TooltipTrigger>
+        <TooltipContent>{t('Add to Magpie')}</TooltipContent>
+      </Tooltip>
+      <ConfirmDialog
+        open={magpieDialogOpen}
+        onOpenChange={handleMagpieDialogOpen}
+        title={t('Add to Magpie')}
+        desc={t(
+          'If Magpie is already installed, continue to open it and import this API key. Otherwise, install Magpie first, then return here to continue.'
+        )}
+        disabled={isLoading}
+        handleConfirm={handleAddToMagpie}
+        confirmText={magpieActionLabel}
+      >
+        <a
+          className={buttonVariants({ variant: 'outline' })}
+          href='https://usemagpie.ai/zh/'
+          target='_blank'
+          rel='noopener noreferrer'
+        >
+          {t('Install Magpie')}
+        </a>
+      </ConfirmDialog>
     </div>
   )
 }

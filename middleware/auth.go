@@ -50,6 +50,10 @@ func validUserInfo(username string, role int) bool {
 }
 
 func authHelper(c *gin.Context, minRole int) {
+	authHelperWithRoleCheck(c, minRole, nil)
+}
+
+func authHelperWithRoleCheck(c *gin.Context, minRole int, allowRole func(int) bool) {
 	if _, started := c.Get(accessTokenAuditContextKey); !started {
 		defer finishAccessTokenAudit(c)
 	}
@@ -62,7 +66,7 @@ func authHelper(c *gin.Context, minRole int) {
 		abortWithWebMessage(c, http.StatusUnauthorized, "AUTH_USER_DISABLED", common.NewMessage("User has been banned"))
 		return
 	}
-	if user.Role < minRole {
+	if user.Role < minRole && (allowRole == nil || !allowRole(user.Role)) {
 		abortWithWebMessage(c, http.StatusForbidden, "AUTH_INSUFFICIENT_PRIVILEGE", common.NewMessage("Unauthorized, insufficient privileges"))
 		return
 	}
@@ -138,6 +142,14 @@ func UserAuth() func(c *gin.Context) {
 func AdminAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		authHelper(c, common.RoleAdminUser)
+	}
+}
+
+func QuotaPoolAuth() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		authHelperWithRoleCheck(c, common.RoleAdminUser, func(role int) bool {
+			return role == common.RoleQuotaPoolSuperAdmin
+		})
 	}
 }
 

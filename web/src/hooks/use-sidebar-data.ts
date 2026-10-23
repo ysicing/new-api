@@ -24,6 +24,7 @@ import {
   FileText,
   FlaskConical,
   Key,
+  LandPlot,
   LayoutDashboard,
   ListTodo,
   MessageSquare,
@@ -36,11 +37,14 @@ import {
   User,
   Users,
   Wallet,
+  Wrench,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import type { SidebarData } from '@/components/layout/types'
+import { canAccessQuotaPools } from '@/features/quota-pools/access'
 import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 /**
  * Root navigation groups for the application sidebar.
@@ -50,6 +54,7 @@ import { ROLE } from '@/lib/roles'
  */
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
+  const user = useAuthStore((state) => state.auth.user)
 
   return {
     navGroups: [
@@ -105,6 +110,15 @@ export function useSidebarData(): SidebarData {
             configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
             icon: ListTodo,
           },
+          ...(canAccessQuotaPools(user)
+            ? [
+                {
+                  title: t('Quota pools'),
+                  url: '/quota-pools',
+                  icon: LandPlot,
+                },
+              ]
+            : []),
         ],
       },
       {
@@ -126,6 +140,11 @@ export function useSidebarData(): SidebarData {
             url: '/security',
             icon: ShieldCheck,
           },
+          {
+            title: t('Tools'),
+            url: '/tools',
+            icon: Wrench,
+          },
         ],
       },
       {
@@ -136,6 +155,7 @@ export function useSidebarData(): SidebarData {
             title: t('Channels'),
             url: '/channels',
             icon: Radio,
+            requiredRole: ROLE.SUPER_ADMIN,
           },
           {
             title: t('Models'),

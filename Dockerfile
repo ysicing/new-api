@@ -1,11 +1,14 @@
 FROM oven/bun:1.4.0@sha256:5ff609364c049b54eb0ff560ec96319729a972078ef2c755d758f0c6ef89c2d6 AS builder
 
+ARG VITE_BUILD_VERSION
 WORKDIR /build/web
 COPY web/package.json web/bun.lock ./
 RUN bun install --frozen-lockfile
 COPY ./web ./
 COPY ./VERSION /build/VERSION
-RUN DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat /build/VERSION) bun run build
+# 兼容旧流水线传入的构建参数；官方流水线未传参时继续使用 VERSION 文件。
+RUN BUILD_VERSION="${VITE_BUILD_VERSION:-$(cat /build/VERSION)}"; \
+    DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION="${BUILD_VERSION}" bun run build
 
 FROM golang:1.26.10-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca AS builder2
 ENV GO111MODULE=on CGO_ENABLED=0 GOWORK=off

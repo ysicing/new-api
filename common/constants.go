@@ -11,7 +11,9 @@ import (
 )
 
 var StartTime = time.Now().Unix() // unit: second
-var Version = "v0.0.0"            // this hard coding will be replaced automatically when building, no need to manually change
+// BeijingTimeLocation 是公告与额度池统计统一使用的固定北京时间，不受容器 TZ 影响。
+var BeijingTimeLocation = time.FixedZone("Asia/Shanghai", 8*60*60)
+var Version = "v0.0.0" // this hard coding will be replaced automatically when building, no need to manually change
 var SystemName = "New API"
 var Footer = ""
 var Logo = ""
@@ -23,6 +25,7 @@ var QuotaPerUnit = 500 * 1000.0 // $0.002 / 1K tokens
 // 保留旧变量以兼容历史逻辑，实际展示由 general_setting.quota_display_type 控制
 var DisplayInCurrencyEnabled = true
 var DisplayTokenStatEnabled = true
+var QuotaPoolEnabled = false
 var DrawingEnabled = true
 var TaskEnabled = true
 var DataExportEnabled = true
@@ -196,14 +199,15 @@ const (
 )
 
 const (
-	RoleGuestUser  = 0
-	RoleCommonUser = 1
-	RoleAdminUser  = 10
-	RoleRootUser   = 100
+	RoleGuestUser           = 0
+	RoleCommonUser          = 1
+	RoleQuotaPoolSuperAdmin = 2
+	RoleAdminUser           = 10
+	RoleRootUser            = 100
 )
 
 func IsValidateRole(role int) bool {
-	return role == RoleGuestUser || role == RoleCommonUser || role == RoleAdminUser || role == RoleRootUser
+	return role == RoleGuestUser || role == RoleCommonUser || role == RoleQuotaPoolSuperAdmin || role == RoleAdminUser || role == RoleRootUser
 }
 
 var (
