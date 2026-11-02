@@ -9,8 +9,10 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	kitreasoning "github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
@@ -71,12 +73,25 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hostty
 }
 
 func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (hosttypes.PriceData, error) {
-	modelPrice, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false)
+	info.BillingModelName = info.OriginModelName
+	if !model_setting.ShouldPreserveThinkingSuffix(info.OriginModelName) && !billing_setting.HasModelBillingOverride(info.OriginModelName) {
+		if modifiers, err := kitreasoning.ParseDeepSeekModifiers(info.OriginModelName); err == nil &&
+			(modifiers.Model == "deepseek-flash" || strings.HasPrefix(modifiers.Model, "deepseek-flash-") || strings.HasPrefix(modifiers.Model, "deepseek-v4-")) {
+			info.BillingModelName = modifiers.Model
+			if !billing_setting.HasModelBillingOverride(modifiers.Model) {
+				if base, _, _, ok := kitreasoning.ParseDeepSeekV4ThinkingSuffix(modifiers.Model); ok {
+					info.BillingModelName = base
+				}
+			}
+		}
+	}
+	modelName := info.GetBillingModelName()
+	modelPrice, usePrice := ratio_setting.GetModelPrice(modelName, false)
 
 	groupRatioInfo := HandleGroupRatio(c, info)
 
 	// Check if this model uses tiered_expr billing
-	if billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModeTieredExpr {
+	if billing_setting.GetBillingMode(modelName) == billing_setting.BillingModeTieredExpr {
 		return modelPriceHelperTiered(c, info, promptTokens, meta, groupRatioInfo)
 	}
 
@@ -98,7 +113,7 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		}
 		var success bool
 		var matchName string
-		modelRatio, success, matchName = ratio_setting.GetModelRatio(info.OriginModelName)
+		modelRatio, success, matchName = ratio_setting.GetModelRatio(modelName)
 		if !success {
 			acceptUnsetRatio := false
 			if info.UserSetting.AcceptUnsetRatioModel {
@@ -108,15 +123,15 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 				return hosttypes.PriceData{}, modelPriceNotConfiguredError(matchName, info.UserId)
 			}
 		}
-		completionRatio = ratio_setting.GetCompletionRatio(info.OriginModelName)
-		cacheRatio, _ = ratio_setting.GetCacheRatio(info.OriginModelName)
-		cacheCreationRatio, _ = ratio_setting.GetCreateCacheRatio(info.OriginModelName)
+		completionRatio = ratio_setting.GetCompletionRatio(modelName)
+		cacheRatio, _ = ratio_setting.GetCacheRatio(modelName)
+		cacheCreationRatio, _ = ratio_setting.GetCreateCacheRatio(modelName)
 		cacheCreationRatio5m = cacheCreationRatio
 		// 固定1h和5min缓存写入价格的比例
 		cacheCreationRatio1h = cacheCreationRatio * claudeCacheCreation1hMultiplier
-		imageRatio, _ = ratio_setting.GetImageRatio(info.OriginModelName)
-		audioRatio = ratio_setting.GetAudioRatio(info.OriginModelName)
-		audioCompletionRatio = ratio_setting.GetAudioCompletionRatio(info.OriginModelName)
+		imageRatio, _ = ratio_setting.GetImageRatio(modelName)
+		audioRatio = ratio_setting.GetAudioRatio(modelName)
+		audioCompletionRatio = ratio_setting.GetAudioCompletionRatio(modelName)
 		ratio := modelRatio * groupRatioInfo.GroupRatio
 		quota, err := common.QuotaFromFloatStrict(float64(preConsumedTokens) * ratio)
 		if err != nil {
@@ -267,7 +282,7 @@ func HasModelBillingConfig(modelName string) bool {
 }
 
 func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, groupRatioInfo hosttypes.GroupRatioInfo) (hosttypes.PriceData, error) {
-	exprStr, ok := billing_setting.GetBillingExpr(info.OriginModelName)
+	exprStr, ok := billing_setting.GetBillingExpr(info.GetBillingModelName())
 	if !ok {
 		return hosttypes.PriceData{}, fmt.Errorf("model %s is configured as tiered_expr but has no billing expression", info.OriginModelName)
 	}

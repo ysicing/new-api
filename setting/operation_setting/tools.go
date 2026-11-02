@@ -45,6 +45,8 @@ func seedHardcodedToolPrices(prices map[string]float64) {
 	prices["file_search"] = defaultFileSearchToolPrice
 	prices["google_search"] = defaultGoogleSearchToolPrice
 	prices["image_generation"] = defaultImageGenerationToolPrice
+	prices["deepseek_search"] = 0.75
+	prices["deepseek_fetch"] = 0.75
 	prices["web_search_preview:gpt-4o*"] = defaultSearchPreviewModelPrice
 	prices["web_search_preview:gpt-4.1*"] = defaultSearchPreviewModelPrice
 	prices["web_search_preview:gpt-4o-mini*"] = defaultSearchPreviewModelPrice

@@ -4,6 +4,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -12,6 +13,40 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDeepSeekClaudeServerUsageReplacesProvisionalCounts(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		t.Run(map[bool]string{false: "nonstream", true: "stream"}[streaming], func(t *testing.T) {
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			info := &relaycommon.RelayInfo{OriginModelName: "deepseek-flash", RelayFormat: types.RelayFormatClaude,
+				WebSearchBillingKey: "deepseek_search", WebFetchBillingKey: "deepseek_fetch"}
+			body := `{"type":"message","content":[
+				{"type":"server_tool_use","name":"web_search","input":{}},
+				{"type":"web_search_tool_result","content":[{"type":"web_search_result","url":"https://example.com"}]},
+				{"type":"web_search_tool_result","content":[]},
+				{"type":"web_search_tool_result","content":{"type":"web_search_tool_result_error"}}
+			],"usage":{"input_tokens":1,"output_tokens":1,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":2}}}`
+			if streaming {
+				var response dto.ClaudeResponse
+				require.NoError(t, common.UnmarshalJsonStr(body, &response))
+				for _, block := range response.Content {
+					countClaudeStreamBillableTools(ctx, info, &dto.ClaudeResponse{Type: "content_block_start", ContentBlock: &block})
+				}
+				require.NotNil(t, info.ResponsesUsageInfo)
+				assert.Equal(t, 1, info.BuiltInTools["deepseek_search"].CallCount)
+				countClaudeStreamBillableTools(ctx, info, &dto.ClaudeResponse{Type: "message_delta", Usage: response.Usage})
+			} else {
+				apiError := HandleClaudeResponseData(ctx, info, &ClaudeResponseInfo{Usage: &dto.Usage{}}, nil, []byte(body))
+				require.Nil(t, apiError)
+			}
+			require.NotNil(t, info.ResponsesUsageInfo)
+			assert.Zero(t, info.BuiltInTools["deepseek_search"].CallCount)
+			assert.Equal(t, 2, info.BuiltInTools["deepseek_fetch"].CallCount)
+			assert.Zero(t, ctx.GetInt("claude_web_search_requests"))
+			assert.NotContains(t, info.BuiltInTools, "web_search")
+		})
+	}
+}
 
 func TestHandleClaudeResponseDataCountsToolUse(t *testing.T) {
 	gin.SetMode(gin.TestMode)

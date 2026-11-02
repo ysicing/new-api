@@ -396,6 +396,11 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			modelRequest.Model = c.Param("model")
 		}
 	}
+	if c.Request.URL.Path == "/v1/tools/search" {
+		modelRequest.Model = constant.DeepSeekSearchModel
+	} else if c.Request.URL.Path == "/v1/tools/fetch" {
+		modelRequest.Model = constant.DeepSeekFetchModel
+	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/images/generations") {
 		modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "dall-e")
 	} else if strings.HasPrefix(c.Request.URL.Path, "/v1/images/edits") {

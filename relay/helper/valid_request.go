@@ -42,6 +42,8 @@ func GetAndValidateRequest(c *gin.Context, format types.RelayFormat) (request dt
 		request, err = GetAndValidateResponsesCompactionRequest(c)
 	case types.RelayFormatOpenAIAlphaSearch:
 		request, err = GetAndValidateAlphaSearchRequest(c)
+	case types.RelayFormatDeepSeekTools:
+		request, err = GetAndValidateDeepSeekToolsRequest(c)
 
 	case types.RelayFormatOpenAIImage:
 		request, err = GetAndValidOpenAIImageRequest(c, relayMode)
@@ -152,6 +154,25 @@ func GetAndValidateResponsesRequest(c *gin.Context) (*dto.OpenAIResponsesRequest
 	}
 	if exceedsMaxTokensLimit(request.MaxOutputTokens) {
 		return nil, errors.New("max_output_tokens is invalid")
+	}
+	return request, nil
+}
+
+func GetAndValidateDeepSeekToolsRequest(c *gin.Context) (*dto.DeepSeekToolsRequest, error) {
+	request := &dto.DeepSeekToolsRequest{}
+	if err := common.UnmarshalBodyReusable(c, request); err != nil {
+		return nil, err
+	}
+	storage, err := common.GetBodyStorage(c)
+	if err != nil {
+		return nil, err
+	}
+	request.RawBody, err = storage.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	if common.GetJsonType(request.RawBody) != "object" {
+		return nil, errors.New("request body must be a JSON object")
 	}
 	return request, nil
 }

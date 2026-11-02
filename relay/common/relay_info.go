@@ -98,6 +98,7 @@ type RelayInfo struct {
 	UsePrice               bool
 	RelayMode              int
 	OriginModelName        string
+	BillingModelName       string
 	ResponseModel          *ResponseModel
 	RequestURLPath         string
 	RequestHeaders         map[string]string
@@ -163,7 +164,10 @@ type RelayInfo struct {
 	TieredBillingSnapshot *billingexpr.BillingSnapshot
 	BillingRequestInput   *billingexpr.RequestInput
 
-	Request dto.Request
+	Request             dto.Request
+	VendorToolUsage     func(raw []byte) map[string]int
+	WebSearchBillingKey string
+	WebFetchBillingKey  string
 
 	// RequestConversionChain records request format conversions in order, e.g.
 	// ["openai", "openai_responses"] or ["openai", "claude"].
@@ -188,6 +192,17 @@ type RelayInfo struct {
 
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	info.ResponseModel = nil
+	info.VendorToolUsage = nil
+	info.WebSearchBillingKey = ""
+	info.WebFetchBillingKey = ""
+	c.Set("claude_web_search_requests", 0)
+	if info.ResponsesUsageInfo != nil {
+		for _, tool := range info.ResponsesUsageInfo.BuiltInTools {
+			if tool != nil {
+				tool.CallCount = 0
+			}
+		}
+	}
 	channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
 	paramOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)
 	headerOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelHeaderOverride)
@@ -624,6 +639,9 @@ func GenRelayInfo(c *gin.Context, relayFormat types.RelayFormat, request dto.Req
 			return GenRelayInfoAlphaSearch(c, request), nil
 		}
 		return nil, errors.New("request is not a AlphaSearchRequest")
+	case types.RelayFormatDeepSeekTools:
+		info = genBaseRelayInfo(c, request)
+		info.RelayFormat = types.RelayFormatDeepSeekTools
 	case types.RelayFormatTask:
 		info = genBaseRelayInfo(c, nil)
 		info.TaskRelayInfo = &TaskRelayInfo{}
@@ -743,6 +761,13 @@ var _ convmeta.Meta = (*RelayInfo)(nil)
 func (info *RelayInfo) GetOriginModelName() string {
 	if info == nil {
 		return ""
+	}
+	return info.OriginModelName
+}
+
+func (info *RelayInfo) GetBillingModelName() string {
+	if info.BillingModelName != "" {
+		return info.BillingModelName
 	}
 	return info.OriginModelName
 }

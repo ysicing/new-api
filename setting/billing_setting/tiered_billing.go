@@ -5,6 +5,7 @@ import (
 
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/samber/lo"
 )
 
@@ -39,20 +40,46 @@ func GetBillingMode(model string) string {
 	if mode, ok := billingSetting.BillingMode[model]; ok {
 		return mode
 	}
+	if _, ok := builtinBillingExpr[model]; ok {
+		if ratio_setting.HasModelPriceOrRatio(model) {
+			return BillingModeRatio
+		}
+		return BillingModeTieredExpr
+	}
 	return BillingModeRatio
 }
 
 func GetBillingExpr(model string) (string, bool) {
 	expr, ok := billingSetting.BillingExpr[model]
+	if !ok && GetBillingMode(model) == BillingModeTieredExpr {
+		expr, ok = builtinBillingExpr[model]
+	}
 	return expr, ok
 }
 
+func HasModelBillingOverride(model string) bool {
+	_, configured := billingSetting.BillingMode[model]
+	return configured || ratio_setting.HasModelPriceOrRatio(model)
+}
+
 func GetBillingModeCopy() map[string]string {
-	return lo.Assign(billingSetting.BillingMode)
+	modes := lo.Assign(billingSetting.BillingMode)
+	for model := range builtinBillingExpr {
+		if GetBillingMode(model) == BillingModeTieredExpr {
+			modes[model] = BillingModeTieredExpr
+		}
+	}
+	return modes
 }
 
 func GetBillingExprCopy() map[string]string {
-	return lo.Assign(billingSetting.BillingExpr)
+	expressions := lo.Assign(billingSetting.BillingExpr)
+	for model := range builtinBillingExpr {
+		if expression, ok := GetBillingExpr(model); ok {
+			expressions[model] = expression
+		}
+	}
+	return expressions
 }
 
 func GetPricingSyncData(base map[string]any) map[string]any {

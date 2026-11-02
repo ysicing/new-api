@@ -69,6 +69,7 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		}
 	}
 	imageCounter.Commit(info)
+	info.ApplyVendorToolUsage(responseBody)
 
 	return &usage, nil
 }
@@ -96,6 +97,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			return
 		}
 		sendResponsesStreamData(c, streamResponse, data)
+		info.ApplyVendorToolUsage([]byte(data))
 		switch streamResponse.Type {
 		case "response.completed", "response.done":
 			if streamResponse.Response != nil {
@@ -146,7 +148,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			if streamResponse.Item != nil {
 				switch streamResponse.Item.Type {
 				case dto.BuildInCallWebSearchCall:
-					info.CountBillableToolCall(dto.BuildInCallWebSearchCall, "")
+					if info.VendorToolUsage == nil {
+						info.CountBillableToolCall(dto.BuildInCallWebSearchCall, "")
+					}
 				case dto.BuildInCallFileSearchCall:
 					info.CountBillableToolCall(dto.BuildInCallFileSearchCall, "")
 				case dto.BuildInCallFunctionCall:

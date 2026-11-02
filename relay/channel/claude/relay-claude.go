@@ -138,16 +138,35 @@ func countClaudeStreamBillableTools(c *gin.Context, info *relaycommon.RelayInfo,
 	if claudeResponse == nil {
 		return
 	}
-	if claudeResponse.Type == "content_block_start" &&
-		claudeResponse.ContentBlock != nil &&
-		claudeResponse.ContentBlock.Type == "tool_use" {
-		info.CountBillableToolCall(dto.BuildInCallToolUse, claudeResponse.ContentBlock.Name)
+	if claudeResponse.Type == "content_block_start" && claudeResponse.ContentBlock != nil {
+		countClaudeContentBlockTools(info, claudeResponse.ContentBlock)
 	}
 	if claudeResponse.Type == "message_delta" &&
 		claudeResponse.Usage != nil &&
-		claudeResponse.Usage.ServerToolUse != nil &&
-		claudeResponse.Usage.ServerToolUse.WebSearchRequests > 0 {
-		c.Set("claude_web_search_requests", claudeResponse.Usage.ServerToolUse.WebSearchRequests)
+		claudeResponse.Usage.ServerToolUse != nil {
+		recordClaudeServerToolUse(c, info, claudeResponse.Usage.ServerToolUse)
+	}
+}
+
+func countClaudeContentBlockTools(info *relaycommon.RelayInfo, block *dto.ClaudeMediaMessage) {
+	switch block.Type {
+	case "tool_use":
+		info.CountBillableToolCall(dto.BuildInCallToolUse, block.Name)
+	case "web_search_tool_result":
+		if results, ok := block.Content.([]any); ok && len(results) > 0 && info.WebSearchBillingKey != "" {
+			info.CountBillableToolCall(dto.BuildInCallWebSearchCall, "")
+		}
+	}
+}
+
+func recordClaudeServerToolUse(c *gin.Context, info *relaycommon.RelayInfo, usage *dto.ClaudeServerToolUse) {
+	if info.WebSearchBillingKey != "" {
+		info.SetBillableToolCount(info.WebSearchBillingKey, usage.WebSearchRequests)
+	} else {
+		c.Set("claude_web_search_requests", usage.WebSearchRequests)
+	}
+	if info.WebFetchBillingKey != "" {
+		info.SetBillableToolCount(info.WebFetchBillingKey, usage.WebFetchRequests)
 	}
 }
 
@@ -253,14 +272,11 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		responseData = data
 	}
 
-	if claudeResponse.Usage != nil && claudeResponse.Usage.ServerToolUse != nil && claudeResponse.Usage.ServerToolUse.WebSearchRequests > 0 {
-		c.Set("claude_web_search_requests", claudeResponse.Usage.ServerToolUse.WebSearchRequests)
+	for index := range claudeResponse.Content {
+		countClaudeContentBlockTools(info, &claudeResponse.Content[index])
 	}
-
-	for _, block := range claudeResponse.Content {
-		if block.Type == "tool_use" {
-			info.CountBillableToolCall(dto.BuildInCallToolUse, block.Name)
-		}
+	if claudeResponse.Usage != nil && claudeResponse.Usage.ServerToolUse != nil {
+		recordClaudeServerToolUse(c, info, claudeResponse.Usage.ServerToolUse)
 	}
 
 	service.IOCopyBytesGracefully(c, httpResp, responseData)

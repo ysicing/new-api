@@ -66,6 +66,7 @@ type textQuotaSummary struct {
 	AudioInputPrice        float64
 	ToolSurchargeItems     []ToolSurchargeItem
 	ToolCallSurchargeQuota decimal.Decimal
+	BillableRequest        bool
 }
 
 // hasBillableUsage reports whether this request should incur any charge.
@@ -73,7 +74,7 @@ type textQuotaSummary struct {
 // surcharge (e.g. /v1/alpha/search returns no usage but bills one web_search
 // call), so token count alone is not sufficient to decide.
 func (s *textQuotaSummary) hasBillableUsage() bool {
-	return s.TotalTokens > 0 || !s.ToolCallSurchargeQuota.IsZero()
+	return s.TotalTokens > 0 || !s.ToolCallSurchargeQuota.IsZero() || s.BillableRequest
 }
 
 func cacheWriteTokensTotal(summary textQuotaSummary) int {
@@ -231,6 +232,7 @@ func composeTieredTextQuota(relayInfo *relaycommon.RelayInfo, summary textQuotaS
 func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage) textQuotaSummary {
 	summary := textQuotaSummary{
 		ModelName:            relayInfo.OriginModelName,
+		BillableRequest:      relayInfo.RelayMode == relayconstant.RelayModeToolsSearch || relayInfo.RelayMode == relayconstant.RelayModeToolsFetch,
 		TokenName:            ctx.GetString("token_name"),
 		UseTimeSeconds:       time.Now().Unix() - relayInfo.StartTime.Unix(),
 		CompletionRatio:      relayInfo.PriceData.CompletionRatio,

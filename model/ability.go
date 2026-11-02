@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -108,20 +109,41 @@ func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
 func GetChannel(group string, model string, retry int, requestPath string) (*Channel, error) {
 	var abilities []Ability
 
-	var err error = nil
-	channelQuery, err := getChannelQuery(group, model, retry)
-	if err != nil {
-		return nil, err
-	}
-	if common.UsingMainDatabase(common.DatabaseTypeSQLite) || common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
-		err = channelQuery.Order("weight DESC").Find(&abilities).Error
+	normalized := ratio_setting.RoutingMatchModelName(model)
+	if normalized != model {
+		for _, candidate := range []string{model, normalized} {
+			if err := DB.Where(commonGroupCol+" = ? AND model = ? AND enabled = ?", group, candidate, true).
+				Order("priority DESC").Order("weight DESC").Find(&abilities).Error; err != nil {
+				return nil, err
+			}
+			abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, model)
+			if len(abilities) > 0 {
+				break
+			}
+		}
+		priorityIndex := 0
+		for start := 0; start < len(abilities); {
+			end := start + 1
+			for end < len(abilities) && lo.FromPtr(abilities[end].Priority) == lo.FromPtr(abilities[start].Priority) {
+				end++
+			}
+			if priorityIndex >= retry || end == len(abilities) {
+				abilities = abilities[start:end]
+				break
+			}
+			priorityIndex++
+			start = end
+		}
 	} else {
-		err = channelQuery.Order("weight DESC").Find(&abilities).Error
+		channelQuery, err := getChannelQuery(group, model, retry)
+		if err != nil {
+			return nil, err
+		}
+		if err := channelQuery.Order("weight DESC").Find(&abilities).Error; err != nil {
+			return nil, err
+		}
+		abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, model)
 	}
-	if err != nil {
-		return nil, err
-	}
-	abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, model)
 	channel := Channel{}
 	if len(abilities) > 0 {
 		// Randomly choose one
@@ -142,7 +164,7 @@ func GetChannel(group string, model string, retry int, requestPath string) (*Cha
 	} else {
 		return nil, nil
 	}
-	err = DB.First(&channel, "id = ?", channel.Id).Error
+	err := DB.First(&channel, "id = ?", channel.Id).Error
 	return &channel, err
 }
 

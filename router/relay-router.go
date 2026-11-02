@@ -111,6 +111,12 @@ func SetRelayRouter(router *gin.Engine) {
 		httpRouter.POST("/alpha/search", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIAlphaSearch)
 		})
+		httpRouter.POST("/tools/search", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatDeepSeekTools)
+		})
+		httpRouter.POST("/tools/fetch", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatDeepSeekTools)
+		})
 
 		// image related routes
 		httpRouter.POST("/edits", func(c *gin.Context) {

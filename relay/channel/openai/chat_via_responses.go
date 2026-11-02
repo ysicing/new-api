@@ -41,6 +41,7 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 	info.ObserveResponseModel(responsesResp.Model)
+	info.ApplyVendorToolUsage(body)
 
 	chatResult, err := relayconvert.ConvertResponse(c, info, types.RelayFormatOpenAI, &responsesResp)
 	if err != nil {
@@ -114,6 +115,7 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 			info.ObserveResponseModel(streamResp.Response.Model)
 		}
 		accumulator.ProcessEvent(&streamResp)
+		info.ApplyVendorToolUsage([]byte(data))
 		switch streamResp.Type {
 		case "response.completed", "response.done", "response.incomplete":
 			finalResponse = streamResp.Response
@@ -284,6 +286,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			return
 		}
 
+		info.ApplyVendorToolUsage([]byte(data))
 		if streamResp.Type == "response.error" || streamResp.Type == "response.failed" {
 			if streamResp.Response != nil {
 				if oaiErr := streamResp.Response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {

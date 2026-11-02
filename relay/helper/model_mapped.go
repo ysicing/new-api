@@ -1,12 +1,13 @@
 package helper
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 
+	hostcommon "github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,13 +20,16 @@ func ModelMappedHelper(c *gin.Context, info *common.RelayInfo, request dto.Reque
 	modelMapping := c.GetString("model_mapping")
 	if modelMapping != "" && modelMapping != "{}" {
 		modelMap := make(map[string]string)
-		err := json.Unmarshal([]byte(modelMapping), &modelMap)
+		err := hostcommon.UnmarshalJsonStr(modelMapping, &modelMap)
 		if err != nil {
 			return fmt.Errorf("unmarshal_model_mapping_failed")
 		}
 
 		// 支持链式模型重定向，最终使用链尾的模型
 		currentModel := info.OriginModelName
+		if _, exists := modelMap[currentModel]; !exists {
+			currentModel = ratio_setting.RoutingMatchModelName(currentModel)
+		}
 		visitedModels := map[string]bool{
 			currentModel: true,
 		}

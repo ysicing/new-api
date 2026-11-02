@@ -4,6 +4,9 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	kitreasoning "github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 )
@@ -365,10 +368,16 @@ func UpdateModelPriceByJSONString(jsonStr string) error {
 
 // GetModelPrice 返回模型的价格，如果模型不存在则返回-1，false
 func GetModelPrice(name string, printErr bool) (float64, bool) {
+	if price, ok := modelPriceMap.Get(name); ok {
+		return price, true
+	}
 	name = FormatMatchingModelName(name)
 
 	if price, ok := modelPriceMap.Get(name); ok {
 		return price, true
+	}
+	if name == constant.DeepSeekSearchModel || name == constant.DeepSeekFetchModel {
+		return 0.00075, true
 	}
 
 	if printErr {
@@ -390,6 +399,9 @@ func handleThinkingBudgetModel(name, prefix, wildcard string) string {
 }
 
 func GetModelRatio(name string) (float64, bool, string) {
+	if ratio, ok := modelRatioMap.Get(name); ok {
+		return ratio, true, name
+	}
 	name = FormatMatchingModelName(name)
 
 	ratio, ok := modelRatioMap.Get(name)
@@ -397,6 +409,14 @@ func GetModelRatio(name string) (float64, bool, string) {
 		return 37.5, operation_setting.SelfUseModeEnabled, name
 	}
 	return ratio, true, name
+}
+
+func HasModelPriceOrRatio(name string) bool {
+	if _, ok := modelPriceMap.Get(name); ok {
+		return true
+	}
+	_, ok := modelRatioMap.Get(name)
+	return ok
 }
 
 func DefaultModelRatio2JSONString() string {
@@ -707,6 +727,7 @@ func GetAudioCompletionRatioCopy() map[string]float64 {
 
 // 转换模型名，减少渠道必须配置各种带参数模型
 func FormatMatchingModelName(name string) string {
+	name = RoutingMatchModelName(name)
 
 	if strings.HasPrefix(name, "gemini-2.5-flash-lite") {
 		name = handleThinkingBudgetModel(name, "gemini-2.5-flash-lite", "gemini-2.5-flash-lite-thinking-*")
@@ -721,6 +742,17 @@ func FormatMatchingModelName(name string) string {
 	}
 	if strings.HasPrefix(name, "gpt-4o-gizmo") {
 		name = "gpt-4o-gizmo-*"
+	}
+	return name
+}
+
+func RoutingMatchModelName(name string) string {
+	if model_setting.ShouldPreserveThinkingSuffix(name) {
+		return name
+	}
+	if modifiers, err := kitreasoning.ParseDeepSeekModifiers(name); err == nil &&
+		(strings.HasPrefix(modifiers.Model, "deepseek-v4-") || strings.HasPrefix(modifiers.Model, "deepseek-flash")) {
+		return modifiers.Model
 	}
 	return name
 }

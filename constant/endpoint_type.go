@@ -11,6 +11,8 @@ const (
 	EndpointTypeOpenAIResponse        = types.EndpointTypeOpenAIResponse
 	EndpointTypeOpenAIResponseCompact = types.EndpointTypeOpenAIResponseCompact
 	EndpointTypeOpenAIAlphaSearch     = types.EndpointTypeOpenAIAlphaSearch
+	EndpointTypeDeepSeekToolsSearch   = types.EndpointTypeDeepSeekToolsSearch
+	EndpointTypeDeepSeekToolsFetch    = types.EndpointTypeDeepSeekToolsFetch
 	EndpointTypeAnthropic             = types.EndpointTypeAnthropic
 	EndpointTypeGemini                = types.EndpointTypeGemini
 	EndpointTypeDecisions             = types.EndpointTypeDecisions
@@ -18,4 +20,9 @@ const (
 	EndpointTypeImageGeneration       = types.EndpointTypeImageGeneration
 	EndpointTypeEmbeddings            = types.EndpointTypeEmbeddings
 	EndpointTypeOpenAIVideo           = types.EndpointTypeOpenAIVideo
+)
+
+const (
+	DeepSeekSearchModel = "deepseek-search"
+	DeepSeekFetchModel  = "deepseek-fetch"
 )
