@@ -195,6 +195,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// Only return quota if downstream failed and quota was actually pre-consumed
 		if newAPIError != nil {
 			newAPIError = service.NormalizeViolationFeeError(newAPIError)
+			if service.HasCSAMViolationMarker(newAPIError) {
+				service.NotifyPolicyViolationDetected(relayInfo.UserId)
+			}
 			if relayInfo.Billing != nil {
 				relayInfo.Billing.Refund(c)
 			}

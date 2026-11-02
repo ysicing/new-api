@@ -25,7 +25,7 @@ const (
 
 func sensitiveWordNotificationContent(detectedAt time.Time) string {
 	parts := []string{sensitiveWordNotificationIntro}
-	if usageLogsURL := sensitiveWordUsageLogsURL(detectedAt); usageLogsURL != "" {
+	if usageLogsURL := usageErrorLogsURL(detectedAt); usageLogsURL != "" {
 		parts = append(parts, fmt.Sprintf("[查看使用日志](%s)", usageLogsURL))
 	}
 	parts = append(parts, sensitiveWordNotificationGuidance)
@@ -36,7 +36,7 @@ func sensitiveWordNotificationContent(detectedAt time.Time) string {
 	return strings.Join(parts, "\n\n")
 }
 
-func sensitiveWordUsageLogsURL(detectedAt time.Time) string {
+func usageErrorLogsURL(detectedAt time.Time) string {
 	baseURL, err := url.Parse(strings.TrimSpace(system_setting.ServerAddress))
 	if err != nil || baseURL.Host == "" || baseURL.User != nil || (baseURL.Scheme != "http" && baseURL.Scheme != "https") {
 		return ""

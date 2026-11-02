@@ -15,6 +15,7 @@ const (
 	DingTalkNotificationEventUserRegistered        = "user_registered"
 	DingTalkNotificationEventQuotaPoolJoined       = "quota_pool_joined"
 	DingTalkNotificationEventSensitiveWordDetected = "sensitive_word_detected"
+	DingTalkNotificationEventPolicyViolation       = "policy_violation_detected"
 	DingTalkNotificationEventAnnouncementGroup     = "announcement_group"
 	DingTalkNotificationEventTest                  = "test"
 
