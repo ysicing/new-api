@@ -3,9 +3,11 @@ package controller
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -80,6 +82,69 @@ func GetUserQuotaDates(c *gin.Context) {
 		"data":    dates,
 	})
 	return
+}
+
+func GetModelStatistics(c *gin.Context) {
+	period := c.Query("period")
+	if period != "month" {
+		period = "week"
+	}
+	userId := c.GetInt("id")
+	if c.GetInt("role") >= common.RoleAdminUser && c.Query("scope") == "all" {
+		userId = 0
+	}
+	section, err := service.GetCachedModelStatistics(period, userId, time.Now())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success":          true,
+		"message":          "",
+		"data":             section.Items,
+		"generated_at":     section.GeneratedAt,
+		"refresh_schedule": "every_5_minutes",
+	})
+}
+
+func GetActiveUserStats(c *gin.Context) {
+	startTimestamp, startErr := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, endErr := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	if startErr != nil || endErr != nil || !validActiveUserStatsRange(startTimestamp, endTimestamp, time.Local) {
+		common.ApiErrorStatus(c, http.StatusBadRequest, common.NewMessage("Invalid active user statistics time range"), gin.H{"code": "ACTIVE_USERS_INVALID_RANGE"})
+		c.Abort()
+		return
+	}
+	stats, err := model.GetActiveUserStats(startTimestamp, endTimestamp, time.Local)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true, "message": "", "data": stats,
+		"generated_at": time.Now().Unix(),
+	})
+}
+
+func validActiveUserStatsRange(startTimestamp, endTimestamp int64, location *time.Location) bool {
+	if startTimestamp <= 0 || endTimestamp < startTimestamp {
+		return false
+	}
+	if location == nil {
+		location = time.Local
+	}
+	start := time.Unix(startTimestamp, 0).In(location)
+	start = time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, location)
+	end := time.Unix(endTimestamp, 0).In(location)
+	end = time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, location)
+	days := 1
+	for date := start; date.Before(end); date = date.AddDate(0, 0, 1) {
+		days++
+		if days > 30 {
+			return false
+		}
+	}
+	return true
 }
 
 func GetAllFlowQuotaDates(c *gin.Context) {

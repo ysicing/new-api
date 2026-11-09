@@ -3,6 +3,7 @@ package controller
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -70,6 +71,62 @@ func GetAllLogs(c *gin.Context) {
 	pageInfo.SetItems(logs)
 	common.ApiSuccess(c, pageInfo)
 	return
+}
+
+func GetTopUsers(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	limit = normalizeOperationsStatsLimit(limit)
+	section, err := service.GetOperationsTopUsers(c.Query("period"), time.Now())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	items := section.Items
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success":          true,
+		"message":          "",
+		"data":             items,
+		"refreshing":       false,
+		"generated_at":     section.GeneratedAt,
+		"refresh_schedule": "every_5_minutes",
+	})
+}
+
+func GetRechargeLeaderboard(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	limit = normalizeOperationsStatsLimit(limit)
+	section, err := service.GetOperationsRechargeLeaderboard(c.Query("period"), time.Now())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	items := section.Items
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"list": items, "weekly_limit": operation_setting.GetAutoRechargeSetting().WeeklyLimit,
+		},
+		"refreshing":       false,
+		"generated_at":     section.GeneratedAt,
+		"refresh_schedule": "every_5_minutes",
+	})
+}
+
+func normalizeOperationsStatsLimit(limit int) int {
+	if limit <= 0 {
+		return 10
+	}
+	if limit > 30 {
+		return 30
+	}
+	return limit
 }
 
 func GetUserLogs(c *gin.Context) {

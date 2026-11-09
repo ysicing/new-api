@@ -83,6 +83,7 @@ import {
   logTokenName,
   renderAuditContent,
   renderLogContent,
+  renderAutomaticRechargeContent,
 } from '../../lib/format'
 import { buildQuotaAuditOperation } from '../../lib/quota-audit-operation'
 import {
@@ -521,6 +522,14 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const { t } = useTranslation()
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
   const other = parseLogOther(props.log.other)
+  const structuredContent = renderLogContent(other, t)
+  const auditContent = renderAuditContent(other, t)
+  const details =
+    structuredContent ??
+    auditContent ??
+    renderAutomaticRechargeContent(other, t) ??
+    props.log.content ??
+    ''
   const typeConfig = getLogTypeConfig(props.log.type)
 
   const isViolation = isViolationFeeLog(other)
@@ -575,13 +584,33 @@ export function DetailsDialog(props: DetailsDialogProps) {
           },
         ].filter(Boolean) as Array<{ label: string; value: string }>)
       : []
-  const showLegacyTopupWarning = isTopup && props.isAdmin && !adminInfo
+  const quotaOperation = isTopup
+    ? buildQuotaAuditOperation(
+        other?.op?.action ?? '',
+        other?.op?.params ?? {},
+        true,
+        t
+      )
+    : null
+  const operationText =
+    auditContent != null ? (structuredContent ?? auditContent) : null
+  const isStructuredTopupOperation = isTopup && operationText != null
+  const showLegacyTopupWarning =
+    isTopup && props.isAdmin && !adminInfo && other?.recharge_source !== 'auto'
   const showTopupAuditSection =
     isTopup &&
     props.isAdmin &&
-    (topupAuditFields.length > 0 || showLegacyTopupWarning)
+    (operationText != null ||
+      topupAuditFields.length > 0 ||
+      showLegacyTopupWarning)
   const manageOperator = (() => {
-    if (!isManage || !props.isAdmin || !adminInfo) return null
+    if (
+      (!isManage && !isStructuredTopupOperation) ||
+      !props.isAdmin ||
+      !adminInfo
+    ) {
+      return null
+    }
     const username = adminInfo.admin_username
     const id = adminInfo.admin_id
     const hasUsername = username != null && String(username).trim() !== ''
@@ -592,27 +621,18 @@ export function DetailsDialog(props: DetailsDialogProps) {
     return `ID: ${id}`
   })()
   const authMethodLabel = (() => {
-    if (!isManage || !props.isAdmin || !adminInfo?.auth_method) return ''
+    if (
+      (!isManage && !isStructuredTopupOperation) ||
+      !props.isAdmin ||
+      !adminInfo?.auth_method
+    ) {
+      return ''
+    }
     if (adminInfo.auth_method === 'access_token') return t('Access Token')
     if (adminInfo.auth_method === 'session') return t('Session')
     return String(adminInfo.auth_method)
   })()
 
-  // Top-up, audit, and login logs share the language-independent descriptor.
-  const quotaOperation = isTopup
-    ? buildQuotaAuditOperation(
-        other?.op?.action ?? '',
-        other?.op?.params ?? {},
-        true,
-        t
-      )
-    : null
-  const operationText = renderAuditContent(other, t)
-  const details =
-    (isTopup ? operationText : null) ??
-    renderLogContent(other, t) ??
-    props.log.content ??
-    ''
   const auditRoute = isManage && props.isAdmin ? other?.audit_info : undefined
   // Channel update records which fields changed (stable field tokens); render
   // them with their localized labels for admins.
@@ -759,6 +779,14 @@ export function DetailsDialog(props: DetailsDialogProps) {
                   {props.log.ip}
                 </span>
               }
+              mono
+            />
+          )}
+
+          {showTiming && other?.user_agent && (
+            <DetailRow
+              label={t('User Agent')}
+              value={String(other.user_agent)}
               mono
             />
           )}
@@ -1006,6 +1034,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
             iconTone='success'
             label={t('Top-up Audit Info')}
           >
+            {operationText != null && (
+              <DetailRow label={t('Operation')} value={operationText} />
+            )}
             {topupAuditFields.map((field) => (
               <DetailRow
                 key={field.label}

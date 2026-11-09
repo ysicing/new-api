@@ -65,6 +65,7 @@ import {
   logTokenName,
   renderAuditContent,
   renderLogContent,
+  renderAutomaticRechargeContent,
 } from '../../lib/format'
 import {
   isDisplayableLogType,
@@ -137,9 +138,14 @@ function buildTypeDetailSegments(
   language: string,
   usageSchema?: BillingUsageSchema
 ): DetailSegment[] {
+  if (log.type === 1 || log.type === 4) {
+    const text =
+      renderLogContent(other, t) ?? renderAutomaticRechargeContent(other, t)
+    if (text) return [{ text }]
+  }
   // Top-up, audit, and login logs can carry a localized operation descriptor.
   if (log.type === 1 || log.type === 3 || log.type === 7) {
-    const text = renderAuditContent(other, t) ?? renderLogContent(other, t)
+    const text = renderLogContent(other, t) ?? renderAuditContent(other, t)
     return text ? [{ text }] : []
   }
 

@@ -9,6 +9,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestFormatUserLogsPreservesRequestUserAgentForOwner(t *testing.T) {
+	for _, logType := range []int{LogTypeConsume, LogTypeError, LogTypeLogin} {
+		logs := []*Log{{Type: logType, Other: `{"user_agent":"codex-cli/1.2","admin_info":{"private":true}}`}}
+		formatUserLogs(logs, 0)
+		parsed, err := common.StrToMap(logs[0].Other)
+		require.NoError(t, err)
+		assert.Equal(t, "codex-cli/1.2", parsed["user_agent"])
+		assert.NotContains(t, parsed, "admin_info")
+	}
+}
+
 // TestFormatUserLogsStripsQuotaSaturation verifies the admin-only quota
 // saturation marker (nested under other.admin_info) is removed for non-admin
 // log views, since formatUserLogs strips the whole admin_info object.
