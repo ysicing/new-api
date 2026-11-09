@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 
@@ -109,6 +110,10 @@ func SubscriptionRequestBalancePay(c *gin.Context) {
 	}
 
 	if err := model.PurchaseSubscriptionWithBalance(userId, req.PlanId); err != nil {
+		if errors.Is(err, model.ErrQuotaFrozen) {
+			writeQuotaPoolError(c, err)
+			return
+		}
 		common.ApiError(c, err)
 		return
 	}

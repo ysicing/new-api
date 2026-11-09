@@ -32,6 +32,8 @@ import type {
   ManageUserAction,
   ManageUserQuotaPayload,
   ApiResponse,
+  LDAPSearchResult,
+  LDAPSyncCandidate,
 } from './types'
 
 // A step-up proof is single-use, so the request carrying it must never be
@@ -77,6 +79,7 @@ export async function searchUsers(
     group = '',
     role = '',
     status = '',
+    quota_pool_id = '',
     p = 1,
     page_size = 10,
     sort_by,
@@ -87,6 +90,7 @@ export async function searchUsers(
   queryParams.set('group', group)
   if (role) queryParams.set('role', role)
   if (status) queryParams.set('status', status)
+  if (quota_pool_id) queryParams.set('quota_pool_id', quota_pool_id)
   queryParams.set('p', String(p))
   queryParams.set('page_size', String(page_size))
   if (sort_by) queryParams.set('sort_by', sort_by)
@@ -220,6 +224,26 @@ export async function getPermissionCatalog(): Promise<PermissionCatalog> {
     resources: res.data?.data?.resources ?? [],
     roles: res.data?.data?.roles ?? [],
   }
+}
+
+export async function searchLDAPUsers(
+  username: string
+): Promise<ApiResponse<LDAPSearchResult>> {
+  const res = await api.post('/api/user/ldap/sync', {
+    action: 'search',
+    username,
+  })
+  return res.data
+}
+
+export async function syncLDAPCandidate(
+  candidate: LDAPSyncCandidate
+): Promise<ApiResponse<Partial<User>>> {
+  const res = await api.post('/api/user/ldap/sync', {
+    action: 'sync',
+    user: candidate,
+  })
+  return res.data
 }
 
 // ============================================================================

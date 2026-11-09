@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type ManageUserAction } from '../types'
+import type { ManageUserAction } from '../types'
 
 // ============================================================================
 // User Action Messages
@@ -25,10 +25,15 @@ import { type ManageUserAction } from '../types'
 const ACTION_MESSAGES: Record<ManageUserAction, string> = {
   enable: 'User enabled successfully',
   disable: 'User disabled successfully',
+  freeze_quota: 'User quota frozen successfully',
+  unfreeze_quota: 'User quota unfrozen successfully',
   promote: 'User promoted to admin successfully',
   demote: 'User demoted to regular user successfully',
   delete: 'User deleted successfully',
   add_quota: 'Quota adjusted successfully',
+  recharge_auto: 'Recharge completed',
+  set_quota_pool_super_admin: 'Pool super admin assigned',
+  unset_quota_pool_super_admin: 'Pool super admin removed',
 }
 
 /**

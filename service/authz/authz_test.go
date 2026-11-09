@@ -51,6 +51,13 @@ func TestInitSeedsBuiltInRolesAndPoliciesOnce(t *testing.T) {
 	assert.True(t, Can(2, common.RoleAdminUser, ChannelWrite))
 	assert.False(t, Can(2, common.RoleAdminUser, ChannelSensitiveWrite))
 	assert.False(t, Can(3, common.RoleCommonUser, ChannelRead))
+	assert.False(t, Can(4, common.RoleQuotaPoolSuperAdmin, ChannelRead))
+	assert.False(t, Can(4, common.RoleQuotaPoolSuperAdmin, ChannelSensitiveWrite))
+	for _, actions := range Capabilities(4, common.RoleQuotaPoolSuperAdmin) {
+		for _, allowed := range actions {
+			assert.False(t, allowed)
+		}
+	}
 }
 
 func TestInitOnSlaveOnlyLoadsPolicies(t *testing.T) {

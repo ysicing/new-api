@@ -373,11 +373,15 @@ func migrateDB() error {
 		&SystemInstance{},
 		&SystemTask{},
 		&SystemTaskLock{},
+		&DingTalkNotification{},
 		&CasbinRule{},
 		&AuthzRole{},
 		&UserAccessToken{},
 	)
 	if err != nil {
+		return err
+	}
+	if err := migrateQuotaPoolSchema(DB); err != nil {
 		return err
 	}
 	if err := InitializeUserAuthVersions(); err != nil {

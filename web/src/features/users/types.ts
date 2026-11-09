@@ -39,10 +39,16 @@ export const userSchema = z.object({
   password: z.string().optional(),
   github_id: z.string().optional(),
   oidc_id: z.string().optional(),
+  ldap_id: z.string().optional(),
+  department: z.string().optional(),
   wechat_id: z.string().optional(),
   telegram_id: z.string().optional(),
   email: z.string().optional(),
   quota: z.number(),
+  quota_frozen: z.boolean().optional(),
+  can_adjust_quota: z.boolean().optional(),
+  quota_pool_id: z.number().optional(),
+  quota_pool_name: z.string().optional(),
   used_quota: z.number(),
   request_count: z.number(),
   group: z.string(),
@@ -106,11 +112,27 @@ export interface GetUsersResponse {
   }
 }
 
+export interface LDAPSyncCandidate {
+  key: string
+  username: string
+  email: string
+  display_name: string
+  department: string
+  ldap_id: string
+  signature: string
+}
+
+export interface LDAPSearchResult {
+  users: LDAPSyncCandidate[]
+  total: number
+}
+
 export interface SearchUsersParams {
   keyword?: string
   group?: string
   role?: string
   status?: string
+  quota_pool_id?: string
   p?: number
   page_size?: number
   sort_by?: UserSortBy
@@ -133,8 +155,13 @@ export type ManageUserAction =
   | 'demote'
   | 'enable'
   | 'disable'
+  | 'freeze_quota'
+  | 'unfreeze_quota'
   | 'delete'
   | 'add_quota'
+  | 'set_quota_pool_super_admin'
+  | 'unset_quota_pool_super_admin'
+  | 'recharge_auto'
 
 export type QuotaAdjustMode = 'add' | 'subtract' | 'override'
 
@@ -149,4 +176,4 @@ export interface ManageUserQuotaPayload {
 // Dialog Types
 // ============================================================================
 
-export type UsersDialogType = 'create' | 'update' | 'delete'
+export type UsersDialogType = 'create' | 'update' | 'delete' | 'ldap-sync'

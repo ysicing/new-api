@@ -28,12 +28,15 @@ import {
   DataTablePage,
   useDataTable,
 } from '@/components/data-table'
+import { getQuotaPools } from '@/features/quota-pools/api'
 import { useMediaQuery } from '@/hooks'
+import { useStatus } from '@/hooks/use-status'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import {
   createServerError,
   requireServerSuccess,
 } from '@/lib/server-error-message'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { getGroups, getUsers, searchUsers } from '../api'
 import {
@@ -64,7 +67,13 @@ function isDisabledUserRow(user: User) {
 
 export function UsersTable() {
   const { t } = useTranslation()
-  const columns = useUsersColumns()
+  const { status, loading: statusLoading } = useStatus()
+  const columns = useUsersColumns(
+    !statusLoading && status?.self_use_mode_enabled !== true
+  )
+  const quotaPoolEnabled = useAuthStore(
+    (state) => state.auth.user?.quota_pool_enabled === true
+  )
   const { refreshTrigger } = useUsers()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const [sorting, setSorting] = useState<SortingState>([])
@@ -86,6 +95,14 @@ export function UsersTable() {
       { columnId: 'status', searchKey: 'status', type: 'array' },
       { columnId: 'role', searchKey: 'role', type: 'array' },
       { columnId: 'group', searchKey: 'group', type: 'array' },
+      {
+        columnId: 'quota_pool_name',
+        searchKey: 'quotaPool',
+        type: 'array',
+        deserialize: (value) =>
+          typeof value === 'string' && value ? [value] : [],
+        serialize: (value) => (value as string[])[0] ?? '',
+      },
     ],
   })
   const statusFilter =
@@ -104,6 +121,18 @@ export function UsersTable() {
   const { data: groupsData } = useQuery({
     queryKey: ['groups'],
     queryFn: async () => requireServerSuccess(await getGroups()),
+    staleTime: 5 * 60 * 1000,
+  })
+  const quotaPoolFilter =
+    (
+      columnFilters.find((filter) => filter.id === 'quota_pool_name')?.value as
+        | string[]
+        | undefined
+    )?.[0] ?? ''
+  const { data: quotaPoolsData } = useQuery({
+    queryKey: ['quota-pools', 'user-filter'],
+    queryFn: async () => requireServerSuccess(await getQuotaPools()),
+    enabled: quotaPoolEnabled,
     staleTime: 5 * 60 * 1000,
   })
 
@@ -139,6 +168,7 @@ export function UsersTable() {
       statusFilter,
       roleFilter,
       groupFilter,
+      quotaPoolFilter,
       sortParams,
       refreshTrigger,
     ],
@@ -147,7 +177,8 @@ export function UsersTable() {
       const hasColumnFilter =
         statusFilter.length > 0 ||
         roleFilter.length > 0 ||
-        groupFilter.length > 0
+        groupFilter.length > 0 ||
+        Boolean(quotaPoolFilter)
       const params = {
         p: pagination.pageIndex + 1,
         page_size: pagination.pageSize,
@@ -162,6 +193,7 @@ export function UsersTable() {
               status: statusFilter[0] ?? '',
               role: roleFilter[0] ?? '',
               group: groupFilter[0] ?? '',
+              quota_pool_id: quotaPoolFilter,
             })
           : await getUsers(params)
 
@@ -251,6 +283,19 @@ export function UsersTable() {
             })),
             singleSelect: true,
           },
+          ...(quotaPoolEnabled
+            ? [
+                {
+                  columnId: 'quota_pool_name',
+                  title: t('Quota pool'),
+                  options: (quotaPoolsData?.data?.items ?? []).map((pool) => ({
+                    label: pool.name || t('Default pool'),
+                    value: String(pool.id),
+                  })),
+                  singleSelect: true,
+                },
+              ]
+            : []),
         ],
       }}
       getRowClassName={(row, { isMobile }) => {

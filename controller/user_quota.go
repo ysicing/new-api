@@ -56,6 +56,12 @@ func manageUserQuota(c *gin.Context, req ManageRequest) {
 		case errors.Is(err, model.ErrUserQuotaPermission):
 			params["failure_reason"] = "permission_denied"
 			common.ApiErrorT(c, "No permission to update users of same or higher permission level")
+		case errors.Is(err, model.ErrQuotaFrozen):
+			params["failure_reason"] = "quota_frozen"
+			writeQuotaPoolError(c, err)
+		case errors.Is(err, model.ErrQuotaPoolPermissionDenied), errors.Is(err, model.ErrQuotaPoolNotFound):
+			params["failure_reason"] = "quota_pool_restricted"
+			writeQuotaPoolError(c, err)
 		case errors.Is(err, gorm.ErrRecordNotFound):
 			params["failure_reason"] = "target_not_found"
 			common.ApiErrorT(c, "User does not exist")

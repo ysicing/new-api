@@ -20,6 +20,8 @@ import { api } from '@/lib/api'
 
 import type {
   ConfirmPaymentComplianceResponse,
+  DingTalkNotificationListParams,
+  DingTalkNotificationListResponse,
   FetchUpstreamRatiosRequest,
   LogCleanupTask,
   SystemOptionsResponse,
@@ -101,6 +103,33 @@ export async function listSystemTasks(
   const res = await api.get<SystemTaskListResponse>('/api/system-task/list', {
     params: { limit, ...filters },
   })
+  return res.data
+}
+
+export async function startMagpieMonitorTask() {
+  const res = await api.post<SystemTaskResponse>(
+    '/api/system-task/magpie-monitor'
+  )
+  return res.data
+}
+
+export async function listDingTalkNotifications(
+  params: DingTalkNotificationListParams
+) {
+  const res = await api.get<DingTalkNotificationListResponse>(
+    '/api/dingtalk-notifications/',
+    {
+      params: {
+        p: params.page,
+        page_size: params.pageSize,
+        event_type: params.eventType || undefined,
+        status: params.status || undefined,
+        keyword: params.keyword || undefined,
+        start_timestamp: params.startTimestamp || undefined,
+        end_timestamp: params.endTimestamp || undefined,
+      },
+    }
+  )
   return res.data
 }
 

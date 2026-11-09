@@ -25,6 +25,8 @@ import { PaymentSettingsSection } from '../integrations/payment-settings-section
 import { RatioSettingsCard } from '../models/ratio-settings-card'
 import type { BillingSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
+import { BudgetTagsSection } from './budget-tags/budget-tags-section'
+import { RechargeQuerySection } from './recharge-query/recharge-query-section'
 
 const getModelDefaults = (settings: BillingSettings) => ({
   ModelPrice: settings.ModelPrice,
@@ -76,6 +78,7 @@ const BILLING_SECTIONS = [
           (settings['payment_setting.compliance_confirmed'] ?? false) &&
           settings['payment_setting.compliance_terms_version'] === 'v1'
         }
+        selfUseModeEnabled={settings.SelfUseModeEnabled}
       />
     ),
   },
@@ -187,6 +190,16 @@ const BILLING_SECTIONS = [
         }}
       />
     ),
+  },
+  {
+    id: 'recharge-query',
+    titleKey: 'Recharge query',
+    build: () => <RechargeQuerySection />,
+  },
+  {
+    id: 'budget-tags',
+    titleKey: 'Budget Tags',
+    build: () => <BudgetTagsSection />,
   },
   {
     id: 'checkin',
