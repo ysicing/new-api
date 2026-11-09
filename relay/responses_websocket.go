@@ -244,6 +244,10 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 	started := time.Now()
 	var info *relaycommon.RelayInfo
 	billingPrepared := false
+	var stopLeaseWatch func()
+	defer func() {
+		s.finishChannelConcurrency(c, state, stopLeaseWatch)
+	}()
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			apiErr = types.NewError(fmt.Errorf("responses websocket call panic: %v", recovered), types.ErrorCodeBadResponse, types.ErrOptionWithSkipRetry())
@@ -277,6 +281,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 		if apiErr = s.restoreConnectionContext(c, modelName); apiErr != nil {
 			return apiErr
 		}
+		stopLeaseWatch = s.watchChannelConcurrency(service.ChannelConcurrencyContext(c))
 		info = relaycommon.GenRelayInfoResponses(c, &create.Request)
 		info.IsStream = true
 		common.SetContextKey(c, appconstant.ContextKeyIsStream, true)
@@ -296,11 +301,17 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 	} else {
 		retry := &service.RetryParam{Ctx: c, TokenGroup: common.GetContextKeyString(c, appconstant.ContextKeyUsingGroup), ModelName: modelName, RequestPath: c.Request.URL.Path, Retry: common.GetPointer(0)}
 		for ; retry.GetRetry() <= common.RetryTimes; retry.IncreaseRetry() {
+			if stopLeaseWatch != nil {
+				stopLeaseWatch()
+				stopLeaseWatch = nil
+			}
+			service.ReleaseChannelConcurrency(c)
 			var channel *appmodel.Channel
 			channel, apiErr = selectResponsesWSChannel(c, modelName, retry)
 			if apiErr != nil {
 				return apiErr
 			}
+			stopLeaseWatch = s.watchChannelConcurrency(service.ChannelConcurrencyContext(c))
 			service.AppendUsedChannel(c, channel.Id)
 			if info == nil {
 				info = relaycommon.GenRelayInfoResponses(c, &create.Request)
@@ -327,6 +338,9 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 			adaptor.Init(info)
 			target, dialErr := relaychannel.DoWssRequest(adaptor, c, info, nil)
 			if dialErr != nil {
+				if c.Request.Context().Err() != nil {
+					return types.NewError(dialErr, types.ErrorCodeDoRequestFailed, types.ErrOptionWithSkipRetry())
+				}
 				apiErr = service.NormalizeViolationFeeError(types.NewError(dialErr, types.ErrorCodeDoRequestFailed))
 				service.ResetStatusCode(apiErr, c.GetString("status_code_mapping"))
 				info.LastError = apiErr
@@ -600,6 +614,9 @@ func (s *responsesWSSession) restoreConnectionContext(c *gin.Context, model stri
 			return types.NewErrorWithStatusCode(errors.New("the connection channel is no longer allowed for this group and model"), types.ErrorCodeAccessDenied, http.StatusForbidden, types.ErrOptionWithSkipRetry())
 		}
 	}
+	if _, apiErr := service.ReserveChannelForRequest(c, channel); apiErr != nil {
+		return apiErr
+	}
 	for key, value := range s.lockedContext {
 		c.Set(string(key), value)
 	}
@@ -737,6 +754,47 @@ func (s *responsesWSSession) sendError(eventID, streamID string, apiErr *types.N
 	}
 }
 
+func (s *responsesWSSession) watchChannelConcurrency(ctx context.Context) func() {
+	if ctx == nil {
+		return func() {}
+	}
+	closeForLeaseLoss := func() {
+		s.shutdown(websocket.CloseInternalServerErr, "channel concurrency lease lost")
+	}
+	stop := context.AfterFunc(ctx, closeForLeaseLoss)
+	return sync.OnceFunc(func() {
+		stop()
+		// 失租与完成并发时等待 shutdown 完成，取消上下文不代表上游已关闭。
+		// 正常释放前先停止监听，空闲连接可供下一次调用复用。
+		if ctx.Err() != nil {
+			closeForLeaseLoss()
+		}
+	})
+}
+
+func (s *responsesWSSession) finishChannelConcurrency(c *gin.Context, state *responsesWSCallState, stopLeaseWatch func()) {
+	if state.closeCode != 0 {
+		s.closeTarget(state.closeCode, state.closeReason)
+	}
+	if s.ctx.Err() != nil {
+		s.shutdown(websocket.CloseNormalClosure, "")
+	}
+	if stopLeaseWatch != nil {
+		stopLeaseWatch()
+	}
+	service.ReleaseChannelConcurrency(c)
+}
+
+func (s *responsesWSSession) closeTarget(code int, reason string) {
+	s.connectionMu.Lock()
+	defer s.connectionMu.Unlock()
+	if s.target != nil {
+		_ = s.target.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, reason), time.Now().Add(time.Second))
+		_ = s.target.Close()
+		s.target = nil
+	}
+}
+
 // shutdown ends the connection once. Each peer gets a close frame that says
 // why, bounded to one second, and both sockets close even if a write failed.
 // Close frames are control writes, which gorilla allows alongside a blocked
@@ -744,19 +802,16 @@ func (s *responsesWSSession) sendError(eventID, streamID string, apiErr *types.N
 func (s *responsesWSSession) shutdown(code int, reason string) {
 	s.closeOnce.Do(func() {
 		s.cancel()
+		s.closeTarget(code, reason)
 		s.connectionMu.Lock()
-		target, unregister := s.target, s.unregister
-		s.target, s.unregister = nil, nil
+		unregister := s.unregister
+		s.unregister = nil
 		s.connectionMu.Unlock()
 		if unregister != nil {
 			unregister()
 		}
 		closeMessage := websocket.FormatCloseMessage(code, reason)
 		_ = s.client.WriteControl(websocket.CloseMessage, closeMessage, time.Now().Add(time.Second))
-		if target != nil {
-			_ = target.WriteControl(websocket.CloseMessage, closeMessage, time.Now().Add(time.Second))
-			_ = target.Close()
-		}
 		_ = s.client.Close()
 	})
 }
@@ -953,6 +1008,10 @@ func selectResponsesWSChannel(c *gin.Context, modelName string, retryParam *serv
 			code = types.ErrorCodeGetChannelFailed
 		}
 		return nil, types.NewErrorWithStatusCode(errors.New(message), code, selectErr.StatusCode, types.ErrOptionWithSkipRetry())
+	}
+	channel, apiErr := service.ReserveChannelForRequest(c, channel)
+	if apiErr != nil {
+		return nil, apiErr
 	}
 	if err := middleware.SetupContextForSelectedChannel(c, channel, modelName); err != nil {
 		return nil, err

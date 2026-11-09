@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -284,6 +286,48 @@ func TestRestoreConnectionContextRejectsChangedAdvancedCustomRoute(t *testing.T)
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusForbidden, apiErr.StatusCode)
 	assert.ErrorContains(t, apiErr, "upstream route changed")
+}
+
+func TestResponsesWSChannelConcurrencyRejectsWithoutRetry(t *testing.T) {
+	database := setupRelayChannelDB(t)
+	previousRedis, previousRDB := common.RedisEnabled, common.RDB
+	common.RedisEnabled, common.RDB = false, nil
+	t.Cleanup(func() { common.RedisEnabled, common.RDB = previousRedis, previousRDB })
+	channel := &model.Channel{Name: "limited", Key: "sk-test", Status: common.ChannelStatusEnabled, Type: constant.ChannelTypeOpenAI, MaxConcurrency: common.GetPointer(1)}
+	channel.SetSetting(dto.ChannelSettings{ResponsesWebSocketEnabled: true})
+	require.NoError(t, database.Create(channel).Error)
+	holder, _ := gin.CreateTestContext(httptest.NewRecorder())
+	holder.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	_, apiErr := service.ReserveChannelForRequest(holder, channel)
+	require.Nil(t, apiErr)
+	defer service.ReleaseChannelConcurrency(holder)
+	session := &responsesWSSession{lockedChannelID: channel.Id, lockedModel: "ws-model", lockedKey: channel.Key,
+		lockedContext: map[constant.ContextKey]any{constant.ContextKeyChannelBaseUrl: channel.GetBaseURL(), constant.ContextKeyChannelHeaderOverride: channel.GetHeaderOverride()}}
+	for _, storageUnavailable := range []bool{false, true} {
+		for _, reuse := range []bool{false, true} {
+			t.Run(fmt.Sprintf("storage_unavailable=%t/reuse=%t", storageUnavailable, reuse), func(t *testing.T) {
+				common.RedisEnabled = storageUnavailable
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+				defer service.ReleaseChannelConcurrency(c)
+				service.GetChannelConstraints(c).AddPin(appdto.ChannelPin{ChannelId: channel.Id, Source: appdto.PinSourceToken, Rank: appdto.PinRankToken, RetryMode: appdto.PinRetrySingleAttempt})
+				var callErr *types.NewAPIError
+				if reuse {
+					callErr = session.restoreConnectionContext(c, "ws-model")
+				} else {
+					_, callErr = selectResponsesWSChannel(c, "ws-model", &service.RetryParam{Ctx: c, ModelName: "ws-model", TokenGroup: "default"})
+				}
+				require.NotNil(t, callErr)
+				status := http.StatusTooManyRequests
+				if storageUnavailable {
+					status = http.StatusServiceUnavailable
+				}
+				assert.Equal(t, status, callErr.StatusCode)
+				assert.True(t, types.IsSkipRetryError(callErr))
+				assert.Nil(t, service.ChannelConcurrencyContext(c))
+			})
+		}
+	}
 }
 
 func TestResponsesWSChannelRoutingRequiresExplicitOptIn(t *testing.T) {
@@ -584,7 +628,7 @@ func newTestResponsesWSTarget(t *testing.T) (*websocket.Conn, func()) {
 	return target, cleanup
 }
 
-func newTestWebSocketPair(t *testing.T) (*websocket.Conn, *websocket.Conn, func()) {
+func newTestWebSocketPair(t *testing.T, dialers ...*websocket.Dialer) (*websocket.Conn, *websocket.Conn, func()) {
 	t.Helper()
 	upgrader := websocket.Upgrader{}
 	serverConnCh := make(chan *websocket.Conn, 1)
@@ -598,7 +642,11 @@ func newTestWebSocketPair(t *testing.T) (*websocket.Conn, *websocket.Conn, func(
 	}))
 
 	targetURL := "ws" + strings.TrimPrefix(server.URL, "http")
-	target, _, err := websocket.DefaultDialer.Dial(targetURL, nil)
+	dialer := websocket.DefaultDialer
+	if len(dialers) > 0 {
+		dialer = dialers[0]
+	}
+	target, _, err := dialer.Dial(targetURL, nil)
 	if err != nil {
 		server.Close()
 		t.Fatalf("dial websocket: %v", err)
@@ -677,6 +725,150 @@ func TestResponsesWSShutdownInterruptsBusyWriter(t *testing.T) {
 	require.NoError(t, latePeer.SetReadDeadline(time.Now().Add(time.Second)))
 	_, _, err := latePeer.ReadMessage()
 	assert.True(t, websocket.IsCloseError(err, websocket.CloseNormalClosure), "want a 1000 close frame, got %v", err)
+}
+
+func TestResponsesWSChannelLeaseLifecycle(t *testing.T) {
+	t.Run("session cancellation precedes lease loss", func(t *testing.T) {
+		client, server, cleanupClient := newTestWebSocketPair(t)
+		defer cleanupClient()
+		target, peer, cleanupTarget := newTestWebSocketPair(t)
+		defer cleanupTarget()
+		sessionCtx, cancelSession := context.WithCancel(context.Background())
+		defer cancelSession()
+		session := &responsesWSSession{ctx: sessionCtx, cancel: cancelSession, client: server, target: target}
+		leaseCtx, loseLease := context.WithCancel(context.Background())
+		defer loseLease()
+		stop := session.watchChannelConcurrency(leaseCtx)
+		cancelSession()
+		loseLease()
+		stop()
+		require.Nil(t, session.getTarget(), "cancellation alone must not allow release before upstream closes")
+		for _, conn := range []*websocket.Conn{client, peer} {
+			require.NoError(t, conn.SetReadDeadline(time.Now().Add(time.Second)))
+			_, _, err := conn.ReadMessage()
+			assert.True(t, websocket.IsCloseError(err, websocket.CloseInternalServerErr))
+		}
+	})
+	for _, lost := range []bool{false, true} {
+		t.Run(fmt.Sprintf("lost=%t", lost), func(t *testing.T) {
+			client, server, cleanupClient := newTestWebSocketPair(t)
+			defer cleanupClient()
+			target, peer, cleanupTarget := newTestWebSocketPair(t)
+			defer cleanupTarget()
+			sessionCtx, cancelSession := context.WithCancel(context.Background())
+			defer cancelSession()
+			session := &responsesWSSession{ctx: sessionCtx, cancel: cancelSession, client: server, target: target}
+			leaseCtx, loseLease := context.WithCancel(sessionCtx)
+			defer loseLease()
+			stop := session.watchChannelConcurrency(leaseCtx)
+			defer stop()
+			if !lost {
+				stop()
+				loseLease()
+				require.NoError(t, sessionCtx.Err())
+				require.NoError(t, session.writeClient(websocket.TextMessage, []byte("idle")))
+				require.NoError(t, client.SetReadDeadline(time.Now().Add(time.Second)))
+				_, body, err := client.ReadMessage()
+				require.NoError(t, err)
+				assert.Equal(t, "idle", string(body))
+				require.NoError(t, session.writeTarget(websocket.TextMessage, []byte("next call")))
+				require.NoError(t, peer.SetReadDeadline(time.Now().Add(time.Second)))
+				_, body, err = peer.ReadMessage()
+				require.NoError(t, err)
+				assert.Equal(t, "next call", string(body))
+				return
+			}
+			session.clientWriteMu.Lock()
+			defer session.clientWriteMu.Unlock()
+			session.targetWriteMu.Lock()
+			defer session.targetWriteMu.Unlock()
+			loseLease()
+			for _, conn := range []*websocket.Conn{client, peer} {
+				require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+				_, _, err := conn.ReadMessage()
+				require.True(t, websocket.IsCloseError(err, websocket.CloseInternalServerErr), "lease loss must interrupt both peers: %v", err)
+				assert.Contains(t, err.Error(), "channel concurrency lease lost")
+			}
+			stop()
+			assert.ErrorIs(t, sessionCtx.Err(), context.Canceled)
+			assert.Nil(t, session.getTarget())
+		})
+	}
+}
+
+type responsesWSCloseObservedConn struct {
+	net.Conn
+	closeOnce sync.Once
+	onClose   func()
+}
+
+func (conn *responsesWSCloseObservedConn) Close() error {
+	conn.closeOnce.Do(conn.onClose)
+	return conn.Conn.Close()
+}
+
+func TestResponsesWSAbortedCallClosesUpstreamBeforeReleasingSlot(t *testing.T) {
+	previousRedis := common.RedisEnabled
+	common.RedisEnabled = false
+	t.Cleanup(func() { common.RedisEnabled = previousRedis })
+	channel := &model.Channel{Id: 907023, MaxConcurrency: common.GetPointer(1)}
+	current, _ := gin.CreateTestContext(httptest.NewRecorder())
+	current.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	_, apiErr := service.ReserveChannelForRequest(current, channel)
+	require.Nil(t, apiErr)
+	defer service.ReleaseChannelConcurrency(current)
+	var observedClose atomic.Bool
+	dialer := *websocket.DefaultDialer
+	dialer.NetDialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		conn, err := (&net.Dialer{}).DialContext(ctx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		return &responsesWSCloseObservedConn{Conn: conn, onClose: func() {
+			contender, _ := gin.CreateTestContext(httptest.NewRecorder())
+			contender.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			defer service.ReleaseChannelConcurrency(contender)
+			_, reserveErr := service.ReserveChannelForRequest(contender, channel)
+			if assert.NotNil(t, reserveErr, "the slot must remain occupied until upstream closes") {
+				assert.Equal(t, http.StatusTooManyRequests, reserveErr.StatusCode)
+			}
+			observedClose.Store(true)
+		}}, nil
+	}
+	target, peer, cleanupTarget := newTestWebSocketPair(t, &dialer)
+	defer cleanupTarget()
+	client, server, cleanupClient := newTestWebSocketPair(t)
+	defer cleanupClient()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	session := &responsesWSSession{ctx: ctx, cancel: cancel, client: server, target: target}
+	session.clientWriteMu.Lock()
+	defer session.clientWriteMu.Unlock()
+	session.targetWriteMu.Lock()
+	defer session.targetWriteMu.Unlock()
+	finished := make(chan struct{})
+	go func() {
+		session.finishChannelConcurrency(current, &responsesWSCallState{
+			closeCode: websocket.CloseInternalServerErr, closeReason: "upstream response timed out",
+		}, nil)
+		close(finished)
+	}()
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upstream close and slot release waited for a downstream writer")
+	}
+	assert.True(t, observedClose.Load())
+	require.NoError(t, peer.SetReadDeadline(time.Now().Add(time.Second)))
+	_, _, err := peer.ReadMessage()
+	assert.True(t, websocket.IsCloseError(err, websocket.CloseInternalServerErr))
+	require.NoError(t, server.WriteMessage(websocket.TextMessage, []byte("terminal")))
+	require.NoError(t, client.SetReadDeadline(time.Now().Add(time.Second)))
+	_, body, err := client.ReadMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "terminal", string(body), "upstream shutdown must still allow the downstream terminal event")
+	_, apiErr = service.ReserveChannelForRequest(current, channel)
+	require.Nil(t, apiErr)
 }
 
 func TestResponsesWSPassthroughPreservesRawPricingParameters(t *testing.T) {

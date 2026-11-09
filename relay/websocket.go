@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -48,6 +49,14 @@ func WssHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.
 			})
 		})
 		defer unregister()
+		target, client := info.TargetWs, info.ClientWs
+		stop := context.AfterFunc(c.Request.Context(), func() {
+			_ = target.Close()
+			if client != nil {
+				_ = client.Close()
+			}
+		})
+		defer stop()
 	}
 
 	usage, newAPIError := adaptor.DoResponse(c, nil, info)

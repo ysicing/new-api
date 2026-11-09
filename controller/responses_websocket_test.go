@@ -644,6 +644,134 @@ func TestResponsesWebSocketReusesConnectionAndSettlesEachRequest(t *testing.T) {
 	assert.Equal(t, 3000, user.UsedQuota)
 }
 
+func TestResponsesWebSocketRejectsFrozenQuotaPerCall(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	for _, scenario := range []string{"first call", "reused connection", "invalid cache and database unavailable"} {
+		t.Run(scenario, func(t *testing.T) {
+			var forwarded atomic.Int32
+			fixture := newResponsesWSBillingTest(t, `tier("request", fixed(0.002))`, func(ws *websocket.Conn, _ *http.Request) {
+				for {
+					if _, _, err := ws.ReadMessage(); err != nil {
+						return
+					}
+					forwarded.Add(1)
+					if !assert.NoError(t, ws.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.completed","response":{"id":"accepted","status":"completed","usage":{"input_tokens":1000,"output_tokens":10,"total_tokens":1010}}}`))) {
+						return
+					}
+				}
+			})
+			require.NoError(t, model.DB.Model(fixture.channel).Update("max_concurrency", 1).Error)
+			var expectedQuotas []int
+			if scenario == "reused connection" {
+				require.NoError(t, fixture.client.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"ws-billing","input":"allowed"}`)))
+				assert.Equal(t, "response.completed", readResponsesWSTestEvent(t, fixture.client)["type"])
+				expectedQuotas = []int{1000}
+			}
+			require.NoError(t, model.SetUserQuotaFrozen(fixture.user.Id, true))
+			status := http.StatusForbidden
+			restoreUserQueries := func() {}
+			if scenario == "invalid cache and database unavailable" {
+				status = http.StatusInternalServerError
+				require.NoError(t, common.RDB.HSet(t.Context(), fmt.Sprintf("user:%d", fixture.user.Id), "QuotaFrozen", "false", "CacheMAC", "invalid").Err())
+				database := model.DB
+				const callbackName = "responses-ws-user-unavailable"
+				require.NoError(t, database.Callback().Query().Before("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+					if tx.Statement.Schema != nil && tx.Statement.Schema.Name == "User" {
+						tx.AddError(errors.New("user database unavailable"))
+					}
+				}))
+				restoreUserQueries = sync.OnceFunc(func() {
+					require.NoError(t, database.Callback().Query().Remove(callbackName))
+				})
+				t.Cleanup(restoreUserQueries)
+			}
+			require.NoError(t, fixture.client.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"ws-billing","input":"blocked","event_id":"frozen"}`)))
+			event := readResponsesWSTestEvent(t, fixture.client)
+			assert.Equal(t, "error", event["type"])
+			assert.Equal(t, float64(status), event["status"])
+			assert.Equal(t, "frozen", event["event_id"])
+			fixture.closeAndWait(t)
+			assert.Equal(t, int32(len(expectedQuotas)), forwarded.Load())
+			assert.Equal(t, int32(len(expectedQuotas)), fixture.connections.Load())
+			slots, err := common.RDB.ZCard(t.Context(), fmt.Sprintf("channel:concurrency:%d", fixture.channel.Id)).Result()
+			require.NoError(t, err)
+			assert.Zero(t, slots)
+			restoreUserQueries()
+			assertResponsesWSAccounting(t, fixture, expectedQuotas)
+		})
+	}
+}
+
+func TestResponsesWebSocketChannelConcurrencyPerCall(t *testing.T) {
+	var channelID atomic.Int64
+	fixture := newResponsesWSBillingTest(t, `tier("request", fixed(0.002))`, func(ws *websocket.Conn, _ *http.Request) {
+		for index := 0; ; index++ {
+			if _, _, err := ws.ReadMessage(); err != nil {
+				return
+			}
+			slots, err := common.RDB.ZCard(context.Background(), fmt.Sprintf("channel:concurrency:%d", channelID.Load())).Result()
+			if !assert.NoError(t, err) || !assert.Equal(t, int64(1), slots, "every upstream call must own a slot") {
+				return
+			}
+			if index == 0 {
+				if !assert.NoError(t, ws.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"rejected"}}`))) {
+					return
+				}
+				continue
+			}
+			terminal := fmt.Sprintf(`{"type":"response.completed","response":{"id":"call_%d","status":"completed","usage":{"input_tokens":1000,"output_tokens":10,"total_tokens":1010}}}`, index)
+			if !assert.NoError(t, ws.WriteMessage(websocket.TextMessage, []byte(terminal))) {
+				return
+			}
+		}
+	})
+	fixture.channel.MaxConcurrency = common.GetPointer(1)
+	require.NoError(t, model.DB.Model(fixture.channel).Update("max_concurrency", 1).Error)
+	channelID.Store(int64(fixture.channel.Id))
+	key := fmt.Sprintf("channel:concurrency:%d", fixture.channel.Id)
+	holder, _ := gin.CreateTestContext(httptest.NewRecorder())
+	holder.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	defer service.ReleaseChannelConcurrency(holder)
+	for _, reused := range []bool{false, true} {
+		_, apiErr := service.ReserveChannelForRequest(holder, fixture.channel)
+		require.Nil(t, apiErr)
+		require.NoError(t, fixture.client.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"ws-billing","input":"busy","event_id":"busy","stream_id":"busy"}`)))
+		rejected := readResponsesWSTestEvent(t, fixture.client)
+		assert.Equal(t, "error", rejected["type"])
+		assert.Equal(t, float64(http.StatusTooManyRequests), rejected["status"])
+		assert.Equal(t, "busy", rejected["event_id"])
+		assert.Equal(t, "busy", rejected["stream_id"])
+		slots, err := common.RDB.ZCard(context.Background(), key).Result()
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), slots, "a rejected call must not release another request's slot")
+		if !reused {
+			assert.Zero(t, fixture.connections.Load(), "saturation must reject before dialing upstream")
+		} else {
+			assert.Equal(t, int32(1), fixture.connections.Load(), "a reused connection must stay on its channel")
+		}
+		service.ReleaseChannelConcurrency(holder)
+		require.NoError(t, fixture.client.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"ws-billing","input":"admitted"}`)))
+		event := readResponsesWSTestEvent(t, fixture.client)
+		if !reused {
+			assert.Equal(t, "error", event["type"])
+			assert.Equal(t, float64(http.StatusBadRequest), event["status"])
+		} else {
+			assert.Equal(t, "response.completed", event["type"])
+		}
+		slots, err = common.RDB.ZCard(context.Background(), key).Result()
+		require.NoError(t, err)
+		assert.Zero(t, slots, "completion and upstream rejection both release the call's slot")
+	}
+	require.NoError(t, fixture.client.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"ws-billing","input":"next"}`)))
+	assert.Equal(t, "response.completed", readResponsesWSTestEvent(t, fixture.client)["type"])
+	slots, err := common.RDB.ZCard(context.Background(), key).Result()
+	require.NoError(t, err)
+	assert.Zero(t, slots)
+	assert.Equal(t, int32(1), fixture.connections.Load())
+	fixture.closeAndWait(t)
+	assertResponsesWSAccounting(t, fixture, []int{1000, 1000})
+}
+
 // Both transports must reach the same upstream target with the same
 // credential placement and settle identically for every supported channel type.
 func TestResponsesWebSocketDialsNativeResponsesChannelTypes(t *testing.T) {
@@ -736,12 +864,20 @@ func TestResponsesWebSocketDisconnectSettlesDeliveredOutputOnce(t *testing.T) {
 		}
 		_, _, _ = ws.ReadMessage()
 	})
+	require.NoError(t, model.DB.Model(fixture.channel).Update("max_concurrency", 1).Error)
+	leaseKey := fmt.Sprintf("channel:concurrency:%d", fixture.channel.Id)
 	require.NoError(t, fixture.client.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"ws-billing","input":"hi","max_output_tokens":1}`)))
 	assert.Equal(t, "response.created", readResponsesWSTestEvent(t, fixture.client)["type"])
 	delta := readResponsesWSTestEvent(t, fixture.client)
 	require.Equal(t, "response.output_text.delta", delta["type"])
 	assert.Equal(t, "hello", delta["delta"])
+	slots, err := common.RDB.ZCard(context.Background(), leaseKey).Result()
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), slots)
 	fixture.closeAndWait(t)
+	slots, err = common.RDB.ZCard(context.Background(), leaseKey).Result()
+	require.NoError(t, err)
+	assert.Zero(t, slots)
 	assertResponsesWSAccounting(t, fixture, []int{1})
 	keys, err := common.RDB.Keys(context.Background(), "perf:ws-billing:*").Result()
 	require.NoError(t, err)
