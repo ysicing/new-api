@@ -11,8 +11,8 @@ import { expect, test } from 'vitest'
 
 import { useUsersColumns } from '../users-columns'
 
-test('self-use mode hides invitation information in the user list', () => {
-  const { result } = renderHook(() => useUsersColumns(false))
+test('user list omits invitation information without a self-use mode requirement', () => {
+  const { result } = renderHook(() => useUsersColumns())
   const columnIds = result.current.map((column) => {
     if (column.id) return column.id
     if ('accessorKey' in column) return String(column.accessorKey)
@@ -20,11 +20,4 @@ test('self-use mode hides invitation information in the user list', () => {
   })
 
   expect(columnIds).not.toContain('invite_info')
-})
-
-test('ordinary mode preserves upstream invitation information', () => {
-  const { result } = renderHook(() => useUsersColumns())
-  expect(result.current.some((column) => column.id === 'invite_info')).toBe(
-    true
-  )
 })

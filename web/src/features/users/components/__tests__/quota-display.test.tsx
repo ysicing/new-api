@@ -254,7 +254,7 @@ function UsersPage() {
   )
 }
 
-async function renderUsersList(emptyInvitation = false) {
+async function renderUsersList() {
   useAuthStore.getState().auth.setUser({ id: 1, username: 'admin', role: 100 })
   const usersResponse = {
     data: {
@@ -273,9 +273,9 @@ async function renderUsersList(emptyInvitation = false) {
             created_at: Math.floor(Date.now() / 1000) - 86400,
             last_login_at: Math.floor(Date.now() / 1000) - 20,
             group: 'default',
-            aff_count: emptyInvitation ? 0 : 2,
-            aff_history_quota: emptyInvitation ? 0 : 500000,
-            inviter_id: emptyInvitation ? 0 : 42,
+            aff_count: 2,
+            aff_history_quota: 500000,
+            inviter_id: 42,
           },
         ],
         total: 1,
@@ -316,7 +316,7 @@ async function renderUsersList(emptyInvitation = false) {
   return get
 }
 
-it('sends balance sorting to the server and keeps invitation details on two lines', async () => {
+it('sends balance sorting to the server while hiding invitation information', async () => {
   const get = await renderUsersList()
   expect(
     screen.getByRole('columnheader', { name: 'User Group' })
@@ -333,8 +333,17 @@ it('sends balance sorting to the server and keeps invitation details on two line
   expect(
     screen.queryByRole('button', { name: 'Total Used' })
   ).not.toBeInTheDocument()
-  expect(screen.getByText('Inviter ID: 42')).toBeInTheDocument()
-  expect(screen.getByText(/Invited 2 users · Earnings:/)).toBeInTheDocument()
+  expect(
+    screen.queryByRole('columnheader', { name: 'Invite Info' })
+  ).not.toBeInTheDocument()
+  expect(screen.queryByText('Inviter ID: 42')).not.toBeInTheDocument()
+  expect(
+    screen.queryByText(/Invited 2 users · Earnings:/)
+  ).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'View' }))
+  expect(
+    screen.queryByRole('menuitemcheckbox', { name: 'Invite Info' })
+  ).not.toBeInTheDocument()
 })
 
 it('shows balance above usage on mobile cards in Chinese', async () => {
@@ -366,7 +375,7 @@ it('shows balance above usage on mobile cards in Chinese', async () => {
 
 it('combines creation and last login into one column with full dates visible directly', async () => {
   vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 8, 8, 12))
-  await renderUsersList(true)
+  await renderUsersList()
   expect(screen.getByRole('columnheader', { name: /Time/ })).toBeInTheDocument()
   expect(
     screen.queryByRole('columnheader', { name: /Last Login/ })
@@ -374,7 +383,6 @@ it('combines creation and last login into one column with full dates visible dir
   const row = screen.getByRole('row', {
     name: /long-user-name-for-table-layout/,
   })
-  expect(within(row).getByText('—')).toBeInTheDocument()
   const times = within(row).getAllByRole('time')
   expect(times).toHaveLength(2)
   expect(times[0]).toHaveTextContent(

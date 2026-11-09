@@ -30,7 +30,6 @@ import {
 } from '@/components/data-table'
 import { getQuotaPools } from '@/features/quota-pools/api'
 import { useMediaQuery } from '@/hooks'
-import { useStatus } from '@/hooks/use-status'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import {
   createServerError,
@@ -67,10 +66,7 @@ function isDisabledUserRow(user: User) {
 
 export function UsersTable() {
   const { t } = useTranslation()
-  const { status, loading: statusLoading } = useStatus()
-  const columns = useUsersColumns(
-    !statusLoading && status?.self_use_mode_enabled !== true
-  )
+  const columns = useUsersColumns()
   const quotaPoolEnabled = useAuthStore(
     (state) => state.auth.user?.quota_pool_enabled === true
   )
