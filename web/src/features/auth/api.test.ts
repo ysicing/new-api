@@ -23,11 +23,70 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { api, type RefreshOutcome } from '@/lib/api'
 import type { AuthBundle } from '@/stores/auth-store'
 
-import { executeLogout } from './api'
+import { executeLogout, ldapLogin, login } from './api'
 import { useOAuthLogin } from './hooks/use-oauth-login'
 import { consumeOAuthLoginRedirect } from './lib/oauth-callback-mode'
+import * as passwordEncryption from './lib/password-encryption'
 
 afterEach(() => vi.restoreAllMocks())
+
+test.each([
+  { name: 'password', submit: login, endpoint: '/api/user/login' },
+  { name: 'LDAP', submit: ldapLogin, endpoint: '/api/user/ldap/login' },
+])(
+  '$name login encrypts the password and preserves the MFA response',
+  async ({ submit, endpoint }) => {
+    const encrypted = {
+      password_encrypted: 'ciphertext',
+      encryption_key_id: 'key-id',
+    }
+    vi.spyOn(passwordEncryption, 'encryptPassword').mockResolvedValue(encrypted)
+    const response = {
+      success: true,
+      message: '',
+      data: {
+        require_verification: true,
+        flow_token: 'mfa-flow',
+        expires_at: 1_900_000_000,
+        methods: [],
+      },
+    }
+    const post = vi.spyOn(api, 'post').mockResolvedValue({ data: response })
+    expect(
+      await submit({
+        username: 'alice',
+        password: 'secret',
+        turnstile: 'challenge',
+        passwordEncryptionEnabled: true,
+      })
+    ).toBe(response)
+    expect(post).toHaveBeenCalledWith(
+      `${endpoint}?turnstile=challenge`,
+      { username: 'alice', ...encrypted },
+      { skipAuthRefresh: true }
+    )
+  }
+)
+
+test('LDAP encryption failure does not fall back to sending the password', async () => {
+  vi.spyOn(passwordEncryption, 'encryptPassword').mockRejectedValue(
+    new Error('Encryption unavailable')
+  )
+  const clearCache = vi.spyOn(
+    passwordEncryption,
+    'clearPasswordEncryptionCache'
+  )
+  const post = vi.spyOn(api, 'post')
+  await expect(
+    ldapLogin({
+      username: 'alice',
+      password: 'secret',
+      passwordEncryptionEnabled: true,
+    })
+  ).rejects.toThrow('Encryption unavailable')
+  expect(post).not.toHaveBeenCalled()
+  expect(clearCache).toHaveBeenCalled()
+})
 
 test.each([true, false])(
   'starts Telegram OAuth only when configuration is ready: %s',

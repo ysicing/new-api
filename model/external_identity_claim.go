@@ -1,6 +1,7 @@
 package model
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,7 +11,11 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const ExternalIdentityProviderTelegram = "telegram"
+const (
+	ExternalIdentityProviderDingTalk = "dingtalk"
+	ExternalIdentityProviderLDAP     = "ldap"
+	ExternalIdentityProviderTelegram = "telegram"
+)
 
 var ErrExternalIdentityAlreadyClaimed = errors.New("external identity is already claimed")
 
@@ -76,6 +81,38 @@ func ReleaseExternalIdentityWithTx(tx *gorm.DB, provider string, userId int) err
 		Delete(&ExternalIdentityClaim{}).Error
 }
 
+func FindLDAPIdentityUsersWithTx(tx *gorm.DB, ldapID string) ([]User, error) {
+	var users []User
+	err := lockForUpdate(tx.Unscoped()).Where("ldap_id = ?", ldapID).Limit(2).Find(&users).Error
+	return users, err
+}
+
+func FindExternalIdentityUserByEmailWithTx(tx *gorm.DB, email string) (*User, error) {
+	email = NormalizeEmail(email)
+	if email == "" {
+		return nil, nil
+	}
+	var users []User
+	if err := lockForUpdate(tx.Unscoped()).Where("LOWER(email) = ?", email).Limit(2).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	if len(users) > 1 {
+		return nil, ErrEmailAlreadyTaken
+	}
+	if len(users) == 0 {
+		return nil, nil
+	}
+	return &users[0], nil
+}
+
+func ClaimLDAPIdentityWithTx(tx *gorm.DB, ldapID string, userID int) error {
+	if strings.TrimSpace(ldapID) == "" {
+		return ErrExternalIdentityAlreadyClaimed
+	}
+	subject := fmt.Sprintf("%x", sha256.Sum256([]byte(ldapID)))
+	return ClaimExternalIdentityWithTx(tx, ExternalIdentityProviderLDAP, subject, userID)
+}
+
 func GetUserByTelegramID(telegramID string) (*User, error) {
 	var user User
 	err := DB.Where("telegram_id = ?", telegramID).First(&user).Error
@@ -115,19 +152,29 @@ func releaseAllExternalIdentitiesWithTx(tx *gorm.DB, userId int) error {
 	return tx.Where("user_id = ?", userId).Delete(&ExternalIdentityClaim{}).Error
 }
 
-// InitializeExternalIdentityClaims imports legacy Telegram bindings after the
-// claim table is migrated. Existing duplicate ownership fails migration rather
-// than preserving an ambiguous login identity.
 func InitializeExternalIdentityClaims() error {
 	var users []User
-	if err := DB.Unscoped().Select("id", "telegram_id").
-		Where("telegram_id <> ?", "").Find(&users).Error; err != nil {
+	if err := DB.Unscoped().Select("id", "telegram_id", "dingtalk_id", "ldap_id").
+		Where("telegram_id <> ? OR dingtalk_id <> ? OR ldap_id <> ?", "", "", "").Find(&users).Error; err != nil {
 		return err
 	}
 	return DB.Transaction(func(tx *gorm.DB) error {
 		for _, user := range users {
-			if err := ClaimExternalIdentityWithTx(tx, ExternalIdentityProviderTelegram, user.TelegramId, user.Id); err != nil {
-				return fmt.Errorf("backfill Telegram identity for user %d: %w", user.Id, err)
+			for _, binding := range []struct{ provider, subject string }{
+				{ExternalIdentityProviderTelegram, user.TelegramId},
+				{ExternalIdentityProviderDingTalk, user.DingTalkId},
+			} {
+				if binding.subject == "" {
+					continue
+				}
+				if err := ClaimExternalIdentityWithTx(tx, binding.provider, binding.subject, user.Id); err != nil {
+					return fmt.Errorf("backfill %s identity for user %d: %w", binding.provider, user.Id, err)
+				}
+			}
+			if user.LDAPId != "" {
+				if err := ClaimLDAPIdentityWithTx(tx, user.LDAPId, user.Id); err != nil {
+					return fmt.Errorf("backfill LDAP identity for user %d: %w", user.Id, err)
+				}
 			}
 		}
 		return nil

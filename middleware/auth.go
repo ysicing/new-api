@@ -50,6 +50,10 @@ func validUserInfo(username string, role int) bool {
 }
 
 func authHelper(c *gin.Context, minRole int) {
+	authHelperWithRoleCheck(c, minRole, nil)
+}
+
+func authHelperWithRoleCheck(c *gin.Context, minRole int, allowRole func(int) bool) {
 	if _, started := c.Get(accessTokenAuditContextKey); !started {
 		defer finishAccessTokenAudit(c)
 	}
@@ -62,7 +66,7 @@ func authHelper(c *gin.Context, minRole int) {
 		abortWithWebMessage(c, http.StatusUnauthorized, "AUTH_USER_DISABLED", common.NewMessage("User has been banned"))
 		return
 	}
-	if user.Role < minRole {
+	if user.Role < minRole && (allowRole == nil || !allowRole(user.Role)) {
 		abortWithWebMessage(c, http.StatusForbidden, "AUTH_INSUFFICIENT_PRIVILEGE", common.NewMessage("Unauthorized, insufficient privileges"))
 		return
 	}
@@ -144,6 +148,14 @@ func AdminAuth() func(c *gin.Context) {
 func RootAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		authHelper(c, common.RoleRootUser)
+	}
+}
+
+func QuotaPoolAuth() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		authHelperWithRoleCheck(c, common.RoleAdminUser, func(role int) bool {
+			return role == common.RoleQuotaPoolSuperAdmin
+		})
 	}
 }
 
@@ -289,6 +301,9 @@ func requestAccessTokenLookup(c *gin.Context) *accessTokenLookup {
 func enforceAccessTokenRoute(c *gin.Context, lookup *accessTokenLookup, abort bool) bool {
 	key := c.Request.Method + " " + c.FullPath()
 	rule, declared := AccessTokenRouteRule(key)
+	if key == "GET /api/data/model-statistics" && c.Query("scope") == "all" && lookup.user.Role >= common.RoleAdminUser {
+		rule = accessTokenScopeRule("log:read")
+	}
 	code, reason := "", ""
 	var message *common.Message
 	switch {

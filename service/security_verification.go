@@ -49,8 +49,13 @@ const (
 )
 
 // adminUserManageActions are the ManageUser actions that change a user's
-// status or role. Quota adjustments are not gated and deletion has its own scope.
-var adminUserManageActions = []string{"disable", "enable", "promote", "demote"}
+// status, role, or quota availability. Quota adjustments are not gated and
+// deletion has its own scope.
+var adminUserManageActions = []string{
+	"disable", "enable", "promote", "demote",
+	"freeze_quota", "unfreeze_quota",
+	"set_quota_pool_super_admin", "unset_quota_pool_super_admin",
+}
 
 var (
 	ErrVerificationFailed         = errors.New("Verification failed. Please try again.")

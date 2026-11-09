@@ -878,11 +878,19 @@ func TestSecurityAccountFirstPasswordRace(t *testing.T) {
 }
 
 func TestSecurityAccountUnbindPreservesUsableLoginMethod(t *testing.T) {
-	for _, scenario := range []string{"password", "passkey", "email only", "twofa only", "disabled password", "disabled passkey"} {
+	for _, scenario := range []string{"password", "passkey", "email only", "twofa only", "disabled password", "disabled passkey", "ldap", "disabled ldap", "unbound ldap", "dingtalk", "disabled dingtalk", "unbound dingtalk"} {
 		t.Run(scenario, func(t *testing.T) {
 			user, identity := setupSecurityEnrollmentTest(t)
 			previousPasswordEnabled := common.PasswordLoginEnabled
-			t.Cleanup(func() { common.PasswordLoginEnabled = previousPasswordEnabled })
+			previousLDAP := *system_setting.GetLDAPSettings()
+			previousDingTalk := *system_setting.GetDingTalkSettings()
+			t.Cleanup(func() {
+				common.PasswordLoginEnabled = previousPasswordEnabled
+				*system_setting.GetLDAPSettings() = previousLDAP
+				*system_setting.GetDingTalkSettings() = previousDingTalk
+			})
+			system_setting.GetLDAPSettings().Enabled = false
+			system_setting.GetDingTalkSettings().Enabled = false
 			common.PasswordLoginEnabled = scenario != "disabled password"
 			require.NoError(t, model.DB.Create(&model.UserOAuthBinding{UserId: user.Id, ProviderId: 31, ProviderUserId: "linked-subject"}).Error)
 			if scenario != "password" && scenario != "disabled password" {
@@ -895,8 +903,20 @@ func TestSecurityAccountUnbindPreservesUsableLoginMethod(t *testing.T) {
 			if scenario == "twofa only" {
 				require.NoError(t, model.DB.Create(&model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}).Error)
 			}
+			if strings.Contains(scenario, "ldap") {
+				system_setting.GetLDAPSettings().Enabled = scenario != "disabled ldap"
+				if scenario != "unbound ldap" {
+					require.NoError(t, model.DB.Model(user).Update("ldap_id", "bound-directory-subject").Error)
+				}
+			}
+			if strings.Contains(scenario, "dingtalk") {
+				system_setting.GetDingTalkSettings().Enabled = scenario != "disabled dingtalk"
+				if scenario != "unbound dingtalk" {
+					require.NoError(t, model.DB.Model(user).Update("dingtalk_id", "bound-union-subject").Error)
+				}
+			}
 			err := service.UnbindAccountOAuth(identity, 31)
-			if scenario == "password" || scenario == "passkey" {
+			if scenario == "password" || scenario == "passkey" || scenario == "ldap" || scenario == "dingtalk" {
 				require.NoError(t, err)
 			} else {
 				assert.ErrorIs(t, err, model.ErrLastLoginMethod)

@@ -11,9 +11,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const userCacheSchemaVersion = 2
+const userCacheSchemaVersion = 3
 
 type UserBase struct {
+	QuotaFrozen    bool   `json:"quota_frozen"`
 	Id             int    `json:"id"`
 	Group          string `json:"group"`
 	Email          string `json:"email"`
@@ -111,19 +112,20 @@ func GetUserCache(userId int) (*UserBase, error) {
 	if err != nil {
 		return nil, err
 	}
+	base := user.ToBaseUser()
 	if common.RedisEnabled {
 		floor, floorErr := getUserAuthVersionFloor(userId)
 		if floorErr == nil && floor > user.AuthVersion {
 			return nil, ErrUserAuthCachePending
 		}
-		if err := populateUserCache(*user); err != nil {
+		if err := writeUserCache(base, true); err != nil {
 			if errors.Is(err, ErrUserAuthCachePending) {
 				return nil, err
 			}
 			common.SysLog(common.LogText("failed to synchronously populate user cache: %s", err.Error()))
 		}
 	}
-	return user.ToBaseUser(), nil
+	return base, nil
 }
 
 func cacheGetUserBase(userId int) (*UserBase, error) {

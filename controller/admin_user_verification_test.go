@@ -2,12 +2,14 @@ package controller
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
@@ -220,6 +222,8 @@ func TestCreateUserRejectsNonStandardRole(t *testing.T) {
 		{"between common and admin", 5, common.RoleAdminUser},
 		{"negative", -1, common.RoleAdminUser},
 		{"between admin and root", 99, common.RoleRootUser},
+		{"admin cannot create pool super admin", common.RoleQuotaPoolSuperAdmin, common.RoleAdminUser},
+		{"root must grant pool role through dedicated action", common.RoleQuotaPoolSuperAdmin, common.RoleRootUser},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			username := fmt.Sprintf("odd-role-%d", i)
@@ -234,6 +238,95 @@ func TestCreateUserRejectsNonStandardRole(t *testing.T) {
 			require.NoError(t, model.DB.Model(&model.User{}).Where("username = ?", username).Count(&count).Error)
 			assert.Zero(t, count)
 		})
+	}
+}
+
+func TestMigratedAdminPATPoliciesAreActionScoped(t *testing.T) {
+	operator, legacy := setupAccessTokenAudit(t)
+	require.NoError(t, model.DB.Model(operator).Update("role", common.RoleRootUser).Error)
+	require.NoError(t, model.PublishUserAuthCache(operator.Id))
+	previousPasswordLogin := common.PasswordLoginEnabled
+	previousGitHubEnabled, previousGitHubSecret := common.GitHubOAuthEnabled, common.GitHubClientSecret
+	previousOptions := common.OptionMap
+	common.OptionMap = maps.Clone(previousOptions)
+	if common.OptionMap == nil {
+		common.OptionMap = make(map[string]string)
+	}
+	common.PasswordLoginEnabled = true
+	t.Cleanup(func() {
+		common.PasswordLoginEnabled = previousPasswordLogin
+		common.GitHubOAuthEnabled, common.GitHubClientSecret = previousGitHubEnabled, previousGitHubSecret
+		common.OptionMap = previousOptions
+	})
+	target := model.User{
+		Username: "pat-managed-user", Role: common.RoleCommonUser, Status: common.UserStatusDisabled,
+		AuthVersion: 1, AffCode: "pat-managed-aff",
+	}
+	require.NoError(t, model.DB.Create(&target).Error)
+	scoped, token := createScopedAccessToken(t, operator.Id, 0, "user:write", "option:write")
+	unrelated, _ := createScopedAccessToken(t, operator.Id, 0, "profile:read")
+	router := gin.New()
+	router.POST("/api/user/manage", middleware.AdminAuth(), ManageUser)
+	router.PUT("/api/option/", middleware.RootAuth(), UpdateOption)
+
+	for _, bearerToken := range []string{legacy, scoped} {
+		for _, action := range []string{
+			"freeze_quota", "unfreeze_quota", "set_quota_pool_super_admin", "unset_quota_pool_super_admin", "recharge_auto",
+		} {
+			response := accessTokenRequest(router, http.MethodPost, "/api/user/manage", bearerToken, "",
+				fmt.Sprintf(`{"id":%d,"action":%q}`, target.Id, action))
+			assert.Equal(t, http.StatusForbidden, response.Code, action)
+			assert.Contains(t, response.Body.String(), `"code":"AUTH_SESSION_REQUIRED"`, action)
+		}
+		for _, key := range []string{"ldap.enabled", "ldap.ldap_search_password", "dingtalk.client_secret", "QuotaPoolEnabled", "auto_recharge_setting.amount"} {
+			response := accessTokenRequest(router, http.MethodPut, "/api/option/", bearerToken, "",
+				fmt.Sprintf(`{"key":%q,"value":"false"}`, key))
+			assert.Equal(t, http.StatusForbidden, response.Code, key)
+			assert.Contains(t, response.Body.String(), `"code":"AUTH_SESSION_REQUIRED"`, key)
+			var count int64
+			require.NoError(t, model.DB.Model(&model.Option{}).Where("key = ?", key).Count(&count).Error)
+			assert.Zero(t, count, key)
+		}
+		for _, body := range []string{
+			`{"key":"GitHubOAuthEnabled","value":false}`,
+			`{"key":"GitHubClientSecret","value":"pat-config-fixture"}`,
+		} {
+			response := accessTokenRequest(router, http.MethodPut, "/api/option/", bearerToken, "", body)
+			assert.Equal(t, http.StatusOK, response.Code)
+			assert.Contains(t, response.Body.String(), `"success":true`)
+		}
+	}
+	body := fmt.Sprintf(`{"id":%d,"action":"enable"}`, target.Id)
+	legacyResponse := accessTokenRequest(router, http.MethodPost, "/api/user/manage", legacy, "", body)
+	assert.Equal(t, http.StatusForbidden, legacyResponse.Code)
+	assert.Contains(t, legacyResponse.Body.String(), `"code":"SECURITY_PROOF_INVALID"`)
+	response := accessTokenRequest(router, http.MethodPost, "/api/user/manage", scoped, "", body)
+	assert.Equal(t, http.StatusForbidden, response.Code)
+	assert.Contains(t, response.Body.String(), `"code":"SECURITY_PROOF_REQUIRED"`)
+	identity := service.AuthIdentity{
+		UserID: operator.Id, SessionID: model.AccessTokenSessionID(token.Id),
+		UserAuthVersion: operator.AuthVersion, SessionVersion: model.AccessTokenSessionVersion,
+	}
+	proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{
+		Scope:   service.VerificationScopeAdminUserManage,
+		Context: []byte(fmt.Sprintf(`{"user_id":%d,"action":"enable"}`, target.Id)),
+	}, service.VerificationMethodPassword)
+	response = accessTokenRequest(router, http.MethodPost, "/api/user/manage", scoped, proof, body)
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.Contains(t, response.Body.String(), `"success":true`)
+	require.NoError(t, model.DB.First(&target, target.Id).Error)
+	assert.Equal(t, common.UserStatusEnabled, target.Status)
+	assert.False(t, target.QuotaFrozen)
+	assert.Equal(t, common.RoleCommonUser, target.Role)
+	response = accessTokenRequest(router, http.MethodPost, "/api/user/manage", scoped, proof, body)
+	assert.Contains(t, response.Body.String(), `"code":"SECURITY_PROOF_CONSUMED"`)
+	for _, endpoint := range []struct{ method, path, body string }{
+		{http.MethodPost, "/api/user/manage", body},
+		{http.MethodPut, "/api/option/", `{"key":"GitHubOAuthEnabled","value":false}`},
+	} {
+		response := accessTokenRequest(router, endpoint.method, endpoint.path, unrelated, "", endpoint.body)
+		assert.Equal(t, http.StatusForbidden, response.Code)
+		assert.Contains(t, response.Body.String(), `"code":"ACCESS_TOKEN_SCOPE_DENIED"`)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/go-redis/redis/v8"
 
 	"gorm.io/gorm"
 )
@@ -34,6 +35,10 @@ func getUserAuthVersionKey(userId int) string {
 	return fmt.Sprintf("auth:user:version:{%s}", getUserCacheKey(userId))
 }
 
+func getUserQuotaFreezeRevisionKey(userId int) string {
+	return fmt.Sprintf("quota:user:freeze:{%s}", getUserCacheKey(userId))
+}
+
 // A pending fence only covers the interval between publishing the next
 // version and the surrounding database transaction reaching a decision. Its
 // TTL must outlive every user hash that could have been populated before the
@@ -58,12 +63,10 @@ func writeUserCache(user *UserBase, includeQuota bool) error {
 		includeQuotaArg = "1"
 	}
 	ttl := userCacheTTLSeconds()
-	user.CacheExpiresAt = time.Now().Add(time.Duration(ttl) * time.Second).UnixMilli()
-	mac, err := user.cacheMAC()
-	if err != nil {
-		return err
-	}
 	const script = `
+if (redis.call('GET', KEYS[4]) or '') ~= ARGV[16] then
+  return 2
+end
 local incoming = tonumber(ARGV[1])
 local pending = tonumber(redis.call('GET', KEYS[2]) or '0')
 local committed = tonumber(redis.call('GET', KEYS[3]) or '0')
@@ -84,25 +87,46 @@ redis.call('HSET', KEYS[1],
   'Id', ARGV[2], 'Group', ARGV[3], 'Email', ARGV[4],
   'Status', ARGV[5], 'Role', ARGV[6], 'Username', ARGV[7],
   'Setting', ARGV[8], 'AuthVersion', ARGV[1], 'CacheSchema', ARGV[9],
-  'CacheExpiresAt', ARGV[13], 'CacheMAC', ARGV[14])
+  'CacheExpiresAt', ARGV[13], 'CacheMAC', ARGV[14], 'QuotaFrozen', ARGV[15])
 if ARGV[10] == '1' and not string.match(redis.call('HGET', KEYS[1], 'Quota') or '', '^-?%d+$') then
   redis.call('HSET', KEYS[1], 'Quota', ARGV[11])
 end
 redis.call('EXPIRE', KEYS[1], ARGV[12])
 return 1`
-	result, err := common.RDB.Eval(context.Background(), script,
-		[]string{getUserCacheKey(user.Id), getUserAuthFenceKey(user.Id), getUserAuthVersionKey(user.Id)},
-		user.AuthVersion, user.Id, user.Group, user.Email, user.Status, user.Role,
-		user.Username, user.Setting, user.CacheSchema, includeQuotaArg, user.Quota, ttl,
-		user.CacheExpiresAt, mac,
-	).Int()
-	if err != nil {
-		return err
+	for range 3 {
+		// 必须先读代次再读 DB；跨过冻结 API 成功屏障的旧填充只能重试。
+		revision, err := common.RDB.Get(context.Background(), getUserQuotaFreezeRevisionKey(user.Id)).Result()
+		if err != nil && !errors.Is(err, redis.Nil) {
+			return err
+		}
+		var authoritative User
+		if err := DB.Select("quota_frozen").Where("id = ?", user.Id).First(&authoritative).Error; err != nil {
+			return err
+		}
+		user.QuotaFrozen = authoritative.QuotaFrozen
+		user.CacheExpiresAt = time.Now().Add(time.Duration(ttl) * time.Second).UnixMilli()
+		mac, err := user.cacheMAC()
+		if err != nil {
+			return err
+		}
+		result, err := common.RDB.Eval(context.Background(), script,
+			[]string{getUserCacheKey(user.Id), getUserAuthFenceKey(user.Id), getUserAuthVersionKey(user.Id), getUserQuotaFreezeRevisionKey(user.Id)},
+			user.AuthVersion, user.Id, user.Group, user.Email, user.Status, user.Role,
+			user.Username, user.Setting, user.CacheSchema, includeQuotaArg, user.Quota, ttl,
+			user.CacheExpiresAt, mac, strconv.FormatBool(user.QuotaFrozen), revision,
+		).Int()
+		if err != nil {
+			return err
+		}
+		if result == 2 {
+			continue
+		}
+		if result == 0 {
+			return ErrUserAuthCachePending
+		}
+		return nil
 	}
-	if result == 0 {
-		return ErrUserAuthCachePending
-	}
-	return nil
+	return ErrUserAuthCachePending
 }
 
 func getUserAuthVersionFloor(userId int) (int64, error) {
@@ -262,6 +286,28 @@ func PublishUserAuthCache(userId int) error {
 		return err
 	}
 	return fmt.Errorf("user metadata changed repeatedly during cache refresh")
+}
+
+// SetUserQuotaFrozen changes quota availability without changing account access.
+// A successful update fences earlier cache fills without touching AuthVersion.
+func SetUserQuotaFrozen(userId int, frozen bool) error {
+	if err := DB.Model(&User{}).Where("id = ?", userId).Update("quota_frozen", frozen).Error; err != nil {
+		return err
+	}
+	if !common.RedisEnabled {
+		return nil
+	}
+	// 代次不能随用户哈希过期，否则任意延迟的旧填充仍可能回写。
+	// 仅清除 MAC，保留预扣后的 Quota；下次填充从 DB 读取当前冻结值。
+	const script = `
+redis.call('INCR', KEYS[2])
+if redis.call('EXISTS', KEYS[1]) == 1 then
+  redis.call('HDEL', KEYS[1], 'CacheMAC')
+end
+return 1`
+	return common.RDB.Eval(context.Background(), script,
+		[]string{getUserCacheKey(userId), getUserQuotaFreezeRevisionKey(userId)},
+	).Err()
 }
 
 // InitializeUserAuthVersions must run after AutoMigrate when upgrading an

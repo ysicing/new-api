@@ -51,7 +51,10 @@ import type {
 // ----------------------------------------------------------------------------
 
 // User login with username and password
-export async function login(payload: LoginPayload): Promise<LoginResponse> {
+async function passwordLogin(
+  payload: LoginPayload,
+  endpoint: string
+): Promise<LoginResponse> {
   const turnstile = payload.turnstile ?? ''
   try {
     let passwordFields:
@@ -67,7 +70,7 @@ export async function login(payload: LoginPayload): Promise<LoginResponse> {
       passwordFields = { password: payload.password }
     }
     const res = await api.post<LoginResponse>(
-      `/api/user/login?turnstile=${turnstile}`,
+      `${endpoint}?turnstile=${turnstile}`,
       {
         username: payload.username,
         ...passwordFields,
@@ -84,6 +87,14 @@ export async function login(payload: LoginPayload): Promise<LoginResponse> {
     }
     throw error
   }
+}
+
+export async function login(payload: LoginPayload): Promise<LoginResponse> {
+  return passwordLogin(payload, '/api/user/login')
+}
+
+export async function ldapLogin(payload: LoginPayload): Promise<LoginResponse> {
+  return passwordLogin(payload, '/api/user/ldap/login')
 }
 
 // Two-factor authentication login

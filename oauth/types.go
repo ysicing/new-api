@@ -23,6 +23,10 @@ type OAuthUser struct {
 	DisplayName string
 	// Email is the email from the OAuth provider
 	Email string
+	// EmailVerified is true only when the provider explicitly attests ownership.
+	EmailVerified bool
+	// RequireEmailForRegistration 防止首次登录在缺少可靠邮箱时创建重复账号。
+	RequireEmailForRegistration bool
 	// Extra contains any additional provider-specific data
 	Extra map[string]any
 }

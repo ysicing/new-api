@@ -135,6 +135,42 @@ func TestUserAuthAllowsOpaqueDottedPAT(t *testing.T) {
 	assert.Equal(t, user.Id, body.ID)
 }
 
+func TestQuotaPoolRoleUsesDashboardSessionWithoutGeneralAdminAccess(t *testing.T) {
+	setupDashboardAuthMiddlewareTest(t)
+	user := createMiddlewarePATUser(t, "pool-manager", "pool-legacy-token")
+	require.NoError(t, model.DB.Model(user).Update("role", common.RoleQuotaPoolSuperAdmin).Error)
+	bundle, err := service.CreateLoginSession(user.Id, "ldap", "127.0.0.1", "quota-pool-test")
+	require.NoError(t, err)
+	scoped, _ := createMiddlewareScopedToken(t, user.Id, 0, "user:read", "profile:read")
+	router := gin.New()
+	router.GET("/api/quota_pool/", QuotaPoolAuth(), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"role": c.GetInt("role")})
+	})
+	router.GET("/api/user/self", UserAuth(), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"role": c.GetInt("role")})
+	})
+	router.GET("/api/user/", AdminAuth(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.GET("/undeclared-pool-route", QuotaPoolAuth(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	response := middlewareBearerRequest(router, "/api/quota_pool/", bundle.AccessToken)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	assert.JSONEq(t, `{"role":2}`, response.Body.String())
+	for _, token := range []string{bundle.AccessToken, scoped, "pool-legacy-token"} {
+		response = middlewareBearerRequest(router, "/api/user/self", token)
+		assert.Equal(t, http.StatusOK, response.Code, response.Body.String())
+		assert.JSONEq(t, `{"role":2}`, response.Body.String())
+		response = middlewareBearerRequest(router, "/api/user/", token)
+		assert.Equal(t, http.StatusForbidden, response.Code, response.Body.String())
+	}
+	for _, token := range []string{scoped, "pool-legacy-token"} {
+		response = middlewareBearerRequest(router, "/api/quota_pool/", token)
+		assert.Equal(t, http.StatusForbidden, response.Code, response.Body.String())
+		assert.Contains(t, response.Body.String(), "AUTH_SESSION_REQUIRED")
+	}
+	response = middlewareBearerRequest(router, "/undeclared-pool-route", scoped)
+	assert.Equal(t, http.StatusForbidden, response.Code, response.Body.String())
+}
+
 func TestUserAuthNeverFallsBackForRecognizedInvalidInternalJWT(t *testing.T) {
 	setupDashboardAuthMiddlewareTest(t)
 	identity := service.AuthIdentity{UserID: 42, SessionID: "session-42", UserAuthVersion: 1, SessionVersion: 1}
@@ -383,6 +419,63 @@ func middlewareBearerRequest(router *gin.Engine, path, token string) *httptest.R
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
 	return response
+}
+
+func TestMigratedDashboardRoutesEnforceAccessTokenScopes(t *testing.T) {
+	setupDashboardAuthMiddlewareTest(t)
+	gin.SetMode(gin.TestMode)
+	legacy := "migration-policy-legacy"
+	user := createMiddlewarePATUser(t, "migration-policy-user", legacy)
+	require.NoError(t, model.DB.Model(user).Update("role", common.RoleRootUser).Error)
+	all, _ := createMiddlewareScopedToken(t, user.Id, 0, "profile:read", "user:write", "wallet:write", "option:write", "ops:write")
+	router := gin.New()
+	handler := func(c *gin.Context) { c.Status(http.StatusNoContent) }
+	for _, route := range []struct{ method, path string }{
+		{http.MethodPost, "/api/user/ldap/login"},
+		{http.MethodPost, "/api/user/ldap/sync"},
+		{http.MethodGet, "/api/dingtalk/test-users"},
+		{http.MethodPost, "/api/dingtalk/test-message"},
+		{http.MethodPost, "/api/dingtalk/test-group-message"},
+		{http.MethodPost, "/api/system-task/magpie-monitor"},
+		{http.MethodPost, "/api/quota_pool/1/refill"},
+	} {
+		path := route.path
+		if strings.HasPrefix(path, "/api/quota_pool/") {
+			path = "/api/quota_pool/:id/refill"
+		}
+		router.Handle(route.method, path, RootAuth(), handler)
+		for _, token := range []string{legacy, all} {
+			request := httptest.NewRequest(route.method, route.path, nil)
+			request.Header.Set("Authorization", "Bearer "+token)
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			assert.Equal(t, http.StatusForbidden, response.Code, route.path)
+			assert.Contains(t, response.Body.String(), `"code":"AUTH_SESSION_REQUIRED"`, route.path)
+		}
+	}
+
+	scopes := map[string]string{}
+	for _, scope := range []string{"usage:read", "log:read", "billing:read", "wallet:read", "ops:read"} {
+		scopes[scope], _ = createMiddlewareScopedToken(t, user.Id, 0, scope)
+	}
+	for _, route := range []struct{ path, scope string }{
+		{"/api/log/top_users", "log:read"},
+		{"/api/log/recharge_leaderboard", "billing:read"},
+		{"/api/data/active-users", "log:read"},
+		{"/api/data/model-statistics", "usage:read"},
+		{"/api/user/auto_recharge/eligibility", "wallet:read"},
+		{"/api/dingtalk-notifications/", "ops:read"},
+	} {
+		router.GET(route.path, UserAuth(), handler)
+		assert.Equal(t, http.StatusNoContent, middlewareBearerRequest(router, route.path, scopes[route.scope]).Code, route.path)
+		response := middlewareBearerRequest(router, route.path, all)
+		assert.Equal(t, http.StatusForbidden, response.Code, route.path)
+		assert.Contains(t, response.Body.String(), `"code":"ACCESS_TOKEN_SCOPE_DENIED"`, route.path)
+	}
+	response := middlewareBearerRequest(router, "/api/data/model-statistics?scope=all", scopes["usage:read"])
+	assert.Equal(t, http.StatusForbidden, response.Code)
+	assert.Contains(t, response.Body.String(), `"scope":"log:read"`)
+	assert.Equal(t, http.StatusNoContent, middlewareBearerRequest(router, "/api/data/model-statistics?scope=all", scopes["log:read"]).Code)
 }
 
 func TestUserAuthAppliesAccessTokenRouteRules(t *testing.T) {

@@ -23,7 +23,7 @@ func TestAuthCacheKeysShareClusterHashTag(t *testing.T) {
 		cacheKey string
 		related  []string
 	}{
-		{getUserCacheKey(5), []string{getUserAuthFenceKey(5), getUserAuthVersionKey(5)}},
+		{getUserCacheKey(5), []string{getUserAuthFenceKey(5), getUserAuthVersionKey(5), getUserQuotaFreezeRevisionKey(5)}},
 		{getTokenCacheKey("test-token"), []string{getTokenCacheFenceKey("test-token")}},
 	} {
 		assert.NotContains(t, tc.cacheKey, "{")
@@ -53,6 +53,136 @@ func useUserCacheMiniRedis(t *testing.T) *miniredis.Miniredis {
 		common.SyncFrequency = oldSyncFrequency
 	})
 	return server
+}
+
+func TestQuotaFreezePublishesToCachedUser(t *testing.T) {
+	truncateTables(t)
+	useUserCacheMiniRedis(t)
+	user := User{Username: "quota-freeze-cache", Password: "password", AffCode: "quota-freeze-cache", Status: common.UserStatusEnabled, AuthVersion: 1}
+	require.NoError(t, DB.Create(&user).Error)
+	require.NoError(t, populateUserCache(user))
+
+	require.NoError(t, SetUserQuotaFrozen(user.Id, true))
+	require.NoError(t, updateUserCache(user)) // A delayed pre-freeze snapshot must not undo the restriction.
+	cached, err := GetUserCache(user.Id)
+	require.NoError(t, err)
+	assert.True(t, cached.QuotaFrozen)
+	assert.Equal(t, common.UserStatusEnabled, cached.Status)
+	assert.EqualValues(t, 1, cached.AuthVersion)
+
+	require.NoError(t, SetUserQuotaFrozen(user.Id, false))
+	staleFrozen := user
+	staleFrozen.QuotaFrozen = true
+	require.NoError(t, updateUserCache(staleFrozen))
+	cached, err = GetUserCache(user.Id)
+	require.NoError(t, err)
+	assert.False(t, cached.QuotaFrozen)
+	assert.EqualValues(t, 1, cached.AuthVersion)
+}
+
+func TestQuotaFreezeCacheRepairsTamperingWithoutLosingReservedQuota(t *testing.T) {
+	truncateTables(t)
+	useUserCacheMiniRedis(t)
+	user := User{Username: "freeze-cache-repair", AffCode: "freeze-repair", Status: common.UserStatusEnabled, AuthVersion: 1, Quota: 100}
+	require.NoError(t, DB.Create(&user).Error)
+	require.NoError(t, populateUserCache(user))
+	require.NoError(t, cacheIncrUserQuota(user.Id, -70))
+	session := newTestUserSession("freeze-preserves-session", user.Id, time.Now().Unix())
+	require.NoError(t, CreateUserSession(session))
+
+	for _, frozen := range []bool{true, false} {
+		require.NoError(t, SetUserQuotaFrozen(user.Id, frozen))
+		require.NoError(t, common.RDB.HSet(t.Context(), getUserCacheKey(user.Id), "QuotaFrozen", !frozen).Err())
+		_, err := cacheGetUserBase(user.Id)
+		require.Error(t, err)
+		cached, err := GetUserCache(user.Id)
+		require.NoError(t, err)
+		assert.Equal(t, frozen, cached.QuotaFrozen)
+		cached, err = cacheGetUserBase(user.Id)
+		require.NoError(t, err, "a DB fallback must repair the signed cache")
+		assert.Equal(t, frozen, cached.QuotaFrozen)
+		assert.Equal(t, 30, cached.Quota)
+		assert.EqualValues(t, 1, cached.AuthVersion)
+		active, err := GetUserSessionCached(session.SID)
+		require.NoError(t, err)
+		assert.Equal(t, UserSessionStatusActive, active.Status)
+	}
+}
+
+func TestQuotaFreezeFencesConcurrentCacheFillAfterHashExpiry(t *testing.T) {
+	for _, frozen := range []bool{true, false} {
+		t.Run(map[bool]string{true: "freeze", false: "unfreeze"}[frozen], func(t *testing.T) {
+			truncateTables(t)
+			server := useUserCacheMiniRedis(t)
+			user := User{Username: "freeze-racing-fill", AffCode: "freeze-race", AuthVersion: 1, QuotaFrozen: !frozen}
+			require.NoError(t, DB.Create(&user).Error)
+			require.NoError(t, populateUserCache(user))
+
+			snapshotRead := make(chan struct{})
+			releaseFill := make(chan struct{})
+			defer close(releaseFill)
+			var intercepted atomic.Bool
+			const callbackName = "test:block_freeze_snapshot"
+			require.NoError(t, DB.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+				if tx.Statement.Table == "users" && len(tx.Statement.Selects) == 1 &&
+					tx.Statement.Selects[0] == "quota_frozen" && intercepted.CompareAndSwap(false, true) {
+					close(snapshotRead)
+					<-releaseFill
+				}
+			}))
+			t.Cleanup(func() { assert.NoError(t, DB.Callback().Query().Remove(callbackName)) })
+			done := make(chan error, 1)
+			go func() { done <- populateUserCache(user) }()
+			<-snapshotRead
+			require.NoError(t, SetUserQuotaFrozen(user.Id, frozen))
+			server.FastForward(time.Duration(userCacheTTLSeconds()+1) * time.Second)
+			assert.False(t, server.Exists(getUserCacheKey(user.Id)))
+			assert.True(t, server.Exists(getUserQuotaFreezeRevisionKey(user.Id)))
+			releaseFill <- struct{}{}
+			require.NoError(t, <-done)
+			cached, err := cacheGetUserBase(user.Id)
+			require.NoError(t, err)
+			assert.Equal(t, frozen, cached.QuotaFrozen)
+			assert.EqualValues(t, 1, cached.AuthVersion)
+		})
+	}
+}
+
+func TestQuotaFreezeConcurrentUpdatesPublishDatabaseOrder(t *testing.T) {
+	truncateTables(t)
+	useUserCacheMiniRedis(t)
+	user := User{Username: "freeze-racing-updates", AffCode: "freeze-toggle", AuthVersion: 1}
+	require.NoError(t, DB.Create(&user).Error)
+	require.NoError(t, populateUserCache(user))
+	firstCommitted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	defer close(releaseFirst)
+	var intercepted atomic.Bool
+	const callbackName = "test:block_freeze_publication"
+	require.NoError(t, DB.Callback().Update().After("gorm:commit_or_rollback_transaction").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement.Table == "users" && intercepted.CompareAndSwap(false, true) {
+			close(firstCommitted)
+			<-releaseFirst
+		}
+	}))
+	t.Cleanup(func() { assert.NoError(t, DB.Callback().Update().Remove(callbackName)) })
+	done := make(chan error, 1)
+	go func() { done <- SetUserQuotaFrozen(user.Id, true) }()
+	<-firstCommitted
+	require.NoError(t, SetUserQuotaFrozen(user.Id, false))
+	cached, err := GetUserCache(user.Id)
+	require.NoError(t, err)
+	assert.False(t, cached.QuotaFrozen)
+	releaseFirst <- struct{}{}
+	require.NoError(t, <-done)
+	cached, err = GetUserCache(user.Id)
+	require.NoError(t, err)
+	assert.False(t, cached.QuotaFrozen)
+	require.NoError(t, updateUserCache(User{Id: user.Id, AuthVersion: 1, QuotaFrozen: true}))
+	cached, err = cacheGetUserBase(user.Id)
+	require.NoError(t, err)
+	assert.False(t, cached.QuotaFrozen)
+	assert.EqualValues(t, 1, cached.AuthVersion)
 }
 
 func TestUserAuthFenceRollbackExpiresAndRecovers(t *testing.T) {
@@ -97,8 +227,10 @@ func TestUserAuthFenceRollbackExpiresAndRecovers(t *testing.T) {
 }
 
 func TestPendingUserAuthFenceRejectsStaleCacheWrite(t *testing.T) {
+	truncateTables(t)
 	server := useUserCacheMiniRedis(t)
 	const userID = 4201
+	require.NoError(t, DB.Create(&User{Id: userID, Username: "pending-fill", AffCode: "pending-fill", AuthVersion: 1}).Error)
 	require.NoError(t, SetUserAuthVersionFence(userID, 2))
 
 	err := writeUserCache(&UserBase{
@@ -110,8 +242,10 @@ func TestPendingUserAuthFenceRejectsStaleCacheWrite(t *testing.T) {
 }
 
 func TestUserAuthCacheUpdateRejectsVersionMismatch(t *testing.T) {
+	truncateTables(t)
 	useUserCacheMiniRedis(t)
 	const userID = 4202
+	require.NoError(t, DB.Create(&User{Id: userID, Username: "version-fill", AffCode: "version-fill", AuthVersion: 3}).Error)
 	require.NoError(t, writeUserCache(&UserBase{
 		Id: userID, Group: "current", Username: "cached", AuthVersion: 3,
 	}, true))

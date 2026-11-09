@@ -325,6 +325,8 @@ func handleOAuthLogin(c *gin.Context, provider oauth.Provider, oauthUser *oauth.
 			common.ApiErrorT(c, "New user registration has been disabled by administrator")
 		case *OAuthEmailAlreadyTakenError:
 			common.ApiErrorT(c, "Email address is already in use")
+		case *OAuthEmailRequiredError:
+			common.ApiErrorT(c, "{{provider}} requires a verified email address for first-time login", providerParams(provider.GetName()))
 		case *OAuthLegacyBindingNotConfirmedError:
 			common.ApiErrorT(c, "This {{provider}} account cannot be linked to an existing account automatically, please sign in or register another way and then link {{provider}} in account settings", providerParams(provider.GetName()))
 		default:
@@ -374,6 +376,13 @@ func handleOAuthBind(c *gin.Context, providerName string, provider oauth.Provide
 		if providerName == "telegram" {
 			return model.BindTelegramForSessionWithTx(tx, identity, oauthUser.ProviderUserID)
 		}
+		if providerName == "dingtalk" {
+			if err := model.ValidateAuthSessionWithTx(tx, identity); err != nil {
+				return err
+			}
+			_, err := model.BindDingTalkIdentityWithTx(tx, identity.UserID, oauthUser.ProviderUserID)
+			return err
+		}
 		if custom, ok := provider.(*oauth.GenericOAuthProvider); ok {
 			return model.UpdateUserOAuthBindingForSessionWithTx(tx, identity, custom.GetProviderId(), oauthUser.ProviderUserID)
 		}
@@ -398,6 +407,7 @@ func handleOAuthBind(c *gin.Context, providerName string, provider oauth.Provide
 // returns the rewrite to carry into the challenge.
 func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *oauth.OAuthUser, token *oauth.OAuthToken, affiliateCode string) (*model.User, *service.LegacyGitHubMigration, error) {
 	user := &model.User{}
+	oauthUser.Email = model.NormalizeEmail(oauthUser.Email)
 	if provider.ProviderUserIDColumn() == "telegram_id" {
 		err := provider.FillUserByProviderID(user, oauthUser.ProviderUserID)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -475,9 +485,26 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 		}
 	}
 
+	if oauthUser.RequireEmailForRegistration && (oauthUser.Email == "" || !oauthUser.EmailVerified) {
+		return nil, nil, &OAuthEmailRequiredError{}
+	}
+	if merged, err := mergeVerifiedOAuthEmail(provider, oauthUser); err != nil {
+		return nil, nil, err
+	} else if merged != nil {
+		if c != nil {
+			params := map[string]any{"provider": provider.GetName(), "email_merge": true, "success": true}
+			model.RecordOperationAuditLog(merged.Id, merged.Role, auditContentEN("user.binding_bind", params), c.ClientIP(), "user.binding_bind", params, nil, &model.AuditRequestInfo{
+				Method: c.Request.Method, Route: c.FullPath(), Path: c.FullPath(), Status: c.Writer.Status(), Success: true,
+			}, c)
+		}
+		return merged, nil, nil
+	}
 	// User doesn't exist, create new user if registration is enabled
 	if !common.RegisterEnabled {
 		return nil, nil, &OAuthRegistrationDisabledError{}
+	}
+	if err := checkOAuthRegistrationEmail(oauthUser.Email); err != nil {
+		return nil, nil, err
 	}
 
 	// Set up new user
@@ -501,12 +528,6 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 	}
 	if oauthUser.Email != "" {
 		user.Email = model.NormalizeEmail(oauthUser.Email)
-		if err := model.EnsureEmailAvailable(user.Email, 0); err != nil {
-			if errors.Is(err, model.ErrEmailAlreadyTaken) {
-				return nil, nil, &OAuthEmailAlreadyTakenError{}
-			}
-			return nil, nil, err
-		}
 	}
 	user.Role = common.RoleCommonUser
 	user.Status = common.UserStatusEnabled
@@ -555,10 +576,16 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 
 			// Set the provider user ID on the user model and update
 			provider.SetProviderUserID(user, oauthUser.ProviderUserID)
+			if provider.ProviderUserIDColumn() == "dingtalk_id" {
+				if _, err := model.BindDingTalkIdentityWithTx(tx, user.Id, oauthUser.ProviderUserID); err != nil {
+					return err
+				}
+			}
 			if err := tx.Model(user).Updates(map[string]any{
 				"github_id":   user.GitHubId,
 				"discord_id":  user.DiscordId,
 				"oidc_id":     user.OidcId,
+				"dingtalk_id": user.DingTalkId,
 				"linux_do_id": user.LinuxDOId,
 				"wechat_id":   user.WeChatId,
 				"telegram_id": user.TelegramId,
@@ -575,6 +602,7 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 		// Perform post-transaction tasks
 		user.FinalizeOAuthUserCreation(inviterId)
 	}
+	notifyNewSelfRegisteredUser(user.Id)
 
 	return user, nil, nil
 }
@@ -606,6 +634,12 @@ type OAuthEmailAlreadyTakenError struct{}
 
 func (e *OAuthEmailAlreadyTakenError) Error() string {
 	return "email is already in use"
+}
+
+type OAuthEmailRequiredError struct{}
+
+func (e *OAuthEmailRequiredError) Error() string {
+	return "verified email is required for first-time OAuth login"
 }
 
 // OAuthLegacyBindingNotConfirmedError reports a legacy GitHub binding match that
