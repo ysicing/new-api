@@ -2083,14 +2083,14 @@ func TestRouteTaskPluginEndpointUsesSelectedChannel(t *testing.T) {
 			// Every table belongs to this run, including when a developer points
 			// a test DSN at a database shared with another test suite.
 			database.Config.NamingStrategy = schema.NamingStrategy{TablePrefix: "endpoint_route_" + common.GetUUID() + "_"}
-			require.NoError(t, database.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Task{}))
+			require.NoError(t, database.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Task{}, &model.User{}))
 			t.Cleanup(func() {
-				for _, table := range []any{&model.Ability{}, &model.Channel{}, &model.Task{}} {
+				for _, table := range []any{&model.Ability{}, &model.Channel{}, &model.Task{}, &model.User{}} {
 					require.NoError(t, database.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(table).Error)
 				}
 				common.MemoryCacheEnabled = true
 				model.InitChannelCache()
-				require.NoError(t, database.Migrator().DropTable(&model.Ability{}, &model.Channel{}, &model.Task{}))
+				require.NoError(t, database.Migrator().DropTable(&model.Ability{}, &model.Channel{}, &model.Task{}, &model.User{}))
 				model.DB = previousDB
 				common.SetDatabaseTypes(previousMain, previousLog)
 				common.SQLitePath, common.IsMasterNode = previousPath, previousMaster
@@ -2109,6 +2109,17 @@ func TestRouteTaskPluginEndpointUsesSelectedChannel(t *testing.T) {
 			var version string
 			require.NoError(t, database.Raw(query).Scan(&version).Error)
 			t.Logf("database version: %s", version)
+
+			user := model.User{
+				Id:          7,
+				Username:    "endpoint-route-user",
+				Role:        common.RoleCommonUser,
+				Status:      common.UserStatusEnabled,
+				Group:       "route-test",
+				Quota:       1_000_000,
+				AuthVersion: 1,
+			}
+			require.NoError(t, database.Create(&user).Error)
 
 			for _, memoryCache := range []bool{false, true} {
 				t.Run(fmt.Sprintf("memory_cache=%t", memoryCache), func(t *testing.T) {
@@ -2256,8 +2267,11 @@ func TestRouteTaskPluginEndpointUsesSelectedChannel(t *testing.T) {
 							reached := false
 							router := gin.New()
 							router.POST(path, func(c *gin.Context) {
-								common.SetContextKey(c, constant.ContextKeyUsingGroup, "route-test")
-								common.SetContextKey(c, constant.ContextKeyUserId, 7)
+								user.ToBaseUser().WriteContext(c)
+								common.SetContextKey(c, constant.ContextKeyUsingGroup, user.Group)
+								common.SetContextKey(c, constant.ContextKeyUserId, user.Id)
+								c.Set("role", user.Role)
+								c.Set("auth_version", user.AuthVersion)
 								if tc.pinOrdinary || tc.pinPlugin {
 									id := ordinary.Id
 									if tc.pinPlugin {

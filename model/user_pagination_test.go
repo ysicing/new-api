@@ -59,8 +59,78 @@ func TestSearchUsersSortsBeforePagination(t *testing.T) {
 	truncateTables(t)
 	insertUsersForPaginationTest(t, 42)
 
-	users, total, err := SearchUsers("user", "", nil, nil, 20, 20, NewUserSortOptions("id", "asc"))
+	users, total, err := SearchUsers("user", "", nil, nil, nil, 20, 20, NewUserSortOptions("id", "asc"))
 	require.NoError(t, err)
 	assert.Equal(t, int64(42), total)
 	assert.Equal(t, []int{21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40}, collectUserIDs(users))
+}
+
+func TestSearchUsersFiltersByQuotaPool(t *testing.T) {
+	truncateTables(t)
+	insertUsersForPaginationTest(t, 4)
+	require.NoError(t, DB.Model(&User{}).Where("id IN ?", []int{2, 4}).Update("quota_pool_id", 9).Error)
+	poolId := 9
+
+	users, total, err := SearchUsers("user", "", nil, nil, &poolId, 0, 20, NewUserSortOptions("id", "asc"))
+
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, total)
+	assert.Equal(t, []int{2, 4}, collectUserIDs(users))
+}
+
+func TestSearchUsersStatusSeparatesFrozenFromEnabled(t *testing.T) {
+	truncateTables(t)
+	insertUsersForPaginationTest(t, 4)
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", 2).Update("quota_frozen", true).Error)
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", 3).Updates(map[string]interface{}{"status": common.UserStatusDisabled, "quota_frozen": true}).Error)
+	require.NoError(t, DB.Delete(&User{}, 4).Error)
+
+	for _, tc := range []struct {
+		name   string
+		status int
+		ids    []int
+	}{
+		{name: "enabled", status: common.UserStatusEnabled, ids: []int{1}},
+		{name: "frozen", status: 3, ids: []int{2}},
+		{name: "disabled", status: common.UserStatusDisabled, ids: []int{3}},
+		{name: "deleted", status: -1, ids: []int{4}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			users, total, err := SearchUsers("user", "", nil, &tc.status, nil, 0, 20, NewUserSortOptions("id", "asc"))
+			require.NoError(t, err)
+			assert.EqualValues(t, len(tc.ids), total)
+			assert.Equal(t, tc.ids, collectUserIDs(users))
+		})
+	}
+}
+
+func TestMigratedPoolUsersUseTheRealPoolRecordName(t *testing.T) {
+	truncateTables(t)
+	require.NoError(t, DB.AutoMigrate(&QuotaPool{}))
+	require.NoError(t, DB.Exec("DELETE FROM quota_pools").Error)
+	t.Cleanup(func() {
+		require.NoError(t, DB.Exec("DELETE FROM quota_pools").Error)
+	})
+
+	pool := QuotaPool{Name: QuotaPoolDefaultName, PoolType: QuotaPoolTypeNormal, LegacyDefault: true, Enabled: true}
+	require.NoError(t, DB.Create(&pool).Error)
+	user := &User{
+		Username: "default-pool-user", Password: "password",
+		AffCode: "default-pool-user-aff", Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, QuotaPoolId: pool.Id,
+	}
+	require.NoError(t, DB.Create(user).Error)
+
+	users, total, err := GetAllUsers(
+		&common.PageInfo{Page: 1, PageSize: 20},
+		NewUserSortOptions("id", "asc"),
+	)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	require.Len(t, users, 1)
+	assert.Equal(t, QuotaPoolDefaultName, users[0].QuotaPoolName)
+
+	detail, err := GetUserById(user.Id, false)
+	require.NoError(t, err)
+	assert.Equal(t, QuotaPoolDefaultName, detail.QuotaPoolName)
 }
