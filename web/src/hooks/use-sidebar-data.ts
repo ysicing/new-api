@@ -155,6 +155,7 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             title: t('Channels'),
             url: '/channels',
             icon: Radio,
+            requiredRole: ROLE.SUPER_ADMIN,
           },
           {
             title: t('Models'),

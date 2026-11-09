@@ -61,7 +61,7 @@ afterEach(() => {
   statusState.status = {}
 })
 
-test('admin navigation preserves channels and hides system settings', () => {
+test('admin navigation hides channels and system settings', () => {
   useAuthStore.getState().auth.setUser({
     id: 1,
     username: 'sub-admin',
@@ -74,9 +74,24 @@ test('admin navigation preserves channels and hides system settings', () => {
   )
   const adminEntryTitles = adminGroup?.items.map((item) => item.title)
 
-  expect(adminEntryTitles).toContain('Channels')
+  expect(adminEntryTitles).not.toContain('Channels')
   expect(adminEntryTitles).not.toContain('System Settings')
   expect(adminEntryTitles).toContain('Users')
+})
+
+test('super admin navigation shows channels', () => {
+  useAuthStore.getState().auth.setUser({
+    id: 1,
+    username: 'super-admin',
+    role: ROLE.SUPER_ADMIN,
+  })
+
+  const { result } = renderHook(() => useSidebarView(), { wrapper: Wrapper })
+  const adminGroup = result.current.navGroups.find(
+    (group) => group.id === 'admin'
+  )
+
+  expect(adminGroup?.items.map((item) => item.title)).toContain('Channels')
 })
 
 test('personal navigation preserves Security & Access and adds Tools', () => {
