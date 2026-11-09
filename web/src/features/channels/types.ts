@@ -43,6 +43,7 @@ export const channelSchema = z.object({
   status: z.number(), // 1: enabled, 0: manual disabled, 2: auto disabled
   name: z.string(),
   weight: z.number().nullish(),
+  max_concurrency: z.number().nullish(),
   created_time: z.number(),
   test_time: z.number(),
   response_time: z.number(), // in milliseconds
@@ -95,6 +96,7 @@ export interface ChannelSettings {
 }
 
 export interface ChannelOtherSettings {
+  magpie_enabled?: boolean
   azure_responses_version?: string
   vertex_key_type?: 'json' | 'api_key'
   vertex_project_id?: string

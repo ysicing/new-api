@@ -31,8 +31,20 @@ type ModelRequest struct {
 	Group string `json:"group,omitempty"`
 }
 
+func RequireUnfrozenQuota(c *gin.Context) {
+	user, err := model.GetUserCache(common.GetContextKeyInt(c, constant.ContextKeyUserId))
+	if err != nil {
+		abortWithOpenAiMessage(c, http.StatusInternalServerError, i18n.T(c, i18n.MsgDatabaseError))
+		return
+	}
+	if user.QuotaFrozen {
+		abortWithOpenAiMessage(c, http.StatusForbidden, model.QuotaFrozenMessage)
+	}
+}
+
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
+		defer service.ReleaseChannelConcurrency(c)
 		var channel *model.Channel
 		defer func() {
 			if c.Writer.Status() >= 400 {
@@ -49,6 +61,12 @@ func Distribute() func(c *gin.Context) {
 		if err != nil {
 			abortWithOpenAiMessage(c, invalidRequestStatus(err), i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
+		}
+		if userID := c.GetInt("id"); shouldSelectChannel && userID > 0 {
+			RequireUnfrozenQuota(c)
+			if c.IsAborted() {
+				return
+			}
 		}
 		_, pinned, _ := constraints.ResolvedPin()
 		if !pinned {
@@ -130,8 +148,27 @@ func Distribute() func(c *gin.Context) {
 				return
 			}
 		}
+		reserveInitialChannel := channel != nil
+		// MJ 派生操作稍后绑定原任务渠道，不能被此处的临时选路容量阻挡。
+		if strings.Contains(c.Request.URL.Path, "/mj/") {
+			switch c.GetInt("relay_mode") {
+			case relayconstant.RelayModeMidjourneyChange, relayconstant.RelayModeMidjourneySimpleChange, relayconstant.RelayModeMidjourneyAction, relayconstant.RelayModeMidjourneyModal, relayconstant.RelayModeMidjourneyVideo:
+				reserveInitialChannel = false
+			}
+		}
+		if reserveInitialChannel {
+			var capacityErr *types.NewAPIError
+			channel, capacityErr = service.ReserveChannelForRequest(c, channel)
+			if capacityErr != nil {
+				abortWithOpenAiMessage(c, capacityErr.StatusCode, capacityErr.Error(), capacityErr.GetErrorCode())
+				return
+			}
+		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
-		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
+		if setupErr := SetupContextForSelectedChannel(c, channel, modelRequest.Model); setupErr != nil && channel != nil {
+			abortWithOpenAiMessage(c, setupErr.StatusCode, setupErr.Error(), setupErr.GetErrorCode())
+			return
+		}
 		c.Next()
 		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest {
 			service.RecordChannelAffinity(c, channel.Id)

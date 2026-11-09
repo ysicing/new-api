@@ -13,6 +13,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -209,7 +210,11 @@ func handleTTSWebSocketResponse(c *gin.Context, requestURL string, volcRequest V
 	header := http.Header{}
 	header.Set("Authorization", fmt.Sprintf("Bearer;%s", token))
 
-	conn, resp, dialErr := websocket.DefaultDialer.DialContext(context.Background(), requestURL, header)
+	parent := context.Background()
+	if leaseCtx := service.ChannelConcurrencyContext(c); leaseCtx != nil {
+		parent = leaseCtx
+	}
+	conn, resp, dialErr := websocket.DefaultDialer.DialContext(parent, requestURL, header)
 	if dialErr != nil {
 		if resp != nil {
 			return nil, types.NewErrorWithStatusCode(
@@ -225,6 +230,8 @@ func handleTTSWebSocketResponse(c *gin.Context, requestURL string, volcRequest V
 		)
 	}
 	defer conn.Close()
+	stopClose := context.AfterFunc(parent, func() { _ = conn.Close() })
+	defer stopClose()
 
 	payload, marshalErr := json.Marshal(volcRequest)
 	if marshalErr != nil {

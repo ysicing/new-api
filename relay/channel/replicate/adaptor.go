@@ -478,6 +478,9 @@ func uploadFileFromForm(c *gin.Context, info *relaycommon.RelayInfo, fieldCandid
 	req.Header.Set("Content-Type", formContentType)
 	req.Header.Set("Authorization", "Bearer "+info.ApiKey)
 
+	if leaseCtx := service.ChannelConcurrencyContext(c); leaseCtx != nil {
+		req = req.WithContext(leaseCtx)
+	}
 	resp, err := service.GetHttpClient().Do(req)
 	if err != nil {
 		return "", fmt.Errorf("replicate adaptor: upload image failed: %w", err)

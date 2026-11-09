@@ -50,6 +50,13 @@ func TestUpdateChannelStatusPersistsMultiKeyState(t *testing.T) {
 	assert.Equal(t, "provider rejected key", stored.ChannelInfo.MultiKeyDisabledReason[0])
 	assert.NotZero(t, stored.ChannelInfo.MultiKeyDisabledTime[0])
 	assert.Equal(t, 1, stored.ChannelInfo.MultiKeyPollingIndex)
+
+	require.True(t, UpdateChannelStatusAutomatically(channel.Id, "key-a", common.ChannelStatusEnabled, "provider recovered"))
+	stored = Channel{}
+	require.NoError(t, DB.First(&stored, channel.Id).Error)
+	assert.Equal(t, common.ChannelStatusEnabled, stored.Status)
+	assert.NotContains(t, stored.ChannelInfo.MultiKeyStatusList, 0)
+	assert.Equal(t, 1, stored.ChannelInfo.MultiKeyPollingIndex)
 }
 
 func TestSaveStatusStateFromSingleKeySnapshotPreservesUnownedColumns(t *testing.T) {
@@ -100,6 +107,28 @@ func TestSaveStatusStateFromSingleKeySnapshotPreservesUnownedColumns(t *testing.
 	otherInfo := stored.GetOtherInfo()
 	assert.Equal(t, "manual operation", otherInfo["status_reason"])
 	assert.Equal(t, float64(1234), otherInfo["status_time"])
+}
+
+func TestChannelConcurrencyUpdateCanRestoreUnlimited(t *testing.T) {
+	setupChannelStatusTest(t)
+	channel := Channel{Name: "concurrency", Type: constant.ChannelTypeOpenAI, Key: "test-key", Models: "chat-model", Group: "default", MaxConcurrency: common.GetPointer(3)}
+	require.NoError(t, DB.Create(&channel).Error)
+	patch := Channel{Id: channel.Id, Name: "renamed-with-limit"}
+	require.NoError(t, patch.Update())
+	require.NotNil(t, patch.MaxConcurrency)
+	assert.Equal(t, 3, *patch.MaxConcurrency)
+	patch = Channel{Id: channel.Id, MaxConcurrency: common.GetPointer(0)}
+	require.NoError(t, patch.Update())
+	stored, err := GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	require.NotNil(t, stored.MaxConcurrency)
+	assert.Zero(t, *stored.MaxConcurrency)
+	patch = Channel{Id: channel.Id, Name: "renamed"}
+	require.NoError(t, patch.Update())
+	stored, err = GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	require.NotNil(t, stored.MaxConcurrency)
+	assert.Zero(t, *stored.MaxConcurrency)
 }
 
 func TestAutoDisableKeepsManualDisable(t *testing.T) {
