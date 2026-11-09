@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -33,6 +34,8 @@ var completionRatioMetaOptionKeys = []string{
 	"AudioRatio",
 	"AudioCompletionRatio",
 }
+
+var syncAnnouncementGroupNotifications = service.SyncAnnouncementGroupNotifications
 
 func isPaymentComplianceOptionKey(key string) bool {
 	return strings.HasPrefix(key, "payment_setting.compliance_")
@@ -93,7 +96,8 @@ func GetOptions(c *gin.Context) {
 			strings.HasSuffix(k, "Secret") ||
 			strings.HasSuffix(k, "Key") ||
 			strings.HasSuffix(k, "secret") ||
-			strings.HasSuffix(k, "api_key")
+			strings.HasSuffix(k, "api_key") ||
+			strings.Contains(strings.ToLower(k), "password")
 		if isSensitiveKey {
 			continue
 		}
@@ -189,6 +193,17 @@ func UpdateOption(c *gin.Context) {
 		common.ApiErrorStatus(c, http.StatusBadRequest, common.NewMessage("Invalid parameters"))
 		return
 	}
+	if c.GetBool("use_access_token") && (strings.HasPrefix(option.Key, "ldap.") ||
+		strings.HasPrefix(option.Key, "dingtalk.") ||
+		strings.HasPrefix(option.Key, "auto_recharge_setting.") ||
+		option.Key == "QuotaPoolEnabled") {
+		common.ApiErrorStatus(c, http.StatusForbidden, common.NewMessage("a dashboard login session is required"), gin.H{"code": "AUTH_SESSION_REQUIRED"})
+		return
+	}
+	previousAnnouncements := ""
+	if option.Key == "console_setting.announcements" {
+		previousAnnouncements = console_setting.GetConsoleSetting().Announcements
+	}
 	switch option.Value.(type) {
 	case bool:
 		option.Value = common.Interface2String(option.Value.(bool))
@@ -218,6 +233,13 @@ func UpdateOption(c *gin.Context) {
 		}
 	}
 	switch option.Key {
+	case "auto_recharge_setting.enabled", "auto_recharge_setting.interval",
+		"auto_recharge_setting.threshold", "auto_recharge_setting.amount",
+		"auto_recharge_setting.weekly_limit", "auto_recharge_setting.monthly_limit":
+		if err := operation_setting.GetAutoRechargeSetting().ValidateOption(option.Key, option.Value.(string)); err != nil {
+			common.ApiErrorStatus(c, http.StatusBadRequest, common.NewMessage("Invalid automatic recharge configuration"))
+			return
+		}
 	case "GitHubOAuthEnabled":
 		if option.Value == "true" && common.GitHubClientId == "" {
 			common.ApiErrorT(c, "Cannot enable {{provider}}. Enter the {{provider}} Client ID and Client Secret first.", map[string]any{"provider": "GitHub OAuth"})
@@ -228,10 +250,33 @@ func UpdateOption(c *gin.Context) {
 			common.ApiErrorT(c, "Cannot enable {{provider}}. Enter the {{provider}} Client ID and Client Secret first.", map[string]any{"provider": "Discord OAuth"})
 			return
 		}
+	case "dingtalk.enabled":
+		dingTalk := system_setting.GetDingTalkSettings()
+		if option.Value == "true" && (strings.TrimSpace(dingTalk.CorpId) == "" || strings.TrimSpace(dingTalk.ClientId) == "" || strings.TrimSpace(dingTalk.ClientSecret) == "") {
+			common.ApiErrorT(c, "Cannot enable DingTalk login. Enter the Corp ID, Client ID and Client Secret first.")
+			return
+		}
 	case "oidc.enabled":
 		if option.Value == "true" && system_setting.GetOIDCSettings().ClientId == "" {
 			common.ApiErrorT(c, "Cannot enable {{provider}}. Enter the {{provider}} Client ID and Client Secret first.", map[string]any{"provider": "OIDC"})
 			return
+		}
+	case "ldap.enabled":
+		ldap := system_setting.GetLDAPSettings()
+		if option.Value == "true" && (strings.TrimSpace(ldap.URL) == "" || strings.TrimSpace(ldap.BaseDN) == "" || strings.TrimSpace(ldap.UID) == "") {
+			common.ApiErrorT(c, "Cannot enable LDAP login. Configure the LDAP URL, Base DN and user attribute first.")
+			return
+		}
+	case "QuotaPoolEnabled":
+		if common.QuotaPoolEnabled && option.Value != "true" {
+			common.ApiErrorT(c, "Quota pools cannot be disabled once enabled")
+			return
+		}
+		if option.Value == "true" {
+			if err := model.SyncSystemQuotaPools(); err != nil {
+				common.ApiError(c, err)
+				return
+			}
 		}
 	case "LinuxDOOAuthEnabled":
 		if option.Value == "true" && common.LinuxDOClientId == "" {
@@ -424,6 +469,11 @@ func UpdateOption(c *gin.Context) {
 			common.ApiError(c, err)
 		}
 		return
+	}
+	if option.Key == "console_setting.announcements" {
+		if syncErr := syncAnnouncementGroupNotifications(previousAnnouncements, option.Value.(string), c.GetInt("id"), c.GetString("username"), time.Now()); syncErr != nil {
+			common.SysError("sync announcement group notifications: " + syncErr.Error())
+		}
 	}
 	// 出于安全考虑只记录被修改的配置项名称，不记录配置值（可能含密钥等敏感信息）。
 	recordManageAudit(c, "option.update", map[string]any{
