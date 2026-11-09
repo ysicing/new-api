@@ -41,10 +41,30 @@ func MigrateRetiredFrontendOptions() error {
 			migrationErrors = append(migrationErrors, err)
 		}
 	}
+	if err := normalizeAnnouncementOptionIDs(); err != nil {
+		migrationErrors = append(migrationErrors, err)
+	}
 	if err := migrateLegacyUptimeOptions(); err != nil {
 		migrationErrors = append(migrationErrors, err)
 	}
 	return errors.Join(migrationErrors...)
+}
+
+func normalizeAnnouncementOptionIDs() error {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var option Option
+		if err := tx.Where(&Option{Key: "console_setting.announcements"}).First(&option).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+		normalized, err := transformLegacyAnnouncements(option.Value)
+		if err != nil || normalized == option.Value {
+			return err
+		}
+		return tx.Model(&option).Update("value", normalized).Error
+	})
 }
 
 func normalizeRetiredThemeOption() error {
@@ -128,10 +148,39 @@ func transformLegacyAnnouncements(value string) (string, error) {
 	if strings.TrimSpace(value) == "" {
 		return "", errors.New("value is empty")
 	}
-	if err := console_setting.ValidateConsoleSettings(value, "Announcements"); err != nil {
+	var items []map[string]any
+	if err := common.UnmarshalJsonStr(value, &items); err != nil {
 		return "", err
 	}
-	return value, nil
+	usedIDs := make(map[int64]struct{}, len(items))
+	for _, item := range items {
+		if rawID, ok := item["id"].(float64); ok && rawID > 0 {
+			usedIDs[int64(rawID)] = struct{}{}
+		}
+	}
+	nextID := int64(1)
+	for i := range items {
+		if _, exists := items[i]["id"]; !exists {
+			for {
+				if _, used := usedIDs[nextID]; !used {
+					break
+				}
+				nextID++
+			}
+			items[i]["id"] = nextID
+			usedIDs[nextID] = struct{}{}
+			nextID++
+		}
+	}
+	encoded, err := common.Marshal(items)
+	if err != nil {
+		return "", err
+	}
+	result := string(encoded)
+	if err := console_setting.ValidateConsoleSettings(result, "Announcements"); err != nil {
+		return "", err
+	}
+	return result, nil
 }
 
 func transformLegacyFAQ(value string) (string, error) {
