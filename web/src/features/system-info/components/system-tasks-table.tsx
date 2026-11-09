@@ -16,10 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 
 import { StaticDataTable } from '@/components/data-table'
 import { Badge } from '@/components/ui/badge'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import { Progress } from '@/components/ui/progress'
 import {
   TableBody,
@@ -33,7 +39,11 @@ import type {
   SystemTaskStatus,
 } from '@/features/system-settings/types'
 import { toIntlLocale } from '@/i18n/languages'
-import { formatTimestampRelative, formatTimestampToDate } from '@/lib/format'
+import {
+  formatNumber,
+  formatTimestampRelative,
+  formatTimestampToDate,
+} from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { SYSTEM_TASK_TYPE_LABEL } from '../constants'
@@ -79,15 +89,317 @@ function getProgress(task: SystemTask): number | null {
   return Math.min(100, Math.max(0, progress))
 }
 
+const MAGPIE_COUNTER_LABELS: Record<string, string> = {
+  checked: 'Channels checked: {{count}}',
+  skipped: 'Channel probes deferred: {{count}}',
+  enabled: 'Channels enabled: {{count}}',
+  disabled: 'Channels disabled: {{count}}',
+  unchanged: 'Channels unchanged: {{count}}',
+  failed: 'Channel checks failed: {{count}}',
+  notification_failed: 'Notifications failed: {{count}}',
+}
+
+const MAGPIE_ACTION_LABELS: Record<string, string> = {
+  cached: 'Waiting for the next availability check',
+  enabled: 'Automatically enabled',
+  disabled: 'Automatically disabled',
+  unchanged: 'Channel status preserved',
+  query_failed: 'Availability query failed',
+  update_failed: 'Channel status update failed',
+}
+
+const AUTO_RECHARGE_SKIP_GROUPS = [
+  {
+    keys: ['quota_above_threshold'],
+    label: 'Balance above threshold: {{count}}',
+  },
+  {
+    keys: ['weekly_limited'],
+    label: 'Weekly limit reached: {{count}}',
+  },
+  {
+    keys: ['monthly_limited'],
+    label: 'Monthly limit reached: {{count}}',
+  },
+  {
+    keys: [
+      'quota_pool_not_found',
+      'new_user_pool_disabled',
+      'quota_pool_disabled',
+    ],
+    label: 'Quota pool unavailable: {{count}}',
+  },
+  {
+    keys: ['quota_pool_insufficient'],
+    label: 'Quota pool insufficient: {{count}}',
+  },
+  {
+    keys: ['disabled', 'amount_not_configured'],
+    label: 'Recharge configuration disabled: {{count}}',
+  },
+  {
+    keys: ['invalid_configuration'],
+    label: 'Invalid automatic recharge configuration',
+  },
+  {
+    keys: ['wallet_quota_limit'],
+    label: 'Wallet quota limit exceeded',
+  },
+  {
+    keys: ['user_disabled'],
+    label: 'The user account is disabled.',
+  },
+  {
+    keys: ['weekly_count_failed', 'monthly_count_failed', 'recharge_failed'],
+    label: 'Recharge check failed: {{count}}',
+  },
+] as const
+
+type TaskDetail = {
+  summary: string
+  reasons?: string
+  channels?: {
+    channelID: number
+    channelName: string
+    available?: boolean
+    action: string
+    error?: string
+    diagnostics?: { key: string; message: string }[]
+    notificationError?: string
+    nextCheckAt?: string
+  }[]
+}
+
+function translateTaskMessage(
+  value: unknown,
+  t: TFunction
+): string | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const message = value as Record<string, unknown>
+  if (typeof message.key !== 'string' || !message.key.trim()) return undefined
+  const params =
+    message.params &&
+    typeof message.params === 'object' &&
+    !Array.isArray(message.params)
+      ? (message.params as Record<string, unknown>)
+      : undefined
+  return t(message.key, params)
+}
+
+// Renders a succeeded task's main counters separately from skip reasons so
+// scheduled maintenance details stay readable in a table row.
+function useTaskDetail() {
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  return (task: SystemTask): TaskDetail | null => {
+    const result = task.result as Record<string, unknown> | undefined
+    if (
+      task.type === 'magpie_channel_monitor' &&
+      (task.status === 'succeeded' || task.status === 'failed') &&
+      result
+    ) {
+      const parts: string[] = []
+      for (const [key, label] of Object.entries(MAGPIE_COUNTER_LABELS)) {
+        if (typeof result[key] === 'number') {
+          parts.push(t(label, { count: result[key] }))
+        }
+      }
+      // 旧任务仅保存 changed，不能补造当时的渠道查询详情。
+      if (parts.length === 0 && typeof result.changed === 'number') {
+        parts.push(t('Channels changed: {{count}}', { count: result.changed }))
+      }
+      const channels: NonNullable<TaskDetail['channels']> = []
+      if (Array.isArray(result.channels)) {
+        for (const value of result.channels) {
+          if (!value || typeof value !== 'object') continue
+          const entry = value as Record<string, unknown>
+          if (
+            typeof entry.channel_id !== 'number' ||
+            typeof entry.channel_name !== 'string' ||
+            typeof entry.action !== 'string'
+          ) {
+            continue
+          }
+          channels.push({
+            channelID: entry.channel_id,
+            channelName: entry.channel_name,
+            action: entry.action,
+            available:
+              typeof entry.available === 'boolean'
+                ? entry.available
+                : undefined,
+            error:
+              translateTaskMessage(entry.error_message, t) ??
+              (typeof entry.error === 'string' ? entry.error : undefined),
+            diagnostics: Array.isArray(entry.diagnostics)
+              ? entry.diagnostics.flatMap((value) => {
+                  const message = translateTaskMessage(value, t)
+                  return message
+                    ? [{ key: JSON.stringify(value), message }]
+                    : []
+                })
+              : undefined,
+            notificationError:
+              translateTaskMessage(entry.notification_error_message, t) ??
+              (typeof entry.notification_error === 'string'
+                ? entry.notification_error
+                : undefined),
+            nextCheckAt:
+              typeof entry.next_check_at === 'string' &&
+              Number.isFinite(Date.parse(entry.next_check_at))
+                ? new Date(entry.next_check_at).toLocaleString(
+                    toIntlLocale(i18n.language)
+                  )
+                : undefined,
+          })
+        }
+      }
+      return {
+        summary: task.error || parts.join(' · ') || '-',
+        reasons: task.error && parts.length > 0 ? parts.join(' · ') : undefined,
+        channels,
+      }
+    }
+    if (task.error) return { summary: task.error }
+    if (task.status !== 'succeeded' || !result) return null
+    const summaryParts: string[] = []
+    const reasonParts: string[] = []
+    if (typeof result.monthly_refilled === 'number') {
+      summaryParts.push(
+        t('Pools refilled: {{count}}', { count: result.monthly_refilled })
+      )
+    }
+    const usersRecharged =
+      typeof result.users_recharged === 'number' ? result.users_recharged : null
+    const usersSkipped =
+      typeof result.users_skipped === 'number' ? result.users_skipped : null
+    let usersChecked: number | null = null
+    if (typeof result.users_checked === 'number') {
+      usersChecked = result.users_checked
+    } else if (usersRecharged != null && usersSkipped != null) {
+      usersChecked = usersRecharged + usersSkipped
+    }
+    if (usersChecked != null) {
+      summaryParts.push(t('Users checked: {{count}}', { count: usersChecked }))
+    }
+    if (usersRecharged != null) {
+      summaryParts.push(
+        t('Users recharged: {{count}}', { count: usersRecharged })
+      )
+    }
+    if (usersSkipped != null) {
+      summaryParts.push(
+        t('Users not eligible: {{count}}', { count: usersSkipped })
+      )
+    }
+    const skipReasons = result.skip_reasons
+    if (
+      skipReasons &&
+      typeof skipReasons === 'object' &&
+      !Array.isArray(skipReasons)
+    ) {
+      const reasonCounts = skipReasons as Record<string, unknown>
+      for (const group of AUTO_RECHARGE_SKIP_GROUPS) {
+        const count = group.keys.reduce((total, key) => {
+          const value = reasonCounts[key]
+          return total + (typeof value === 'number' ? value : 0)
+        }, 0)
+        if (count <= 0) continue
+        const label = t(group.label, { count })
+        reasonParts.push(
+          group.label.includes('{{count}}')
+            ? label
+            : `${label} (${formatNumber(count, locale)})`
+        )
+      }
+    }
+    if (typeof result.deleted_count === 'number') {
+      summaryParts.push(
+        t('Rows deleted: {{count}}', { count: result.deleted_count })
+      )
+    }
+    if (summaryParts.length === 0) return null
+    return {
+      summary: summaryParts.join(' · '),
+      reasons: reasonParts.length > 0 ? reasonParts.join(' · ') : undefined,
+    }
+  }
+}
+
+function TaskDetailContent({ detail }: { detail: TaskDetail | null }) {
+  const { t } = useTranslation()
+  if (!detail) return '-'
+  return (
+    <div className='space-y-0.5'>
+      <div>{detail.summary}</div>
+      {detail.reasons ? (
+        <div className='text-muted-foreground/80'>{detail.reasons}</div>
+      ) : null}
+      {detail.channels && detail.channels.length > 0 ? (
+        <Collapsible>
+          <CollapsibleTrigger className='text-foreground cursor-pointer text-xs underline underline-offset-4'>
+            {t('Channel results')}
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <ul className='mt-2 max-h-64 space-y-2 overflow-y-auto'>
+              {detail.channels.map((channel) => (
+                <li key={channel.channelID} className='break-words'>
+                  <div className='text-foreground font-medium'>
+                    {channel.channelName} (#{channel.channelID})
+                  </div>
+                  <div>
+                    {t(MAGPIE_ACTION_LABELS[channel.action] ?? channel.action)}
+                    {channel.available === true
+                      ? ` · ${t('Codex accounts available')}`
+                      : null}
+                    {channel.available === false
+                      ? ` · ${t('No available Codex accounts')}`
+                      : null}
+                  </div>
+                  {channel.error ? (
+                    <div className='text-destructive'>{channel.error}</div>
+                  ) : null}
+                  {channel.diagnostics?.length ? (
+                    <ul className='list-inside list-disc'>
+                      {channel.diagnostics.map((diagnostic) => (
+                        <li key={diagnostic.key}>{diagnostic.message}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {channel.nextCheckAt ? (
+                    <div>
+                      {t('Next availability check no earlier than: {{time}}', {
+                        time: channel.nextCheckAt,
+                      })}
+                    </div>
+                  ) : null}
+                  {channel.notificationError ? (
+                    <div className='text-destructive'>
+                      {t('Notification failed: {{error}}', {
+                        error: channel.notificationError,
+                      })}
+                    </div>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </CollapsibleContent>
+        </Collapsible>
+      ) : null}
+    </div>
+  )
+}
+
 type SystemTasksTableProps = {
   tasks: SystemTask[]
 }
 
 export function SystemTasksTable(props: SystemTasksTableProps) {
   const { t, i18n } = useTranslation()
+  const taskDetail = useTaskDetail()
 
   return (
-    <StaticDataTable tableClassName='min-w-[900px]'>
+    <StaticDataTable tableClassName='min-w-[1200px]'>
       <TableHeader>
         <TableRow className='bg-muted/40 hover:bg-muted/40'>
           <TableHead className='h-9 w-[260px] px-4 text-xs'>
@@ -97,13 +409,13 @@ export function SystemTasksTable(props: SystemTasksTableProps) {
           <TableHead className='h-9 w-[180px] text-xs'>
             {t('Progress')}
           </TableHead>
-          <TableHead className='h-9 min-w-[260px] text-xs'>
+          <TableHead className='h-9 w-[220px] text-xs'>
             {t('Executor')}
           </TableHead>
           <TableHead className='h-9 w-[190px] text-xs'>
             {t('Updated')}
           </TableHead>
-          <TableHead className='h-9 w-[220px] pr-4 text-xs'>
+          <TableHead className='h-9 min-w-[480px] pr-4 text-xs'>
             {t('Detail')}
           </TableHead>
         </TableRow>
@@ -111,6 +423,7 @@ export function SystemTasksTable(props: SystemTasksTableProps) {
       <TableBody>
         {props.tasks.map((task) => {
           const progress = getProgress(task)
+          const detail = taskDetail(task)
           return (
             <TableRow key={task.task_id} className='hover:bg-muted/30'>
               <TableCell className='px-4 py-3 align-middle'>
@@ -163,10 +476,21 @@ export function SystemTasksTable(props: SystemTasksTableProps) {
                 )}
               </TableCell>
               <TableCell
-                className='text-destructive max-w-[220px] truncate py-3 pr-4 align-middle text-xs'
-                title={task.error || undefined}
+                className={cn(
+                  'min-w-[480px] whitespace-normal py-3 pr-4 align-middle text-xs leading-relaxed',
+                  task.status === 'failed'
+                    ? 'text-destructive'
+                    : 'text-muted-foreground'
+                )}
+                title={
+                  detail
+                    ? [detail.summary, detail.reasons]
+                        .filter(Boolean)
+                        .join(' · ')
+                    : undefined
+                }
               >
-                {task.error || '-'}
+                <TaskDetailContent detail={detail} />
               </TableCell>
             </TableRow>
           )

@@ -16,16 +16,24 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ListChecks, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { ErrorState } from '@/components/error-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { listSystemTasks } from '@/features/system-settings/api'
-import { createServerError } from '@/lib/server-error-message'
+import {
+  listSystemTasks,
+  startMagpieMonitorTask,
+} from '@/features/system-settings/api'
+import { handleServerError } from '@/lib/handle-server-error'
+import {
+  createServerError,
+  requireServerSuccess,
+} from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
 import { SystemTaskHistory } from './system-task-history'
@@ -35,6 +43,7 @@ const ACTIVE_POLL_INTERVAL_MS = 8000
 
 export function SystemTasksPanel() {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const tasksQuery = useQuery({
     queryKey: ['system-info', 'system-tasks', 'active'],
     queryFn: async () => {
@@ -54,6 +63,20 @@ export function SystemTasksPanel() {
   const loading = tasksQuery.isLoading
   const refreshing = tasksQuery.isFetching && !loading
   const hasActiveTasks = activeTasks.length > 0
+  const magpieTaskActive = activeTasks.some(
+    (task) => task.type === 'magpie_channel_monitor'
+  )
+  const magpieCheck = useMutation({
+    mutationFn: async () =>
+      requireServerSuccess(await startMagpieMonitorTask()),
+    onError: (error) => handleServerError(error),
+    onSuccess: async () => {
+      toast.success(t('Magpie check queued'))
+      await queryClient.invalidateQueries({
+        queryKey: ['system-info', 'system-tasks'],
+      })
+    },
+  })
 
   return (
     <section className='bg-card overflow-hidden rounded-lg border shadow-xs'>
@@ -74,6 +97,15 @@ export function SystemTasksPanel() {
           </div>
         </div>
         <div className='flex shrink-0 items-center gap-3'>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            onClick={() => magpieCheck.mutate()}
+            disabled={magpieCheck.isPending || magpieTaskActive}
+          >
+            {magpieCheck.isPending ? t('Submitting...') : t('Check Magpie now')}
+          </Button>
           <span
             className='text-muted-foreground inline-flex items-center gap-1.5 text-xs'
             aria-live='polite'
