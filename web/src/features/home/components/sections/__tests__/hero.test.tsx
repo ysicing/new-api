@@ -12,7 +12,9 @@ import { expect, test, vi } from 'vitest'
 
 import { Hero } from '../hero'
 
-const status = vi.hoisted(() => ({ self_use_mode_enabled: true }))
+const status = vi.hoisted(() => ({
+  self_use_mode_enabled: undefined as boolean | undefined,
+}))
 
 vi.mock('@/hooks/use-status', () => ({
   useStatus: () => ({ status }),
@@ -33,12 +35,32 @@ vi.mock('../../hero-terminal-demo', () => ({
 }))
 
 test.each([
-  { isAuthenticated: false, primaryAction: 'Get Started' },
-  { isAuthenticated: true, primaryAction: 'Go to Dashboard' },
+  { selfUseMode: true, isAuthenticated: false, primaryAction: 'Get Started' },
+  { selfUseMode: false, isAuthenticated: false, primaryAction: 'Get Started' },
+  {
+    selfUseMode: undefined,
+    isAuthenticated: false,
+    primaryAction: 'Get Started',
+  },
+  {
+    selfUseMode: true,
+    isAuthenticated: true,
+    primaryAction: 'Go to Dashboard',
+  },
+  {
+    selfUseMode: false,
+    isAuthenticated: true,
+    primaryAction: 'Go to Dashboard',
+  },
+  {
+    selfUseMode: undefined,
+    isAuthenticated: true,
+    primaryAction: 'Go to Dashboard',
+  },
 ])(
-  'hero does not show Docs when authenticated is $isAuthenticated',
-  ({ isAuthenticated, primaryAction }) => {
-    status.self_use_mode_enabled = true
+  'hero hides Docs with self-use mode $selfUseMode and authentication $isAuthenticated',
+  ({ selfUseMode, isAuthenticated, primaryAction }) => {
+    status.self_use_mode_enabled = selfUseMode
     render(<Hero isAuthenticated={isAuthenticated} />)
 
     expect(
@@ -49,12 +71,3 @@ test.each([
     ).not.toBeInTheDocument()
   }
 )
-
-test('ordinary mode preserves the upstream documentation link', () => {
-  status.self_use_mode_enabled = false
-  render(<Hero />)
-  expect(screen.getByRole('button', { name: 'Docs' })).toHaveAttribute(
-    'href',
-    'https://docs.newapi.pro'
-  )
-})
