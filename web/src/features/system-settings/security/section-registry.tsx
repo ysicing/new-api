@@ -40,7 +40,6 @@ const SECURITY_SECTIONS = [
       />
     ),
   },
-
   {
     id: 'ssrf',
     titleKey: 'SSRF Protection',

@@ -69,7 +69,7 @@ func setupManageUserTestDB(t *testing.T) *gorm.DB {
 			}
 		}
 	})
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.CasbinRule{}, &model.AuthzRole{}, &model.AuthFlow{}, &model.TwoFA{}, &model.PasskeyCredential{}, &model.UserAccessToken{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.CasbinRule{}, &model.AuthzRole{}, &model.AuthFlow{}, &model.TwoFA{}, &model.PasskeyCredential{}, &model.UserAccessToken{}, &model.QuotaPool{}, &model.QuotaPoolAdmin{}, &model.QuotaPoolTransaction{}))
 	require.NoError(t, logDB.AutoMigrate(&model.Log{}, &model.AuditLog{}))
 	versionQuery := "SELECT version()"
 	if dialect == "sqlite" {
@@ -113,7 +113,13 @@ func performVerifiedManageUserRequest(t *testing.T, body string, identity servic
 // bound to one ManageUser operation.
 func manageUserProof(t *testing.T, db *gorm.DB, operation service.VerificationOperation) (service.AuthIdentity, string) {
 	t.Helper()
-	operator := createQuotaTestOperator(t, db, common.RoleRootUser)
+	var operator model.User
+	err := db.First(&operator, 9999).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		operator = createQuotaTestOperator(t, db, common.RoleRootUser)
+	} else {
+		require.NoError(t, err)
+	}
 	require.NoError(t, model.PublishUserAuthCache(operator.Id))
 	bundle, err := service.CreateLoginSession(operator.Id, "password", "127.0.0.1", "manage-user-test")
 	require.NoError(t, err)
@@ -152,6 +158,127 @@ func TestManageUserDisableAdvancesAuthVersionOnceAndRevokesSession(t *testing.T)
 	var session model.UserSession
 	require.NoError(t, db.First(&session, "sid = ?", "managed-disable-session").Error)
 	assert.Equal(t, model.UserSessionStatusRevoked, session.Status)
+}
+
+func TestManageUserQuotaPoolRoleChangesRequireScopedSingleUseProof(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	require.NoError(t, authz.Init(db))
+	user := model.User{
+		Username: "pool-role-user", Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, AuthVersion: 1, AffCode: "pool-role-aff",
+	}
+	require.NoError(t, db.Create(&user).Error)
+	for _, operation := range []struct {
+		action string
+		role   int
+	}{
+		{"set_quota_pool_super_admin", common.RoleQuotaPoolSuperAdmin},
+		{"unset_quota_pool_super_admin", common.RoleCommonUser},
+	} {
+		body := fmt.Sprintf(`{"id":%d,"action":%q}`, user.Id, operation.action)
+		beforeRole, beforeVersion := user.Role, user.AuthVersion
+		identity, proof := manageUserProof(t, db, service.VerificationOperation{
+			Scope:   service.VerificationScopeAdminUserManage,
+			Context: []byte(fmt.Sprintf(`{"user_id":%d,"action":%q}`, user.Id, operation.action)),
+		})
+		response := performVerifiedManageUserRequest(t, body, identity, "")
+		assert.NotContains(t, response.Body.String(), `"success":true`)
+		require.NoError(t, db.First(&user, user.Id).Error)
+		assert.Equal(t, beforeRole, user.Role)
+		response = performVerifiedManageUserRequest(t, body, identity, proof)
+		require.Contains(t, response.Body.String(), `"success":true`)
+		require.NoError(t, db.First(&user, user.Id).Error)
+		assert.Equal(t, operation.role, user.Role)
+		assert.Equal(t, beforeVersion+1, user.AuthVersion)
+		response = performVerifiedManageUserRequest(t, body, identity, proof)
+		assert.NotContains(t, response.Body.String(), `"success":true`)
+		require.NoError(t, db.First(&user, user.Id).Error)
+		assert.Equal(t, beforeVersion+1, user.AuthVersion)
+	}
+}
+
+func TestManageUserDemoteCannotBypassQuotaPoolRoleRevocation(t *testing.T) {
+	for _, role := range []int{common.RoleAdminUser, common.RoleRootUser} {
+		t.Run(fmt.Sprint(role), func(t *testing.T) {
+			operator, identity, target := setupAdminUserTest(t)
+			require.NoError(t, model.DB.Model(operator).Update("role", role).Error)
+			require.NoError(t, model.PublishUserAuthCache(operator.Id))
+			require.NoError(t, model.DB.Model(target).Update("role", common.RoleQuotaPoolSuperAdmin).Error)
+			proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{
+				Scope:   service.VerificationScopeAdminUserManage,
+				Context: []byte(fmt.Sprintf(`{"user_id":%d,"action":"demote"}`, target.Id)),
+			}, service.VerificationMethodPassword)
+
+			response := adminUserRequest(http.MethodPost, "/api/user/manage",
+				fmt.Sprintf(`{"id":%d,"action":"demote"}`, target.Id), proof, identity, role, nil, ManageUser)
+			assert.NotContains(t, response.Body.String(), `"success":true`)
+			stored, err := model.GetUserById(target.Id, false)
+			require.NoError(t, err)
+			assert.Equal(t, common.RoleQuotaPoolSuperAdmin, stored.Role)
+			assert.Equal(t, target.AuthVersion, stored.AuthVersion)
+		})
+	}
+}
+
+func TestManageUserFreezeQuotaPreservesSessionAndRequiresMatchingProof(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	user := model.User{
+		Username: "frozen-quota-user", Role: common.RoleCommonUser, Quota: 100,
+		Status: common.UserStatusEnabled, AuthVersion: 1, AffCode: "freeze-quota-aff",
+	}
+	require.NoError(t, db.Create(&user).Error)
+	bundle, err := service.CreateLoginSession(user.Id, "ldap", "127.0.0.1", "freeze-test")
+	require.NoError(t, err)
+	userIdentity, err := service.ParseAccessToken(bundle.AccessToken)
+	require.NoError(t, err)
+	identity, proof := manageUserProof(t, db, service.VerificationOperation{
+		Scope:   service.VerificationScopeAdminUserManage,
+		Context: []byte(fmt.Sprintf(`{"user_id":%d,"action":"freeze_quota"}`, user.Id)),
+	})
+	response := performVerifiedManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"unfreeze_quota"}`, user.Id), identity, proof)
+	assert.NotContains(t, response.Body.String(), `"success":true`)
+	response = performVerifiedManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"freeze_quota"}`, user.Id), identity, proof)
+	require.Contains(t, response.Body.String(), `"success":true`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.True(t, user.QuotaFrozen)
+	assert.Equal(t, common.UserStatusEnabled, user.Status)
+	assert.EqualValues(t, 1, user.AuthVersion)
+	_, _, err = service.ValidateLoginSession(userIdentity)
+	require.NoError(t, err)
+	response = performVerifiedManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"freeze_quota"}`, user.Id), identity, proof)
+	assert.NotContains(t, response.Body.String(), `"success":true`)
+	for _, action := range []string{"add_quota", "recharge_auto"} {
+		response = performManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":%q,"mode":"add","value":10}`, user.Id, action))
+		assert.Contains(t, response.Body.String(), `"success":false`)
+	}
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, 100, user.Quota)
+}
+
+func TestDirectQuotaAdjustmentEnforcesPoolFundingPermissions(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	previousEnabled := common.QuotaPoolEnabled
+	common.QuotaPoolEnabled = true
+	t.Cleanup(func() { common.QuotaPoolEnabled = previousEnabled })
+	pool := model.QuotaPool{Name: "managed-quota-pool", PoolType: model.QuotaPoolTypeNormal, Enabled: true, Quota: 500}
+	require.NoError(t, db.Create(&pool).Error)
+	user := model.User{Username: "managed-pool-member", Role: common.RoleCommonUser, Quota: 100, QuotaPoolId: pool.Id, AffCode: "managed-pool-aff"}
+	require.NoError(t, db.Create(&user).Error)
+
+	for _, mode := range []string{"add", "subtract", "override"} {
+		_, err := model.AdjustUserQuota(user.Id, common.RoleRootUser, mode, 10)
+		assert.ErrorIs(t, err, model.ErrQuotaPoolPermissionDenied)
+	}
+	require.NoError(t, db.Model(&pool).Update("enabled", false).Error)
+	_, err := model.AdjustUserQuota(user.Id, common.RoleAdminUser, "add", 10)
+	assert.ErrorIs(t, err, model.ErrUserQuotaPermission)
+	adjustment, err := model.AdjustUserQuota(user.Id, common.RoleRootUser, "add", 10)
+	require.NoError(t, err)
+	assert.Equal(t, 110, adjustment.After)
+	require.NoError(t, db.First(&pool, pool.Id).Error)
+	assert.Equal(t, 500, pool.Quota)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, 110, user.Quota)
 }
 
 func TestManageUserDemoteAdvancesAuthVersionAndRevokesSessionsOnce(t *testing.T) {

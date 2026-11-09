@@ -266,6 +266,44 @@ describe('request policy settings', () => {
     expect(keywords).toHaveValue('unsaved')
   })
 
+  it('loads and saves notification guidance through the active filtering page', async () => {
+    settings.SensitiveWordContactMessage = 'Contact support.'
+    await renderPolicies('/system-settings/request-policies/filtering')
+    const message = await screen.findByRole('textbox', {
+      name: 'False-positive handling message',
+    })
+    expect(message).toHaveValue('Contact support.')
+    fireEvent.change(message, { target: { value: 'Contact the duty team.' } })
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Save sensitive words' })
+    )
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith('/api/option/', {
+        key: 'SensitiveWordContactMessage',
+        value: 'Contact the duty team.',
+      })
+    )
+    expect(api.patch).not.toHaveBeenCalled()
+  })
+
+  it('rejects oversized notification guidance before saving filtering settings', async () => {
+    await renderPolicies('/system-settings/request-policies/filtering')
+    fireEvent.change(
+      await screen.findByRole('textbox', {
+        name: 'False-positive handling message',
+      }),
+      { target: { value: '界'.repeat(501) } }
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Save sensitive words' })
+    )
+    expect(
+      await screen.findByText('Message must be 500 characters or fewer')
+    ).toBeVisible()
+    expect(api.patch).not.toHaveBeenCalled()
+    expect(api.put).not.toHaveBeenCalled()
+  })
+
   it('invalid retry status ranges show validation and do not write options', async () => {
     await renderPolicies('/system-settings/request-policies/retry')
     const codes = await screen.findByRole('textbox', {

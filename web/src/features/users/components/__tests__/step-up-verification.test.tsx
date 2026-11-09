@@ -24,7 +24,9 @@ import { useEffect } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
+import { USER_ROLE } from '../../constants'
 import type { User } from '../../types'
 import { DataTableRowActions } from '../data-table-row-actions'
 import { UsersDeleteDialog } from '../users-delete-dialog'
@@ -41,6 +43,7 @@ const target: User = {
   request_count: 0,
   group: 'default',
 }
+const originalAuth = useAuthStore.getState().auth
 
 function mockVerification(scope: string, proofToken: string) {
   vi.spyOn(api, 'get').mockImplementation(async (url) => {
@@ -105,6 +108,7 @@ async function completeTwoFactorVerification() {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  useAuthStore.setState({ auth: originalAuth })
 })
 
 it('deleting a user sends the request only with a single-use proof for that user', async () => {
@@ -159,42 +163,91 @@ it('cancelling verification leaves the user untouched and returns to the confirm
   expect(del).not.toHaveBeenCalled()
 })
 
-it('disabling a user from the row menu binds the proof to the user and action', async () => {
-  const proof = mockVerification('admin.user.manage', 'manage-proof')
-  const post = vi.spyOn(api, 'post').mockImplementation(async (url) => {
-    if (url === '/api/verify') return proof
-    if (url === '/api/user/manage') return { data: { success: true } }
-    throw new Error(`Unexpected POST ${url}`)
+it.each([
+  { action: 'disable', label: 'Disable', targetUser: target },
+  { action: 'freeze_quota', label: 'Freeze quota', targetUser: target },
+  {
+    action: 'unfreeze_quota',
+    label: 'Unfreeze quota',
+    targetUser: { ...target, quota_frozen: true },
+  },
+  {
+    action: 'set_quota_pool_super_admin',
+    label: 'Set Pool Super Admin',
+    targetUser: target,
+  },
+  {
+    action: 'unset_quota_pool_super_admin',
+    label: 'Remove Pool Super Admin',
+    targetUser: { ...target, role: USER_ROLE.QUOTA_POOL_SUPER_ADMIN },
+  },
+])(
+  '$action binds the proof to the user and action',
+  async ({ action, label, targetUser }) => {
+    useAuthStore.getState().auth.setUser({
+      id: 1,
+      username: 'root',
+      role: USER_ROLE.ROOT,
+    })
+    const proof = mockVerification('admin.user.manage', 'manage-proof')
+    const post = vi.spyOn(api, 'post').mockImplementation(async (url) => {
+      if (url === '/api/verify') return proof
+      if (url === '/api/user/manage') return { data: { success: true } }
+      throw new Error(`Unexpected POST ${url}`)
+    })
+    renderInProvider(
+      <DataTableRowActions row={{ original: targetUser } as Row<User>} />
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Open menu' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: label }))
+    expect(post).not.toHaveBeenCalledWith(
+      '/api/user/manage',
+      expect.anything(),
+      expect.anything()
+    )
+    await completeTwoFactorVerification()
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        '/api/user/manage',
+        { id: 2, action },
+        expect.objectContaining({
+          headers: { 'X-Security-Proof': 'manage-proof' },
+          singleUseAuthorization: true,
+        })
+      )
+    )
+    expect(post).toHaveBeenCalledWith(
+      '/api/verify',
+      expect.objectContaining({
+        scope: 'admin.user.manage',
+        context: { user_id: 2, action },
+      }),
+      expect.anything()
+    )
+  }
+)
+
+it('recharging uses the existing non-step-up management contract', async () => {
+  const post = vi.spyOn(api, 'post').mockResolvedValue({
+    data: { success: true },
   })
   renderInProvider(
     <DataTableRowActions row={{ original: target } as Row<User>} />
   )
   await userEvent.click(screen.getByRole('button', { name: 'Open menu' }))
   await userEvent.click(
-    await screen.findByRole('menuitem', { name: 'Disable' })
+    await screen.findByRole('menuitem', { name: 'Recharge' })
   )
-  expect(post).not.toHaveBeenCalledWith(
-    '/api/user/manage',
-    expect.anything(),
-    expect.anything()
-  )
-  await completeTwoFactorVerification()
   await waitFor(() =>
     expect(post).toHaveBeenCalledWith(
       '/api/user/manage',
-      { id: 2, action: 'disable' },
-      expect.objectContaining({
-        headers: { 'X-Security-Proof': 'manage-proof' },
-        singleUseAuthorization: true,
-      })
+      { id: 2, action: 'recharge_auto' },
+      {}
     )
   )
-  expect(post).toHaveBeenCalledWith(
+  expect(post).not.toHaveBeenCalledWith(
     '/api/verify',
-    expect.objectContaining({
-      scope: 'admin.user.manage',
-      context: { user_id: 2, action: 'disable' },
-    }),
+    expect.anything(),
     expect.anything()
   )
 })

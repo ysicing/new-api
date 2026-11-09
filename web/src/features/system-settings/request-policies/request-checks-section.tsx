@@ -45,15 +45,23 @@ import {
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
+import { useUpdateOption } from '../hooks/use-update-option'
 import { useSavePolicy } from './use-save-policy'
 
-const sensitiveSchema = z.object({
-  CheckSensitiveEnabled: z.boolean(),
-  CheckSensitiveOnPromptEnabled: z.boolean(),
-  SensitiveWords: z.string().optional(),
-})
+const createSensitiveSchema = (t: (key: string) => string) =>
+  z.object({
+    CheckSensitiveEnabled: z.boolean(),
+    CheckSensitiveOnPromptEnabled: z.boolean(),
+    SensitiveWords: z.string().optional(),
+    SensitiveWordContactMessage: z
+      .string()
+      .refine((value) => [...value.trim()].length <= 500, {
+        error: t('Message must be 500 characters or fewer'),
+      })
+      .optional(),
+  })
 
-type SensitiveFormValues = z.infer<typeof sensitiveSchema>
+type SensitiveFormValues = z.infer<ReturnType<typeof createSensitiveSchema>>
 
 type RequestChecksSectionProps = {
   defaultValues: SensitiveFormValues
@@ -64,8 +72,9 @@ export function RequestChecksSection({
 }: RequestChecksSectionProps) {
   const { t } = useTranslation()
   const updateOption = useSavePolicy()
+  const updateContactMessage = useUpdateOption()
   const form = useForm<SensitiveFormValues>({
-    resolver: zodResolver(sensitiveSchema),
+    resolver: zodResolver(createSensitiveSchema(t)),
     defaultValues,
   })
 
@@ -76,6 +85,7 @@ export function RequestChecksSection({
   const onSubmit = async (values: SensitiveFormValues) => {
     const updates = Object.entries(values).filter(
       ([key, value]) =>
+        key !== 'SensitiveWordContactMessage' &&
         value !== defaultValues[key as keyof SensitiveFormValues]
     )
 
@@ -86,6 +96,15 @@ export function RequestChecksSection({
             updates.map(([key, value]) => [key, String(value ?? '')])
           )
         )
+      }
+      if (
+        values.SensitiveWordContactMessage !==
+        defaultValues.SensitiveWordContactMessage
+      ) {
+        await updateContactMessage.mutateAsync({
+          key: 'SensitiveWordContactMessage',
+          value: values.SensitiveWordContactMessage ?? '',
+        })
       }
     } catch (error) {
       handleServerError(error)
@@ -190,6 +209,31 @@ export function RequestChecksSection({
                 <FormDescription>
                   {t(
                     'Each line represents one keyword. Leave blank to disable the list but keep the switch states.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='SensitiveWordContactMessage'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('False-positive handling message')}</FormLabel>
+                <FormControl>
+                  <Textarea
+                    rows={3}
+                    placeholder={t(
+                      'Example: If this is a false positive, contact Zhang San on DingTalk.'
+                    )}
+                    {...field}
+                    value={field.value ?? ''}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Shown in DingTalk notifications when users need help resolving a sensitive-word review. Leave blank to omit contact instructions. Maximum 500 characters.'
                   )}
                 </FormDescription>
                 <FormMessage />

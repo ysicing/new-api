@@ -48,6 +48,7 @@ const (
 	MsgRelayRetryGetChannelFailed        = "relay.retry_get_channel_failed"
 	MsgRelayRetryNoAvailableChannel      = "relay.retry_no_available_channel"
 	MsgRelayAccessTokenUnsupported       = "relay.access_token_unsupported"
+	MsgRelaySensitiveWordsDetected       = "relay.sensitive_words_detected"
 )
 
 // Emails and the name of the token created at registration, in the
@@ -88,11 +89,39 @@ const (
 
 // Low-quota notices, in the recipient's saved language
 const (
-	MsgNotifyQuotaLowTitle             = "notify.quota_low_title"
-	MsgNotifySubscriptionQuotaLowTitle = "notify.subscription_quota_low_title"
-	MsgNotifyQuotaLowBark              = "notify.quota_low_bark"
-	MsgNotifyQuotaLowGotify            = "notify.quota_low_gotify"
-	MsgNotifyQuotaLowEmail             = "notify.quota_low_email"
+	MsgNotifyQuotaLowTitle                = "notify.quota_low_title"
+	MsgNotifySubscriptionQuotaLowTitle    = "notify.subscription_quota_low_title"
+	MsgNotifyQuotaLowBark                 = "notify.quota_low_bark"
+	MsgNotifyQuotaLowGotify               = "notify.quota_low_gotify"
+	MsgNotifyQuotaLowEmail                = "notify.quota_low_email"
+	MsgNotifyNewUserQuotaExhaustedTitle   = "notify.new_user_quota_exhausted_title"
+	MsgNotifyNewUserQuotaExhaustedContent = "notify.new_user_quota_exhausted_content"
+	MsgNotifySensitiveWordTitle           = "notify.sensitive_word_title"
+	MsgNotifySensitiveWordIntro           = "notify.sensitive_word_intro"
+	MsgNotifySensitiveWordGuidance        = "notify.sensitive_word_guidance"
+	MsgNotifyViewUsageLogs                = "notify.view_usage_logs"
+	MsgNotifyPolicyViolationTitle         = "notify.policy_violation_title"
+	MsgNotifyPolicyViolationContent       = "notify.policy_violation_content"
+	MsgNotifyUserRegisteredTitle          = "notify.user_registered_title"
+	MsgNotifyUserRegisteredContent        = "notify.user_registered_content"
+	MsgNotifyQuotaPoolJoinedTitle         = "notify.quota_pool_joined_title"
+	MsgNotifyQuotaPoolJoinedContent       = "notify.quota_pool_joined_content"
+	MsgNotifyDingTalkTestTitle            = "notify.dingtalk_test_title"
+	MsgNotifyDingTalkTestContent          = "notify.dingtalk_test_content"
+	MsgNotifyAnnouncementTitle            = "notify.announcement_title"
+	MsgNotifyAnnouncementTestTitle        = "notify.announcement_test_title"
+	MsgNotifyAnnouncementTestContent      = "notify.announcement_test_content"
+	MsgNotifyAnnouncementPublishTime      = "notify.announcement_publish_time"
+	MsgNotifyMagpieChannelDisabledTitle   = "notify.magpie_channel_disabled_title"
+	MsgNotifyMagpieChannelDisabledContent = "notify.magpie_channel_disabled_content"
+	MsgNotifyMagpieChannelEnabledTitle    = "notify.magpie_channel_enabled_title"
+	MsgNotifyMagpieChannelEnabledContent  = "notify.magpie_channel_enabled_content"
+	MsgNotifyMagpieQuotaEmpty             = "notify.magpie_quota_empty"
+	MsgNotifyMagpieQuotaUnlimited         = "notify.magpie_quota_unlimited"
+	MsgNotifyMagpieQuotaUnknown           = "notify.magpie_quota_unknown"
+	MsgNotifyMagpieQuotaRange             = "notify.magpie_quota_range"
+	MsgNotifyMagpieQuotaSeparator         = "notify.magpie_quota_separator"
+	MsgNotifyMagpieBeijingTime            = "notify.magpie_beijing_time"
 )
 
 // Channel notices sent to administrators who receive them and to model update
