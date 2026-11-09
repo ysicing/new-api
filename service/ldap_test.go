@@ -1,7 +1,10 @@
 package service
 
 import (
+	"crypto/tls"
 	"errors"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	ergoldap "github.com/ergoapi/ldap"
 	"github.com/glebarez/sqlite"
+	ber "github.com/go-asn1-ber/asn1-ber"
 	goldap "github.com/go-ldap/ldap/v3"
 	mysqlDriver "github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/assert"
@@ -173,22 +177,125 @@ func TestLDAPCandidateExpiresAndCannotExtendItsSignature(t *testing.T) {
 	assert.ErrorIs(t, err, ErrLDAPCandidateInvalid)
 }
 
-func TestLDAPConfigurationRejectsUntrustedTLSAndInvalidFilters(t *testing.T) {
+func TestLDAPDirectoryPreservesLegacyTransport(t *testing.T) {
+	previousTimeout := goldap.DefaultTimeout
+	t.Cleanup(func() { goldap.DefaultTimeout = previousTimeout })
+	for _, scenario := range []struct {
+		name, prefix string
+		encrypted    bool
+	}{
+		{name: "ldap", prefix: "ldap://"},
+		{name: "hostname"},
+		{name: "ldaps", prefix: "ldaps://", encrypted: true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			if scenario.encrypted {
+				certificateServer := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+				listener = tls.NewListener(listener, certificateServer.TLS.Clone())
+				certificateServer.Close()
+			}
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				for {
+					connection, err := listener.Accept()
+					if errors.Is(err, net.ErrClosed) {
+						return
+					}
+					if !assert.NoError(t, err) {
+						return
+					}
+					serveLDAPTestConnection(t, connection)
+				}
+			}()
+			t.Cleanup(func() {
+				assert.NoError(t, listener.Close())
+				<-done
+			})
+			config := ergoldap.LdapConf{
+				LdapURL:    scenario.prefix + strings.Replace(listener.Addr().String(), "127.0.0.1:", "localhost:", 1),
+				LdapBaseDn: "ou=users,dc=example,dc=com",
+				LdapUID:    "uid", LdapScope: 3, LdapConnectionTimeout: 2,
+			}
+			result, err := ldapRequest(config, "alice", "directory-secret")
+			require.NoError(t, err)
+			require.Len(t, result.Entries, 1)
+			assert.Equal(t, "alice", result.Entries[0].GetAttributeValue("uid"))
+			users := ldapSearch(config, "ali")
+			require.Len(t, users, 1)
+			assert.Equal(t, "alice", users[0].Username)
+			assert.Equal(t, "alice@example.com", users[0].Email)
+			_, err = ldapRequest(config, "alice", "incorrect-password")
+			require.Error(t, err)
+		})
+	}
+}
+
+func serveLDAPTestConnection(t *testing.T, connection net.Conn) {
+	t.Helper()
+	defer connection.Close()
+	if !assert.NoError(t, connection.SetDeadline(time.Now().Add(5*time.Second))) {
+		return
+	}
+	for {
+		request, err := ber.ReadPacket(connection)
+		if errors.Is(err, io.EOF) {
+			return
+		}
+		if !assert.NoError(t, err) || !assert.Len(t, request.Children, 2) {
+			return
+		}
+		operation := request.Children[1]
+		responseTag, resultCode := ber.Tag(goldap.ApplicationExtendedResponse), int64(goldap.LDAPResultProtocolError)
+		switch operation.Tag {
+		case goldap.ApplicationUnbindRequest:
+			return
+		case goldap.ApplicationBindRequest:
+			responseTag, resultCode = goldap.ApplicationBindResponse, goldap.LDAPResultInvalidCredentials
+			if operation.Children[2].Data.String() == "directory-secret" {
+				resultCode = goldap.LDAPResultSuccess
+			}
+		case goldap.ApplicationSearchRequest:
+			entry := ber.Encode(ber.ClassApplication, ber.TypeConstructed, goldap.ApplicationSearchResultEntry, nil, "")
+			entry.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "uid=alice,ou=users,dc=example,dc=com", ""))
+			attributes := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "")
+			for _, attribute := range []struct{ name, value string }{{"uid", "alice"}, {"mail", "alice@example.com"}} {
+				encoded := ber.NewSequence("")
+				encoded.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, attribute.name, ""))
+				values := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSet, nil, "")
+				values.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, attribute.value, ""))
+				encoded.AppendChild(values)
+				attributes.AppendChild(encoded)
+			}
+			entry.AppendChild(attributes)
+			response := ber.NewSequence("")
+			response.AppendChild(request.Children[0])
+			response.AppendChild(entry)
+			if _, err := connection.Write(response.Bytes()); !assert.NoError(t, err) {
+				return
+			}
+			responseTag, resultCode = goldap.ApplicationSearchResultDone, goldap.LDAPResultSuccess
+		}
+		result := ber.Encode(ber.ClassApplication, ber.TypeConstructed, responseTag, nil, "")
+		result.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, resultCode, ""))
+		result.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", ""))
+		result.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", ""))
+		response := ber.NewSequence("")
+		response.AppendChild(request.Children[0])
+		response.AppendChild(result)
+		if _, err := connection.Write(response.Bytes()); !assert.NoError(t, err) {
+			return
+		}
+	}
+}
+
+func TestLDAPConfigurationRejectsInvalidFilters(t *testing.T) {
 	setupLDAPTest(t)
-	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Error("untrusted LDAP endpoint must not receive application requests")
-	}))
-	t.Cleanup(server.Close)
-	config, err := buildLDAPConfig()
-	require.NoError(t, err)
-	config.LdapURL = strings.Replace(server.URL, "https://", "ldaps://", 1)
-	connection, err := connectLDAP(config)
-	require.Error(t, err)
-	assert.Nil(t, connection)
-	assert.Contains(t, err.Error(), "x509")
 	settings := system_setting.GetLDAPSettings()
 	settings.UID = "uid)(objectClass=*"
-	_, err = buildLDAPConfig()
+	_, err := buildLDAPConfig()
 	require.Error(t, err)
 	settings.UID = "uid"
 	settings.Filter = "(objectClass="

@@ -1,12 +1,8 @@
 package service
 
 import (
-	"crypto/tls"
 	"errors"
-	"net"
-	"net/url"
 	"strings"
-	"time"
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/system_setting"
@@ -39,99 +35,11 @@ type LDAPSyncCandidate struct {
 }
 
 var ldapRequest = func(config ergoldap.LdapConf, username, password string) (*goldap.SearchResult, error) {
-	if username == "" || password == "" {
-		return nil, errors.New("ldap credentials are empty")
-	}
-	connection, err := connectLDAP(config)
-	if err != nil {
-		return nil, err
-	}
-	defer connection.Close()
-	result, err := searchLDAPDirectory(connection, config, username, false)
-	if err != nil {
-		return nil, err
-	}
-	if len(result.Entries) != 1 || result.Entries[0].DN == "" {
-		return nil, errors.New("ldap identity is ambiguous")
-	}
-	if err := connection.Bind(result.Entries[0].DN, password); err != nil {
-		return nil, errors.New("ldap authentication failed")
-	}
-	return result, nil
+	return config.LdapReq(username, password)
 }
 
 var ldapSearch = func(config ergoldap.LdapConf, username string) []ergoldap.LdapUser {
-	connection, err := connectLDAP(config)
-	if err != nil {
-		return nil
-	}
-	defer connection.Close()
-	result, err := searchLDAPDirectory(connection, config, username, true)
-	if err != nil {
-		return nil
-	}
-	users := make([]ergoldap.LdapUser, 0, len(result.Entries))
-	for _, entry := range result.Entries {
-		profile, err := profileFromSearchResult(&goldap.SearchResult{Entries: []*goldap.Entry{entry}}, config.LdapUID, username)
-		if err != nil {
-			return nil
-		}
-		users = append(users, ergoldap.LdapUser{
-			Username: profile.Username, Email: profile.Email, DisplayName: profile.DisplayName, Department: profile.Department, DN: entry.DN,
-		})
-	}
-	return users
-}
-
-// connectLDAP 在发送任何绑定密码前验证服务端证书；ldap:// 必须成功升级 StartTLS。
-func connectLDAP(config ergoldap.LdapConf) (*goldap.Conn, error) {
-	address := config.LdapURL
-	if !strings.Contains(address, "://") {
-		address = "ldap://" + address
-	}
-	parsed, err := url.Parse(address)
-	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "ldap" && parsed.Scheme != "ldaps") || parsed.User != nil {
-		return nil, errors.New("ldap URL is invalid")
-	}
-	timeout := time.Duration(config.LdapConnectionTimeout) * time.Second
-	tlsConfig := &tls.Config{ServerName: parsed.Hostname(), MinVersion: tls.VersionTLS12}
-	connection, err := goldap.DialURL(address, goldap.DialWithDialer(&net.Dialer{Timeout: timeout}), goldap.DialWithTLSConfig(tlsConfig))
-	if err != nil {
-		return nil, err
-	}
-	connection.SetTimeout(timeout)
-	if parsed.Scheme == "ldap" {
-		if err := connection.StartTLS(tlsConfig); err != nil {
-			connection.Close()
-			return nil, err
-		}
-	}
-	if config.LdapSearchDn != "" {
-		if config.LdapSearchPassword == "" {
-			connection.Close()
-			return nil, errors.New("ldap search password is empty")
-		}
-		if err := connection.Bind(config.LdapSearchDn, config.LdapSearchPassword); err != nil {
-			connection.Close()
-			return nil, errors.New("ldap search authentication failed")
-		}
-	}
-	return connection, nil
-}
-
-func searchLDAPDirectory(connection *goldap.Conn, config ergoldap.LdapConf, username string, prefix bool) (*goldap.SearchResult, error) {
-	identifier := goldap.EscapeFilter(username)
-	if prefix {
-		identifier += "*"
-	}
-	filter := "(" + config.LdapUID + "=" + identifier + ")"
-	if config.LdapFilter != "" {
-		filter = "(&" + config.LdapFilter + filter + ")"
-	}
-	return connection.Search(goldap.NewSearchRequest(
-		config.LdapBaseDn, config.LdapScope-1, goldap.NeverDerefAliases, 1000, config.LdapConnectionTimeout, false, filter,
-		[]string{config.LdapUID, "uid", "cn", "mail", "email", "displayName", "department"}, nil,
-	))
+	return config.Search(username)
 }
 
 func buildLDAPConfig() (ergoldap.LdapConf, error) {
