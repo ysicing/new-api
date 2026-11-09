@@ -154,13 +154,15 @@ func verifyQuotaPoolOperationLogHistory(t *testing.T, logDB *gorm.DB) {
 
 	items, total, err := ListQuotaPoolOperationLogs(7, &common.PageInfo{Page: 1, PageSize: 10}, "")
 	require.NoError(t, err)
-	assert.EqualValues(t, 4, total)
-	require.Len(t, items, 4)
-	assert.Equal(t, "member-recharge", items[0].RequestId)
+	assert.EqualValues(t, 5, total)
+	require.Len(t, items, 5)
+	assert.Equal(t, "root-recharge", items[0].RequestId)
 	assert.Equal(t, LogTypeTopup, items[0].Type)
 	assert.NotEmpty(t, items[0].EventId)
 	assert.Negative(t, items[0].Id)
-	assert.Equal(t, common.RoleQuotaPoolSuperAdmin, items[1].ActorRole)
+	assert.Equal(t, common.RoleRootUser, items[0].ActorRole)
+	assert.Equal(t, "member-recharge", items[1].RequestId)
+	assert.Equal(t, common.RoleQuotaPoolSuperAdmin, items[2].ActorRole)
 	for _, item := range items {
 		var other map[string]any
 		require.NoError(t, common.UnmarshalJsonStr(item.Other, &other))
@@ -170,9 +172,9 @@ func verifyQuotaPoolOperationLogHistory(t *testing.T, logDB *gorm.DB) {
 	}
 	items, total, err = ListQuotaPoolOperationLogs(7, &common.PageInfo{Page: 2, PageSize: 1}, "")
 	require.NoError(t, err)
-	assert.EqualValues(t, 4, total)
+	assert.EqualValues(t, 5, total)
 	require.Len(t, items, 1)
-	assert.Equal(t, "role-two", items[0].RequestId)
+	assert.Equal(t, "member-recharge", items[0].RequestId)
 	items, total, err = ListQuotaPoolOperationLogs(7, &common.PageInfo{Page: 1, PageSize: 10}, "quota_pool.member_add")
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, total)
@@ -185,8 +187,10 @@ func verifyQuotaPoolOperationLogHistory(t *testing.T, logDB *gorm.DB) {
 		hasAdmin bool
 		hasRoot  bool
 	}{
-		{"role_two", QuotaPoolOperationLogView{ViewerRole: common.RoleQuotaPoolSuperAdmin}, 4, false, false},
-		{"admin", QuotaPoolOperationLogView{ViewerRole: common.RoleAdminUser}, 4, true, false},
+		{"pool_manager_self", QuotaPoolOperationLogView{ViewerRole: common.RoleCommonUser, SelfView: true}, 5, false, false},
+		{"role_two", QuotaPoolOperationLogView{ViewerRole: common.RoleQuotaPoolSuperAdmin}, 5, false, false},
+		{"admin", QuotaPoolOperationLogView{ViewerRole: common.RoleAdminUser}, 5, true, false},
+		{"admin_self", QuotaPoolOperationLogView{ViewerRole: common.RoleAdminUser, SelfView: true}, 5, false, false},
 		{"root", QuotaPoolOperationLogView{ViewerRole: common.RoleRootUser}, 6, true, true},
 		{"root_self", QuotaPoolOperationLogView{ViewerRole: common.RoleRootUser, SelfView: true}, 6, false, false},
 	} {
@@ -194,7 +198,19 @@ func verifyQuotaPoolOperationLogHistory(t *testing.T, logDB *gorm.DB) {
 			items, total, err := ListQuotaPoolOperationLogs(7, &common.PageInfo{Page: 1, PageSize: 20}, "", view.options)
 			require.NoError(t, err)
 			assert.Equal(t, view.total, total)
+			require.Len(t, items, int(view.total))
+			var rootRecharges, unknownActors int
 			for _, item := range items {
+				assert.NotEqual(t, "other-pool", item.RequestId)
+				switch item.RequestId {
+				case "root-recharge":
+					rootRecharges++
+					assert.Equal(t, common.RoleRootUser, item.ActorRole)
+					assert.Equal(t, LogTypeTopup, item.Type)
+					assert.NotEmpty(t, item.EventId)
+				case "unknown-role":
+					unknownActors++
+				}
 				if item.EventId == "" {
 					continue
 				}
@@ -206,6 +222,12 @@ func verifyQuotaPoolOperationLogHistory(t *testing.T, logDB *gorm.DB) {
 				assert.Equal(t, view.hasAdmin, hasAdmin)
 				assert.Equal(t, view.hasAdmin, hasAudit)
 				assert.Equal(t, view.hasRoot, hasRoot)
+			}
+			assert.Equal(t, 1, rootRecharges)
+			if view.options.ViewerRole < common.RoleRootUser {
+				assert.Zero(t, unknownActors)
+			} else {
+				assert.Equal(t, 1, unknownActors)
 			}
 		})
 	}

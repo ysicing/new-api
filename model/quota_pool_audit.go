@@ -94,10 +94,10 @@ func ListQuotaPoolOperationLogs(poolId int, page *common.PageInfo, action string
 		audits = audits.Where("action = ?", action)
 	}
 	if view.ViewerRole < common.RoleRootUser {
-		audits = audits.Where("actor_role IN ?", []int{common.RoleCommonUser, common.RoleQuotaPoolSuperAdmin, common.RoleAdminUser})
+		audits = audits.Where("actor_role IN ?", []int{common.RoleCommonUser, common.RoleQuotaPoolSuperAdmin, common.RoleAdminUser, common.RoleRootUser})
 	}
 
-	// 新充值同时写财务日志与审计事件；以审计为准，避免双计数，也防止根用户审计从财务副本绕过角色过滤。
+	// 新充值同时写财务日志与审计事件；以审计为准，避免双计数。
 	duplicateMetadata := "CAST(pool_audit_duplicates.other AS TEXT)"
 	if common.UsingLogDatabase(common.DatabaseTypeMySQL) {
 		duplicateMetadata = "CAST(pool_audit_duplicates.other AS CHAR)"
