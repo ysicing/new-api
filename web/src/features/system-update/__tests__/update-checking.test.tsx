@@ -23,6 +23,12 @@ import {
   type QueryClient,
 } from '@tanstack/react-query'
 import {
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+  RouterProvider,
+} from '@tanstack/react-router'
+import {
   act,
   cleanup,
   render,
@@ -36,6 +42,9 @@ import type { ReactNode } from 'react'
 import { toast } from 'sonner'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
+import { AppHeader } from '@/components/layout/components/app-header'
+import { PublicHeader } from '@/components/layout/components/public-header'
+import { SidebarProvider } from '@/components/ui/sidebar'
 import { UpdateCheckerSection } from '@/features/system-settings/maintenance/update-checker-section'
 import { api } from '@/lib/api'
 import { createAppQueryClient } from '@/lib/query-client'
@@ -106,6 +115,35 @@ afterEach(() => {
 })
 
 describe('administrator update entry', () => {
+  test('omits the update entry from public and console headers for administrators', async () => {
+    client.setQueryData(STATUS_QUERY_KEY, {
+      system_name: 'iCode',
+      version: 'v1.0.0-rc.35',
+    })
+    client.setQueryData(['notice'], { success: true, data: '' })
+    const router = createRouter({
+      routeTree: createRootRoute({
+        component: () => (
+          <>
+            <PublicHeader siteName='iCode' showAuthButtons={false} />
+            <SidebarProvider>
+              <AppHeader rightContent={<span />} />
+            </SidebarProvider>
+          </>
+        ),
+      }),
+      history: createMemoryHistory({ initialEntries: ['/'] }),
+    })
+    await router.load()
+    render(<RouterProvider router={router} />, { wrapper: Wrapper })
+
+    expect(await screen.findByRole('link', { name: 'Go to home' })).toBeVisible()
+    expect(screen.getAllByRole('banner')).toHaveLength(2)
+    expect(
+      screen.queryByRole('button', { name: /System updates, current version/ })
+    ).not.toBeInTheDocument()
+  })
+
   test.each([null, ROLE.USER])(
     'hides the entry and makes no release request for role %s',
     (role) => {
@@ -163,11 +201,9 @@ describe('administrator update entry', () => {
     })
     expect(buttons).toHaveLength(2)
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(within(buttons[0]).getByText('v1.0.0-rc.35')).toHaveClass('truncate')
-    expect(within(buttons[0]).getByText('Update available')).toHaveClass(
-      'hidden',
-      '@min-[22rem]/system-brand:inline-flex'
-    )
+    expect(
+      within(buttons[0]).queryByText('v1.0.0-rc.35')
+    ).not.toBeInTheDocument()
     expect(within(buttons[1]).getByText('Update available')).not.toHaveClass(
       'hidden'
     )
@@ -325,8 +361,10 @@ describe('administrator update entry', () => {
     expect(
       screen.queryByText('This version is ignored')
     ).not.toBeInTheDocument()
+    expect(
+      within(triggers[1]).getByText('Update available')
+    ).toBeInTheDocument()
     for (const trigger of triggers) {
-      expect(within(trigger).getByText('Update available')).toBeInTheDocument()
       expect(
         within(trigger).getByRole('status', { hidden: true })
       ).toHaveTextContent('New version available: v1.0.0-rc.36')
@@ -369,8 +407,8 @@ describe('administrator update entry', () => {
   })
 })
 
-describe('version label presentation', () => {
-  test('keeps the current version visible while checking and after finding no newer version', async () => {
+describe('header update presentation', () => {
+  test('omits the version label while checking and after finding no newer version', async () => {
     let finishRequest: ((response: Response) => void) | undefined
     fetchMock.mockImplementation(
       () =>
@@ -384,7 +422,7 @@ describe('version label presentation', () => {
       name: 'System updates, current version: v1.0.0-rc.36',
     })
     expect(trigger).toHaveAttribute('aria-busy', 'true')
-    expect(within(trigger).getByText(release.tag_name)).toBeInTheDocument()
+    expect(within(trigger).queryByText(release.tag_name)).not.toBeInTheDocument()
     expect(
       within(trigger).queryByText('Check for updates')
     ).not.toBeInTheDocument()
@@ -392,33 +430,35 @@ describe('version label presentation', () => {
       finishRequest?.(new Response(JSON.stringify([release])))
     })
     await waitFor(() => expect(trigger).toHaveAttribute('aria-busy', 'false'))
-    expect(within(trigger).getByText(release.tag_name)).toBeInTheDocument()
+    expect(within(trigger).queryByText(release.tag_name)).not.toBeInTheDocument()
     expect(
       within(trigger).queryByText('Update available')
     ).not.toBeInTheDocument()
   })
 
-  test('shows an unknown-version label when the server has not supplied a version', async () => {
+  test('omits the unknown-version label when the server has not supplied a version', async () => {
     client.setQueryData(STATUS_QUERY_KEY, { version: '' })
     render(<SystemUpdateAction presentation='version' />, { wrapper: Wrapper })
     const trigger = screen.getByRole('button', {
       name: 'System updates, current version: Unknown version',
     })
-    expect(within(trigger).getByText('Unknown version')).toBeInTheDocument()
+    expect(within(trigger).queryByText('Unknown version')).not.toBeInTheDocument()
     await waitFor(() => expect(trigger).toHaveAttribute('aria-busy', 'false'))
     expect(
       within(trigger).queryByText('Update available')
     ).not.toBeInTheDocument()
   })
 
-  test('retains the version after a failed check and exposes the error in its tooltip and details', async () => {
+  test('keeps version and error details accessible after a failed check', async () => {
     const user = userEvent.setup()
     fetchMock.mockResolvedValue(new Response('', { status: 429 }))
     render(<SystemUpdateAction presentation='version' />, { wrapper: Wrapper })
     const trigger = await screen.findByRole('button', {
       name: /System updates, current version: v1\.0\.0-rc\.35.*Failed to check for updates/s,
     })
-    expect(within(trigger).getByText('v1.0.0-rc.35')).toBeInTheDocument()
+    expect(
+      within(trigger).queryByText('v1.0.0-rc.35')
+    ).not.toBeInTheDocument()
     expect(trigger).toHaveAttribute(
       'title',
       expect.stringContaining('Failed to check for updates')
@@ -429,7 +469,7 @@ describe('version label presentation', () => {
     ).toBeInTheDocument()
   })
 
-  test('keeps a long version accessible in the tooltip while constraining its visible label', async () => {
+  test('keeps a long version accessible in the tooltip without displaying a label', async () => {
     const version = 'v1.0.0+long-build-metadata-for-a-custom-deployment'
     client.setQueryData(STATUS_QUERY_KEY, { version })
     render(<SystemUpdateAction presentation='version' />, { wrapper: Wrapper })
@@ -437,12 +477,7 @@ describe('version label presentation', () => {
       name: `System updates, current version: ${version}`,
     })
     expect(trigger).toHaveAttribute('title', expect.stringContaining(version))
-    expect(within(trigger).getByText(version)).toHaveClass(
-      'truncate',
-      'max-w-32',
-      'hidden',
-      '@min-[22rem]/system-brand:inline'
-    )
+    expect(within(trigger).queryByText(version)).not.toBeInTheDocument()
     await waitFor(() => expect(trigger).toHaveAttribute('aria-busy', 'false'))
   })
 })
