@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
@@ -471,7 +472,11 @@ func UpdateOption(c *gin.Context) {
 		return
 	}
 	if option.Key == "console_setting.announcements" {
-		if syncErr := syncAnnouncementGroupNotifications(previousAnnouncements, option.Value.(string), c.GetInt("id"), c.GetString("username"), time.Now()); syncErr != nil {
+		language := i18n.ParseAcceptLanguage(c.GetHeader("Accept-Language"))
+		if language == "" {
+			language = i18n.StatedLang(c)
+		}
+		if syncErr := syncAnnouncementGroupNotifications(previousAnnouncements, option.Value.(string), c.GetInt("id"), c.GetString("username"), language, time.Now()); syncErr != nil {
 			common.SysError("sync announcement group notifications: " + syncErr.Error())
 		}
 	}

@@ -66,12 +66,12 @@ func announcementGroupDedupeKey(id int) string {
 	return fmt.Sprintf("announcement_group:%d", id)
 }
 
-func announcementMarkdownContent(announcement announcementNotification, publishAt time.Time) string {
+func announcementMarkdownContent(announcement announcementNotification, publishAt time.Time, language string) string {
 	parts := []string{stripAnnouncementHTML(announcement.Content)}
 	if extra := stripAnnouncementHTML(announcement.Extra); extra != "" {
 		parts = append(parts, extra)
 	}
-	parts = append(parts, i18n.Translate("", i18n.MsgNotifyAnnouncementPublishTime, map[string]any{"PublishAt": publishAt.Format("2006-01-02 15:04")}))
+	parts = append(parts, i18n.Translate(language, i18n.MsgNotifyAnnouncementPublishTime, map[string]any{"PublishAt": publishAt.Format("2006-01-02 15:04")}))
 	return strings.Join(parts, "\n\n")
 }
 
@@ -145,7 +145,7 @@ func isSafeAnnouncementURL(raw string) bool {
 	return err == nil && parsed.Host != "" && (parsed.Scheme == "http" || parsed.Scheme == "https")
 }
 
-func SyncAnnouncementGroupNotifications(previousRaw, currentRaw string, operatorId int, operatorName string, now time.Time) error {
+func SyncAnnouncementGroupNotifications(previousRaw, currentRaw string, operatorId int, operatorName, language string, now time.Time) error {
 	previous, err := parseAnnouncementNotifications(previousRaw)
 	if err != nil {
 		return err
@@ -166,19 +166,24 @@ func SyncAnnouncementGroupNotifications(previousRaw, currentRaw string, operator
 	conversationID := strings.TrimSpace(settings.AnnouncementGroupOpenConversationId)
 	hasDue := false
 	for id, announcement := range currentById {
+		previousAnnouncement, existed := previousById[id]
+		if existed && previousAnnouncement == announcement {
+			continue
+		}
 		publishAt, err := time.Parse(time.RFC3339, announcement.PublishDate)
 		if err != nil || id <= 0 {
 			continue
 		}
 		// 前端以 UTC 保存 RFC3339 时间；正文统一展示北京时间，调度仍使用原始 Unix 时间戳。
 		displayPublishAt := publishAt.In(common.BeijingTimeLocation)
-		_, existed := previousById[id]
+		title := i18n.Translate(language, i18n.MsgNotifyAnnouncementTitle)
+		content := announcementMarkdownContent(announcement, displayPublishAt, language)
 		if !existed && conversationID == "" {
 			metadata, _ := common.Marshal(map[string]any{"announcement_id": id, "announcement_type": announcement.Type})
 			_, err = model.CreateDingTalkNotification(&model.DingTalkNotification{
 				EventType: model.DingTalkNotificationEventAnnouncementGroup,
 				DedupeKey: announcementGroupDedupeKey(id), UserId: operatorId, Username: operatorName,
-				Title: i18n.Translate("", i18n.MsgNotifyAnnouncementTitle), Content: announcementMarkdownContent(announcement, displayPublishAt),
+				Title: title, Content: content,
 				Status: model.DingTalkNotificationStatusSkipped, Error: "DingTalk announcement group is not configured",
 				ScheduledAt: publishAt.Unix(), Metadata: string(metadata),
 			})
@@ -197,7 +202,7 @@ func SyncAnnouncementGroupNotifications(previousRaw, currentRaw string, operator
 		notification := &model.DingTalkNotification{
 			EventType: model.DingTalkNotificationEventAnnouncementGroup,
 			DedupeKey: announcementGroupDedupeKey(id), UserId: operatorId, Username: operatorName,
-			Recipient: conversationID, Title: i18n.Translate("", i18n.MsgNotifyAnnouncementTitle), Content: announcementMarkdownContent(announcement, displayPublishAt),
+			Recipient: conversationID, Title: title, Content: content,
 			ScheduledAt: publishAt.Unix(), Metadata: string(metadata),
 		}
 		if existed {
