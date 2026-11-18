@@ -44,8 +44,8 @@ func SendDingTalkAnnouncementGroupTestMessage(ctx context.Context) error {
 	if conversationID == "" {
 		return ErrDingTalkGroupNotConfigured
 	}
-	content := i18n.Translate("", i18n.MsgNotifyAnnouncementTestContent, map[string]any{"SentAt": time.Now().In(common.BeijingTimeLocation).Format(time.RFC3339)})
-	if err := sendAnnouncementGroupMessage(ctx, settings, conversationID, i18n.Translate("", i18n.MsgNotifyAnnouncementTestTitle), content); err != nil {
+	content := i18n.Translate(i18n.LangZhCN, i18n.MsgNotifyAnnouncementTestContent, map[string]any{"SentAt": time.Now().In(common.BeijingTimeLocation).Format(time.RFC3339)})
+	if err := sendAnnouncementGroupMessage(ctx, settings, conversationID, i18n.Translate(i18n.LangZhCN, i18n.MsgNotifyAnnouncementTestTitle), content); err != nil {
 		return fmt.Errorf("%w: %v", ErrDingTalkSendFailed, err)
 	}
 	return nil
@@ -66,12 +66,12 @@ func announcementGroupDedupeKey(id int) string {
 	return fmt.Sprintf("announcement_group:%d", id)
 }
 
-func announcementMarkdownContent(announcement announcementNotification, publishAt time.Time, language string) string {
+func announcementMarkdownContent(announcement announcementNotification, publishAt time.Time) string {
 	parts := []string{stripAnnouncementHTML(announcement.Content)}
 	if extra := stripAnnouncementHTML(announcement.Extra); extra != "" {
 		parts = append(parts, extra)
 	}
-	parts = append(parts, i18n.Translate(language, i18n.MsgNotifyAnnouncementPublishTime, map[string]any{"PublishAt": publishAt.Format("2006-01-02 15:04")}))
+	parts = append(parts, i18n.Translate(i18n.LangZhCN, i18n.MsgNotifyAnnouncementPublishTime, map[string]any{"PublishAt": publishAt.Format("2006-01-02 15:04")}))
 	return strings.Join(parts, "\n\n")
 }
 
@@ -145,7 +145,7 @@ func isSafeAnnouncementURL(raw string) bool {
 	return err == nil && parsed.Host != "" && (parsed.Scheme == "http" || parsed.Scheme == "https")
 }
 
-func SyncAnnouncementGroupNotifications(previousRaw, currentRaw string, operatorId int, operatorName, language string, now time.Time) error {
+func SyncAnnouncementGroupNotifications(previousRaw, currentRaw string, operatorId int, operatorName string, now time.Time) error {
 	previous, err := parseAnnouncementNotifications(previousRaw)
 	if err != nil {
 		return err
@@ -176,8 +176,8 @@ func SyncAnnouncementGroupNotifications(previousRaw, currentRaw string, operator
 		}
 		// 前端以 UTC 保存 RFC3339 时间；正文统一展示北京时间，调度仍使用原始 Unix 时间戳。
 		displayPublishAt := publishAt.In(common.BeijingTimeLocation)
-		title := i18n.Translate(language, i18n.MsgNotifyAnnouncementTitle)
-		content := announcementMarkdownContent(announcement, displayPublishAt, language)
+		title := i18n.Translate(i18n.LangZhCN, i18n.MsgNotifyAnnouncementTitle)
+		content := announcementMarkdownContent(announcement, displayPublishAt)
 		if !existed && conversationID == "" {
 			metadata, _ := common.Marshal(map[string]any{"announcement_id": id, "announcement_type": announcement.Type})
 			_, err = model.CreateDingTalkNotification(&model.DingTalkNotification{

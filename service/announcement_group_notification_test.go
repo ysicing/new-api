@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/system_setting"
@@ -32,7 +33,7 @@ func TestSyncAnnouncementGroupNotificationsCreatesUpdatesAndCancelsPending(t *te
 	previous := `[{"id":1,"content":"已有公告","publishDate":"2026-09-01T08:00:00+08:00","type":"default"}]`
 	current := `[{"id":1,"content":"已有公告","publishDate":"2026-09-01T08:00:00+08:00","type":"default"},{"id":2,"content":"**Markdown** <b>HTML</b> <a href=\"https://example.com/docs\">文档</a> <img src=\"https://example.com/a.png\" alt=\"图片\">","extra":"补充说明","publishDate":"2026-09-01T12:00:00+08:00","type":"warning"}]`
 
-	require.NoError(t, SyncAnnouncementGroupNotifications(previous, current, 9, "root", i18n.LangZhTW, now))
+	require.NoError(t, SyncAnnouncementGroupNotifications(previous, current, 9, "root", now))
 	var notificationCount int64
 	require.NoError(t, model.DB.Model(&model.DingTalkNotification{}).Count(&notificationCount).Error)
 	assert.EqualValues(t, 1, notificationCount)
@@ -46,32 +47,36 @@ func TestSyncAnnouncementGroupNotificationsCreatesUpdatesAndCancelsPending(t *te
 	assert.Contains(t, record.Content, "[文档](https://example.com/docs)")
 	assert.Contains(t, record.Content, "![图片](https://example.com/a.png)")
 	assert.Contains(t, record.Content, "补充说明")
-	assert.Equal(t, "系統公告", record.Title)
-	assert.Contains(t, record.Content, "發布時間：2026-09-01 12:00")
+	assert.Equal(t, "系统公告", record.Title)
+	assert.Contains(t, record.Content, "发布时间：2026-09-01 12:00")
 
-	require.NoError(t, SyncAnnouncementGroupNotifications(current, current, 10, "other-admin", i18n.LangEn, now))
+	require.NoError(t, SyncAnnouncementGroupNotifications(current, current, 10, "other-admin", now))
 	require.NoError(t, model.DB.Where("dedupe_key = ?", "announcement_group:2").First(&record).Error)
-	assert.Equal(t, "系統公告", record.Title)
+	assert.Equal(t, "root", record.Username)
 
 	updated := `[{"id":1,"content":"已有公告","publishDate":"2026-09-01T08:00:00+08:00","type":"default"},{"id":2,"content":"修改内容","publishDate":"2026-09-01T13:00:00+08:00","type":"warning"}]`
-	require.NoError(t, SyncAnnouncementGroupNotifications(current, updated, 9, "root", i18n.LangEn, now))
+	require.NoError(t, SyncAnnouncementGroupNotifications(current, updated, 9, "root", now))
 	require.NoError(t, model.DB.Where("dedupe_key = ?", "announcement_group:2").First(&record).Error)
-	assert.Equal(t, "System announcement", record.Title)
-	assert.Equal(t, "修改内容\n\nPublished at: 2026-09-01 13:00", record.Content)
+	assert.Equal(t, "系统公告", record.Title)
+	assert.Equal(t, "修改内容\n\n发布时间：2026-09-01 13:00", record.Content)
 
-	require.NoError(t, SyncAnnouncementGroupNotifications(updated, previous, 9, "root", "", now))
+	require.NoError(t, SyncAnnouncementGroupNotifications(updated, previous, 9, "root", now))
 	require.NoError(t, model.DB.Where("dedupe_key = ?", "announcement_group:2").First(&record).Error)
 	assert.Equal(t, model.DingTalkNotificationStatusSkipped, record.Status)
 }
 
 func TestSyncAnnouncementGroupNotificationsFormatsPublishTimeInBeijing(t *testing.T) {
 	setupAnnouncementGroupNotificationTest(t)
+	previousLanguage := common.DefaultLanguage
+	common.DefaultLanguage = i18n.LangEn
+	t.Cleanup(func() { common.DefaultLanguage = previousLanguage })
 	now := time.Date(2026, time.September, 1, 6, 0, 0, 0, time.UTC)
 	current := `[{"id":1,"content":"UTC 时间公告","publishDate":"2026-09-01T05:00:00Z","type":"default"}]`
 
-	require.NoError(t, SyncAnnouncementGroupNotifications("", current, 9, "root", i18n.LangZhCN, now))
+	require.NoError(t, SyncAnnouncementGroupNotifications("", current, 9, "root", now))
 	var record model.DingTalkNotification
 	require.NoError(t, model.DB.Where("dedupe_key = ?", "announcement_group:1").First(&record).Error)
+	assert.Equal(t, "系统公告", record.Title)
 	assert.Equal(t, "UTC 时间公告\n\n发布时间：2026-09-01 13:00", record.Content)
 }
 

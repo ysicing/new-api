@@ -16,9 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import i18next from 'i18next'
-
-import { toIntlLocale } from '@/i18n/languages'
 import { api } from '@/lib/api'
 
 import type {
@@ -45,15 +42,7 @@ export async function getSystemOptions() {
 }
 
 export async function updateSystemOption(request: UpdateOptionRequest) {
-  const language =
-    request.key === 'console_setting.announcements'
-      ? toIntlLocale(i18next.resolvedLanguage || i18next.language)
-      : undefined
-  const res = await api.put<UpdateOptionResponse>(
-    '/api/option/',
-    request,
-    language ? { headers: { 'Accept-Language': language } } : undefined
-  )
+  const res = await api.put<UpdateOptionResponse>('/api/option/', request)
   return res.data
 }
 

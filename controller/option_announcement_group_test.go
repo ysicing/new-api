@@ -8,10 +8,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -29,13 +26,12 @@ func TestUpdateOptionSynchronizesAnnouncementGroupNotificationsAfterSave(t *test
 	common.OptionMap = map[string]string{"console_setting.announcements": oldValue}
 	previousSync := syncAnnouncementGroupNotifications
 	called := false
-	syncAnnouncementGroupNotifications = func(previous, current string, operatorId int, operatorName, language string, _ time.Time) error {
+	syncAnnouncementGroupNotifications = func(previous, current string, operatorId int, operatorName string, _ time.Time) error {
 		called = true
 		assert.Equal(t, oldValue, previous)
 		assert.Equal(t, newValue, current)
 		assert.Equal(t, 9, operatorId)
 		assert.Equal(t, "root", operatorName)
-		assert.Equal(t, i18n.LangZhCN, language)
 		return nil
 	}
 	t.Cleanup(func() {
@@ -46,8 +42,6 @@ func TestUpdateOptionSynchronizesAnnouncementGroupNotificationsAfterSave(t *test
 	recorder := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(recorder)
 	context.Request = httptest.NewRequest(http.MethodPut, "/api/option/", strings.NewReader(`{"key":"console_setting.announcements","value":`+strconvQuote(newValue)+`}`))
-	context.Request.Header.Set("Accept-Language", "zh-CN")
-	common.SetContextKey(context, constant.ContextKeyUserSetting, dto.UserSetting{Language: "en"})
 	context.Set("id", 9)
 	context.Set("username", "root")
 
